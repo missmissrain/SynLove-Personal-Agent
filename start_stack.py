@@ -23,6 +23,9 @@ import urllib.request
 from pathlib import Path
 
 import yaml
+from services.ServiceRegistry import ServiceRegistry
+from services.StartupState import StartupState
+from services.StartupServices import StartupServices
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -212,8 +215,9 @@ def load_console_env(env: dict[str, str]) -> list[str]:
 
 def apply_environment(config: dict, env: dict[str, str]) -> None:
     """把 JSON 中的**地址**注入子进程环境；密钥走托管凭据文件，不再进环境变量。"""
-    from services.ServiceRegistry import ServiceRegistry
-    ServiceRegistry().apply_environment(env)
+    registry = ServiceRegistry()
+    registry.apply_model_config(config)
+    registry.apply_environment(env)
     for provider in config.get("providers", {}).values():
         base_env = provider.get("baseURLEnv")
         if base_env and provider.get("baseURL") and not env.get(base_env):
@@ -228,7 +232,6 @@ def apply_environment(config: dict, env: dict[str, str]) -> None:
     env["DSH_DEFAULT_PROVIDER"] = default.get("provider", "")
     env["DSH_DEFAULT_MODEL"] = default.get("model", "")
     env["DSH_STACK_ROOT"] = str(PROJECT_ROOT)
-    env["DSH_PERSONA_FILE"] = str(PROJECT_ROOT / "prompts" / "XinAi.md")
     # QQ 官方机器人通道（可选）：有凭据才注入，profile patch 里那行按 QQ_BOT_APP_ID 决定是否挂载。
     qq = config.get("qq") or {}
     if qq.get("appId") and qq.get("clientSecret"):
@@ -375,6 +378,11 @@ def ensure_opencode_server(env: dict[str, str]) -> str:
     脱离 server 时 `opencode run -s <会话>`（含 --fork）会无限阻塞、不返回；
     经 server（--attach）后同样的续会话调用约 15 秒返回。这里开机即拉起，避免模型踩坑。
     """
+    cfg = ServiceRegistry().get_service("opencode")
+    if cfg["management"] != "managed":
+        return cfg["management"]
+    global OPENCODE_SERVER_PORT
+    OPENCODE_SERVER_PORT = cfg["port"]
     if opencode_server_reachable():
         return "already_running"
     if not OPENCODE_BIN.is_file():
@@ -439,13 +447,12 @@ def ensure_gemma_server(env: dict[str, str]) -> str:
     只有当默认模型（或任一 provider）指向 127.0.0.1:GEMMA_SERVER_PORT 时才拉起，
     避免用云端模型时白白吃显存。首次加载模型要几十秒，这里最多等 180 秒。
     """
-    from services.ServiceRegistry import ServiceRegistry
+    global GEMMA_SERVER_PORT
     registry = ServiceRegistry()
     cfg = registry.get_service("llm")
     registry.apply_environment(env)
     if cfg["management"] == "external":
         return "external"
-    global GEMMA_SERVER_PORT
     GEMMA_SERVER_PORT = cfg["port"]
     config = load_model_config()
     registry.apply_model_config(config)
@@ -627,42 +634,51 @@ def process_alive(pid: int) -> bool:
         return False
 
 
+_STACK_HANDLE = None
+
+
 def acquire_lock() -> bool:
-    """拿启动锁：同一时刻只允许一个 start_stack 在跑（锁里记 pid，死的自动接管）。"""
+    """无参数；持有操作系统文件锁至启动结束，关闭“先读 PID 再写入”的并发窗口。"""
+    global _STACK_HANDLE
     LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
-    if LOCK_FILE.exists():
-        try:
-            owner = int((LOCK_FILE.read_text(encoding="utf-8") or "0").strip() or 0)
-        except (OSError, ValueError):
-            owner = 0
-        if owner and owner != os.getpid() and process_alive(owner):
-            print(f"stack_lock=held(pid={owner})，本次不重复启动")
-            return False
-    LOCK_FILE.write_text(str(os.getpid()), encoding="utf-8")
+    handle = LOCK_FILE.open("a+b")
+    try:
+        if os.name == "nt":
+            import msvcrt
+            if os.fstat(handle.fileno()).st_size == 0:
+                handle.write(b"0")
+                handle.flush()
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        handle.seek(0)
+        handle.truncate()
+        handle.write(str(os.getpid()).encode("ascii"))
+        handle.flush()
+    except OSError:
+        handle.close()
+        print("stack_lock=held，本次不重复启动")
+        return False
+    _STACK_HANDLE = handle
     return True
 
 
 def release_lock() -> None:
-    """释放启动锁。"""
-    try:
-        if LOCK_FILE.exists() and (LOCK_FILE.read_text(encoding="utf-8") or "").strip() == str(os.getpid()):
-            LOCK_FILE.unlink()
-    except OSError:
-        pass
+    """无参数；关闭持锁句柄；保留锁文件，避免另一个进程等待期间锁路径被替换。"""
+    global _STACK_HANDLE
+    if _STACK_HANDLE is not None:
+        _STACK_HANDLE.close()
+        _STACK_HANDLE = None
 
 
 def kill_orphan_harness() -> None:
-    """清掉没有端口在听的孤儿 harness 进程（有健康实例时不会走到这里）。"""
-    script = (
-        "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*apps/cli/src/bin.ts*' } "
-        "| ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
-    )
+    """无参数；复用严格进程识别清理孤儿，不按任意命令文本匹配维护工具。"""
     try:
-        subprocess.run(
-            ["powershell.exe", "-NoLogo", "-NoProfile", "-Command", script],
-            capture_output=True, timeout=60,
-        )
-        time.sleep(2)
+        from tools.stop_stack import kill_harness
+        if kill_harness():
+            time.sleep(2)
     except (OSError, subprocess.SubprocessError):
         pass
 
@@ -718,33 +734,34 @@ def clear_stuck_deliveries() -> None:
 
 
 def ensure_reminder_service(env: dict[str, str]) -> str:
-    """确保提醒服务由统一 API 服务管理器托管，禁止再创建旧版轮询进程。"""
+    """确保独立提醒服务常驻（每 30 秒轮询、到点 QQ 直推）。"""
     from microServices.ServiceManager import ServiceManager
+    cfg = ServiceRegistry().get_service("reminders")
+    if cfg["management"] != "managed":
+        return cfg["management"]
     ServiceManager(PROJECT_ROOT).ensure_service("reminders")
-    return "ready"
-
-
-def ensure_state_microservices() -> str:
-    """启动微信、QQ 和观测状态服务；每个服务只拥有自己的数据库和租约。"""
-    from microServices.ServiceManager import ServiceManager
-    manager = ServiceManager(PROJECT_ROOT)
-    for name in ("state", "qqstate", "observation"):
-        manager.ensure_service(name)
-    return "ready"
+    return "microservice_ready"
 
 
 def ensure_rsshub(env: dict[str, str]) -> str:
     """确保本机 RSSHub（端口 1200）在跑；没起就后台拉一个。"""
+    cfg = ServiceRegistry().get_service("rsshub")
+    if cfg["management"] != "managed":
+        return cfg["management"]
     rsshub_dir = PROJECT_ROOT / "rsshub" / "RSSHub"
     pid_file = PROJECT_ROOT / "runtime" / "rsshub.pid"
-    if port_open(1200):
+    if port_open(cfg["port"]):
         return "already_running"
     entry = rsshub_dir / "dist" / "index.mjs"
     if not entry.is_file():
         return "missing_build"
-    node = shutil.which("node") or "node"
+    node = r"C:\Program Files\nodejs\node.exe"
+    for candidate in (r"E:\project_make\nodejs\node.exe", "node"):
+        if candidate == "node" or Path(candidate).is_file():
+            node = candidate
+            break
     child_env = dict(env)
-    child_env["PORT"] = "1200"
+    child_env["PORT"] = str(cfg["port"])
     child_env["NODE_ENV"] = "production"
     child_env["NODE_OPTIONS"] = "--max-http-header-size=32768"
     process = spawn_silent([node, str(entry)], rsshub_dir, child_env, "rsshub.log")
@@ -752,7 +769,7 @@ def ensure_rsshub(env: dict[str, str]) -> str:
     pid_file.write_text(str(process.pid), encoding="utf-8")
     for _ in range(40):
         time.sleep(0.5)
-        if port_open(1200):
+        if port_open(cfg["port"]):
             return "started"
     return "start_failed"
 
@@ -783,10 +800,12 @@ def ensure_guard_service(env: dict[str, str]) -> str:
     return "started"
 
 
-def wait_harness_ready(seconds: int = 120) -> bool:
+def wait_harness_ready(seconds: int = 120, startup=None) -> bool:
     """等 3080/3081 两个端口就绪；超时返回 False（自启动据此判断要不要重试）。"""
     deadline = time.time() + seconds
     while time.time() < deadline:
+        if startup is not None and startup.was_stopped():
+            return False
         if port_open(HARNESS_PORT) and port_open(HARNESS_INJECT_PORT):
             return True
         time.sleep(2)
@@ -796,14 +815,27 @@ def wait_harness_ready(seconds: int = 120) -> bool:
 
 def main() -> int:
     """从 JSON 加载配置、注入环境并同步 settings，然后启动后台服务。"""
+    core = ServiceRegistry().get_service("core")
+    if core["management"] == "external":
+        from microServices.ServiceManager import ServiceManager
+        ServiceManager(PROJECT_ROOT).ensure_service("core")
+        print("core=external；仅使用远程核心，未启动本机消费者或守护")
+        return 0
+    if core["management"] == "disabled":
+        print("core=disabled")
+        return 0
+    startup = StartupState(PROJECT_ROOT)
+    startup.record_stage("requested")
     if not HARNESS_SCRIPT.exists():
         raise FileNotFoundError("启动文件不存在: " + str(HARNESS_SCRIPT))
     # 幂等：已经在跑就直接返回，避免守护/自启动/手动同时拉起造成多实例互抢
     if port_open(HARNESS_PORT) and port_open(HARNESS_INJECT_PORT):
+        startup.complete_start()
+        startup.record_stage("already_ready")
         print(f"already_running ports={HARNESS_PORT},{HARNESS_INJECT_PORT}，跳过启动")
         return 0
     # 没有健康实例时才清理残留：孤儿进程 + 死进程留下的 lease
-    # 不扫描或清理其他安装目录的同类进程；后端仍有单消费者锁保护。
+    kill_orphan_harness()
     clear_stale_lease()
     clear_stuck_deliveries()
     verify_harness_source()
@@ -813,6 +845,9 @@ def main() -> int:
     apply_environment(config, env)
     remember_python_for_console()
     console_keys = load_console_env(env)
+    # 控制台环境只提供密钥等补充项；端点和生命周期仍由注册表统一决定。
+    ServiceRegistry().apply_environment(env)
+    ServiceRegistry().apply_model_config(config, env)
     if console_keys:
         print("console_env_applied=" + ",".join(console_keys))
     sync_settings(config)
@@ -823,52 +858,31 @@ def main() -> int:
     print("credentials_synced=" + str(CREDENTIALS_FILE) + " refs=" + str(secret_count))
     env.setdefault("OPENCODE_SERVER_URL", OPENCODE_SERVER_URL)
     env.setdefault("OPENCODE_BIN", str(OPENCODE_BIN))
-    server_state = ensure_opencode_server(env) if shutil.which(str(OPENCODE_BIN)) else "未安装（可选）"
-    gemma_state = ensure_gemma_server(env) if env.get("SYNLOVE_LLM_MANAGEMENT") != "external" else "外部服务"
-    reminder_state = ensure_reminder_service(env)
-    state_services = ensure_state_microservices()
-    rsshub_state = ensure_rsshub(env)
-    guard_state = ensure_guard_service(env)
-
-    # 微信凭据探活：失效就先把登录器摆到前台，让用户扫码，再启动服务。
-    token_state, token_detail = check_weixin_token(config)
-    print("weixin_token=" + token_state + " (" + token_detail + ")")
-    if TOKEN_INVALID_FLAG.is_file():
-        # 标记是一次性告警：报告后即删。若发送仍失败，运行期会再次写入。
-        # 否则旧的失败记录会让启动器每次都误判"凭据失效"并反复弹登录器。
-        try:
-            TOKEN_INVALID_FLAG.unlink()
-            print("token_invalid_flag_consumed=" + str(TOKEN_INVALID_FLAG))
-        except OSError:
-            pass
-    if token_state == "invalid" and "--skip-login" not in sys.argv:
-        print("微信凭据已失效，正在打开登录器……扫码完成后会自动写回配置。")
-        # `start` 的第一个引号参数固定被当作窗口标题；这里给空标题，
-        # 后面紧跟可执行文件与脚本。**不要**再插一个标题参数，否则会被当成要运行的程序
-        # （曾因此报"系统找不到文件 微信登录（扫码）"）。
-        subprocess.Popen(
-            ["cmd.exe", "/c", "start", "", sys.executable, str(PROJECT_ROOT / "weixin_login.py")],
-            cwd=str(PROJECT_ROOT),
-        )
-        print("登录器已启动；本次仍会继续拉起服务（新 token 会在下次重启后生效）。")
-    elif token_state == "invalid":
-        print("微信凭据已失效（--skip-login 已指定，跳过登录器）。")
-
+    startup.record_stage("config_ready")
+    # 云端对话不等待本地显存。仅当默认对话确实使用本地模型时同步准备LLM；
+    # 记忆维护等低频本地推理由Harness既有按需机制处理。
+    llm = ServiceRegistry().get_service("llm")
+    if (llm["management"] == "managed" and
+            config.get("defaultModel", {}).get("provider") == llm.get("provider", "gemma-local")):
+        print("llm=" + ensure_gemma_server(env))
+    if startup.was_stopped():
+        startup.record_stage("cancelled")
+        return 1
+    # 不在启动前调用notifystart或消费历史token告警；真实鉴权交给唯一通道消费者。
     harness = start_harness_service(env)
+    startup.record_stage("harness_spawned")
     print("config=" + str(CONFIG_JSON))
     print("settings_synced=" + str(SETTINGS_FILE))
-    print("opencode_server=" + server_state + " url=" + OPENCODE_SERVER_URL)
-    print("gemma_server=" + gemma_state + " port=" + str(GEMMA_SERVER_PORT))
-    print("reminder_service=" + reminder_state)
-    print("state_services=" + state_services)
-    print("guard_service=" + guard_state)
-    print("rsshub=" + rsshub_state)
     print("dsh_harness_pid=" + str(harness.pid))
     print("harness service started (silent, log=runtime/harness-run.log)")
     # 等真正就绪再返回：自启动脚本/守护据此判断成功与否（失败会重试，而不是"看起来启动了"）
-    if wait_harness_ready(120):
+    if wait_harness_ready(120, startup) and not startup.was_stopped():
+        startup.complete_start()
+        startup.record_stage("core_ready")
+        print("optional_services_pid=" + str(StartupServices(PROJECT_ROOT).detach_start(env)))
         print("harness_ready=1")
         return 0
+    startup.record_stage("cancelled" if startup.was_stopped() else "core_timeout")
     print("harness_ready=0（120 秒内 3080/3081 未就绪，详见 runtime/harness-run.log）")
     return 1
 

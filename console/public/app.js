@@ -58,8 +58,22 @@ function service_info(service) {
     TTS: { name: 'TTS', role: '将文字合成为语音' },
     ASR: { name: 'ASR', role: '将语音识别为文字' },
     LLM: { name: 'LLM', role: '对话理解与后台推理' },
+    CORE: { name: '核心控制', role: '远程管理系统启动、停止与配置' },
+    REMINDERS: { name: '定时提醒', role: '保存提醒并在到点时推送' },
+    DIGEST: { name: '新闻摘要', role: '采集新闻并生成定时摘要' },
+    VIDEO: { name: '视频理解', role: '转写语音、分析画面并生成报告' },
+    HISTORY: { name: '历史检索', role: '查找过去的对话与会话记录' },
+    CODING: { name: '编程调度', role: '通过接口派发编程任务' },
+    CRAWLER: { name: '网页采集', role: '抓取网页并提取正文' },
+    MEMORY: { name: '长期记忆', role: '读写每日时间线与人物关系图谱' },
+    STATE: { name: '微信状态', role: '维护微信租约、收件记录与发送队列' },
+    QQSTATE: { name: 'QQ 状态', role: '维护 QQ 租约与消息发送进度' },
+    OBSERVATION: { name: '运行观测', role: '保存调用链、用量与错误记录' },
+    SESSION: { name: '会话存储', role: '保存和读取 Harness 会话事件' },
+    RSSHUB: { name: 'RSSHub', role: '将信息源转换为新闻订阅' },
+    OPENCODE: { name: 'OpenCode', role: '执行编程任务' },
   }
-  return roles[String(service.name).toUpperCase()] ?? { name: service.name, role: '提供后台能力' }
+  return roles[String(service.name).toUpperCase()] ?? { name: service.name, role: '自定义扩展服务' }
 }
 
 async function refresh_overview() {
@@ -67,10 +81,12 @@ async function refresh_overview() {
   $('service-cards').innerHTML = data.services.map(service => {
     const info = service_info(service)
     const available = service.available ?? service.up
-    const label = service.readiness === 'standby' ? '可按需调用' : available ? '可调用' : '不可用'
+    const labels = { standby: '可按需调用', inactive: '本地模式', disabled: '已关闭', pending: '等待调用' }
+    const label = labels[service.readiness] ?? (available ? '可调用' : '未就绪')
+    const detail = `${label}：${service.detail || (available ? '服务已就绪' : '后端尚未启动')}`
     return `
     <div class="service">
-      <div class="name"><span class="service-dot ${available ? 'is-up' : 'is-down'}" role="img" aria-label="${label}" title="${label}"></span>${escape_service(info.name)}</div>
+      <div class="name"><span class="service-dot ${available ? 'is-up' : 'is-down'}" role="img" aria-label="${label}"></span>${escape_service(info.name)}${tool_help(detail)}</div>
       <div class="hint">${escape_service(info.role)}</div>
     </div>`
   }).join('')

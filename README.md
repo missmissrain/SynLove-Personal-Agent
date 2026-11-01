@@ -63,9 +63,11 @@
 
 目前主要面向 **Windows 桌面环境**。先安装 Python 3.9+ 和 Node.js 24 LTS，然后下载本仓库，双击根目录的 **Start.cmd**。
 
-首次启动自动创建隔离 Python 环境、安装后端与桌面依赖、生成配置，并加载默认的欣爱人格。后端运行代码已经包含在 `backend/`，不需要另行克隆 DeepSeek Harness，不需要 pnpm 或编译 TypeScript。
+首次启动自动创建隔离 Python 环境、安装后端与桌面依赖、生成配置，并加载默认的欣爱人格。后端运行代码已经包含在 `backend/`，不需要另行克隆 DeepSeek Harness，不需要 pnpm 或编译 TypeScript。启动器会先确认 Harness 和微信/QQ接入，再在后台预热提醒、摘要、OpenCode、RSSHub 等可选服务；可选服务失败不会阻塞消息通道。
 
 进入桌面后，配置模型密钥并绑定微信，再从“系统”启动后端；也可以额外接入 QQ 官方机器人。需要更换接口与模型时编辑 `config/modelConfig.json`；密钥放在 `config/secrets.json`。
+
+安装完成后可运行 `console\autostart.ps1`，一次性创建桌面、开始菜单和开机自启入口。桌面快捷键是 **Ctrl+Alt+S**；开机自启只保留一个 SynLove 入口并默认驻留托盘，所有入口都会经过同一个启动协调器，不会重复拉起第二个 Harness 消费者。右击托盘图标可选择“重启后端服务（harness）”或“停止系统并退出”。
 
 只安装而不打开窗口：`python bootstrap.py --install-only`。检查发行文件：`python bootstrap.py --check`。
 

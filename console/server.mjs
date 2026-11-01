@@ -18,7 +18,7 @@ import { createServer } from 'node:http'
 import { spawn } from 'node:child_process'
 import { execFileSync } from 'node:child_process'
 import {
-  copyFileSync, existsSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync,
+  closeSync, copyFileSync, existsSync, openSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync,
 } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -28,17 +28,19 @@ import { ObservationStore } from './observation/ObservationStore.mjs'
 import { ObservationRoutes } from './observation/ObservationRoutes.mjs'
 import { DashboardStore } from './dashboard/DashboardStore.mjs'
 import { ServiceReadiness } from './dashboard/ServiceReadiness.mjs'
+import { ServiceProbe } from './dashboard/ServiceProbe.mjs'
+import { ServiceProxy } from './ServiceProxy.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const PROJECT = resolve(HERE, '..')
 const HARNESS = join(PROJECT, 'backend')
 const RUNTIME = join(PROJECT, 'runtime')
 const CONFIG = join(PROJECT, 'config')
+const service_proxy = new ServiceProxy(PROJECT)
 const DSH_HOME = process.env.DSH_HOME ?? join(RUNTIME, 'dsh')
-process.env.DSH_HOME ??= DSH_HOME
 const PORT = Number(process.argv[2] ?? process.env.CONSOLE_PORT ?? '3082')
 const serviceReadiness = new ServiceReadiness({ project: PROJECT })
-const observations = new ObservationStore({
+const observations = service_proxy.mode === 'external' ? null : new ObservationStore({
   runtime: RUNTIME,
   config: CONFIG,
   secret: name => {
@@ -70,7 +72,6 @@ const dashboard = new DashboardStore({
 const PORTS = [
   { port: 3080, name: 'harness（Agent 本体）', probe: 'http://127.0.0.1:3080/' },
   { port: 3081, name: '调试注入口', probe: 'http://127.0.0.1:3081/' },
-  { port: 4096, name: 'opencode server', probe: 'http://127.0.0.1:4096/' },
 ]
 
 /**
@@ -99,35 +100,8 @@ async function probe_model_services() {
   if (!registry || registry.version !== 1) {
     return [{ name: '模型服务配置', up: false, detail: 'serviceConfig.json 缺失或无效' }]
   }
-  return Promise.all(Object.entries(registry.services).map(async ([name, cfg]) => {
-    const prefix = `SYNLOVE_${name.toUpperCase()}`
-    const override = process.env[`${prefix}_BASE_URL`]
-    const endpoint = override || cfg.baseURL
-    const managed = (process.env[`${prefix}_MANAGEMENT`] ?? (override ? 'external' : cfg.management)) === 'managed'
-    try {
-      const url = new URL(endpoint)
-      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
-        throw new Error('服务地址无效')
-      }
-      const headers = {}
-      if (cfg.apiKeyEnv && process.env[cfg.apiKeyEnv]) headers.Authorization = `Bearer ${process.env[cfg.apiKeyEnv]}`
-      const response = await fetch(new URL(cfg.healthPath ?? '/health', url.origin), {
-        headers, redirect: 'error', signal: AbortSignal.timeout(2500),
-      })
-      await response.body?.cancel()
-      return { name: name.toUpperCase(), endpoint, management: managed ? '本机托管' : '外部服务',
-        port: Number(url.port || (url.protocol === 'https:' ? 443 : 80)), up: response.ok,
-        available: response.ok, readiness: response.ok ? 'running' : 'unavailable',
-        detail: `HTTP ${response.status}` }
-    } catch (error) {
-      const standby = managed && error?.cause?.code === 'ECONNREFUSED' &&
-        await serviceReadiness.assess(name, { ...cfg, baseURL: endpoint, management: 'managed' })
-      return { name: name.toUpperCase(), endpoint: /^https?:\/\/[^@?#]+$/.test(endpoint) ? endpoint : '配置地址无效',
-        management: managed ? '本机托管' : '外部服务', up: false, available: Boolean(standby),
-        readiness: standby ? 'standby' : 'unavailable',
-        detail: standby ? '本机启动条件检查通过，可按需调用' : managed ? '本机服务暂不可用' : '外部服务未就绪，请检查服务或健康接口' }
-    }
-  }))
+  const probe = new ServiceProbe({ readiness: serviceReadiness })
+  return Promise.all(Object.entries(registry.services).map(([name, cfg]) => probe.probe_service(name, cfg)))
 }
 
 /** 可展示的日志。 */
@@ -1687,31 +1661,35 @@ function resolve_python() {
 
 /** 启停后端服务：复用项目里已有的启动器与清理脚本。 */
 function run_service(action) {
+  if (!['start', 'restart'].includes(action)) throw new Error('未知启动操作')
   const python = resolve_python()
   // 用户手动重启期间不要自动插手
-  heartbeat.pause(`你手动执行了${action}`, 5 * 60_000)
-  heartbeat.start()
+  heartbeat.pause(`你手动执行了${action}`, 5 * 60_000, { persist: action === 'restart' })
   // **必须先停再起**：以前直接 start_stack.py，如果旧进程还活着就会
   // EADDRINUSE(3080) + "已有另一个微信消费者" 启动失败退出，看起来"重启了但没反应"。
   if (action === 'restart') {
-    const stop_script = join(PROJECT, 'tools', 'stop_stack.py')
-    if (existsSync(stop_script)) {
-      try {
-        execFileSync(python, [stop_script, '--no-pause'], {
-          cwd: PROJECT, timeout: 60_000, stdio: 'ignore', windowsHide: true,
-          env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' },
-        })
-      } catch { /* 旧进程可能本来就不在；继续启动 */ }
-    }
+    const worker = spawn(python, [join(PROJECT, 'tools', 'RestartStack.py'), '--detach'], {
+      cwd: PROJECT, detached: true, stdio: 'ignore', windowsHide: true,
+      env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' },
+    })
+    worker.unref()
+    return { ok: true, note: '已请求维护重启，结果以后台就绪状态为准' }
   }
-  const start = spawn(python, ['start_stack.py'], {
+  const log_fd = openSync(join(RUNTIME, 'startup-console.log'), 'a')
+  let start
+  try {
+  start = spawn(python, ['-u', 'start_stack.py', '--skip-login'], {
     cwd: PROJECT,
     detached: true,
-    stdio: 'ignore',
+    stdio: ['ignore', log_fd, log_fd],
     windowsHide: true,
     // PYTHONUTF8=1：这台机器的 site-packages 里可能混进非 GBK 的 .pth（别的项目装的），
     // 那会让 python 直接启动失败；UTF-8 模式能绕开。
     env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' },
+  })
+  } finally { closeSync(log_fd) }
+  start.on('error', () => {
+    heartbeat.log('后台启动器无法创建，请检查Python路径和runtime/startup-console.log')
   })
   start.unref()
   return { ok: true, note: `已请求 ${action}${action === 'restart' ? '（已先停掉旧进程）' : ''}（启动器会在后台完成；状态栏几秒后刷新）` }
@@ -1780,6 +1758,7 @@ function json(res, status, payload) {
 
 export const server = createServer((req, res) => {
   const url = new URL(req.url ?? '/', `http://127.0.0.1:${PORT}`)
+  if (service_proxy.handle(req, res, url)) return
 
   // 静态页面
   if (req.method === 'GET' && !url.pathname.startsWith('/api/')) {
@@ -1883,13 +1862,12 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   console.log(`Agent 控制台已启动: http://127.0.0.1:${PORT}`)
   console.log(`项目目录: ${PROJECT}`)
   // 后端守护：定时探活，掉线到阈值就自动重启（前端页面也会发心跳触发检查）
-  // 未绑定通道时保持设置界面可用，避免首次安装自动重启未配置的后端。
-  const initialSecrets = read_secrets()
-  if (initialSecrets.weixin?.token || initialSecrets.qq?.appId) heartbeat.start()
-  else heartbeat.pause('首次使用，请配置模型并绑定通道', 365 * 24 * 60 * 60_000)
+  if (service_proxy.mode !== 'external') heartbeat.start()
   // 复用控制台进程低频导入；关闭 GUI 标签页后仍保留远端片段，不启动业务消费者。
-  const observation_sync = setInterval(() => { void observations.sync_remote().catch(() => {}) }, 15_000)
+  const observation_sync = setInterval(() => {
+    if (service_proxy.mode !== 'external') void observations.sync_remote().catch(() => {})
+  }, 15_000)
   observation_sync.unref()
   server.once('close', () => { clearInterval(observation_sync) })
 })
-server.on('close', () => { observations.close() })
+server.on('close', () => { observations?.close() })

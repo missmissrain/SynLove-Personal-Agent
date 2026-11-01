@@ -11,12 +11,14 @@
  */
 
 const electron = require('electron')
-const { app, Menu, Tray, nativeImage, shell } = electron
+const { app, Menu, Tray, nativeImage, shell, dialog } = electron
+const { ConsoleStartup } = require('./ConsoleStartup.js')
 const { spawn, spawnSync } = require('node:child_process')
 const { appendFileSync, existsSync, readFileSync, writeFileSync } = require('node:fs')
 const { join } = require('node:path')
 const { DesktopIdentity } = require('./DesktopIdentity.js')
 const { DesktopWindow } = require('./DesktopWindow.js')
+const { SystemShutdown } = require('./SystemShutdown.js')
 
 /** 把启动与异常写进 console/electron.log，方便事后排查（GUI 的报错在终端里看不到）。 */
 const LOG = join(__dirname, 'electron.log')
@@ -30,8 +32,10 @@ process.on('unhandledRejection', reason => log('unhandledRejection:', String(rea
 
 const PORT = Number(process.env.CONSOLE_PORT ?? 3082)
 const URL = `http://127.0.0.1:${PORT}`
+const startup = new ConsoleStartup({ url: URL, log })
 const HERE = __dirname
 const identity = new DesktopIdentity({ app, shell, root: HERE, log })
+const shutdown = new SystemShutdown(join(HERE, '..'), log)
 /**
  * 开机自启用 `--hidden` 启动：只驻留托盘，不弹窗口。
  * 手动双击 start-console-gui.cmd 时不带这个参数，会正常显示窗口。
@@ -228,8 +232,29 @@ function create_tray() {
     },
     { type: 'separator' },
     {
-      label: '退出',
+      label: '退出界面（后台继续运行）',
       click: () => { quitting = true; app.quit() },
+    },
+    {
+      label: '停止系统并退出',
+      click: async (item) => {
+        if (shutdown.running) return
+        item.enabled = false
+        item.label = '正在停止系统…'
+        tray?.setToolTip('SynLove 正在停止系统')
+        try {
+          await shutdown.stop_system()
+          quitting = true
+          if (serverProcess) serverProcess.kill()
+          app.quit()
+        } catch (error) {
+          log('完整退出失败：', String(error))
+          item.enabled = true
+          item.label = '停止系统并退出'
+          tray?.setToolTip('SynLove 停止未完成，守护已暂停')
+          dialog.showErrorBox('SynLove 停止未完成', `${String(error)}\n后台守护已暂停。请查看 console/electron.log 中的停栈结果。`)
+        }
+      },
     },
   ]))
   // 左击：显示窗口
@@ -309,7 +334,10 @@ function start_supervise_console() {
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
-  app.on('second-instance', show_window)
+  app.on('second-instance', () => {
+    show_window()
+    void startup.request_start()
+  })
 
   app.whenReady().then(async () => {
     identity.register_shortcut()
@@ -333,6 +361,7 @@ if (!app.requestSingleInstanceLock()) {
     }
     create_window()
     start_supervise_console()
+    void startup.request_start()
     if (START_HIDDEN) {
       // 开机自启：静默驻留托盘（用户点托盘图标即可唤出）
       mainWindow.hide()
