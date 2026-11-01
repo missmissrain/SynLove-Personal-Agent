@@ -230,7 +230,12 @@ function backend_response_matches(name, body) {
     (typeof body.device === 'string' || typeof body.freeVramMb === 'number')
   if (name === 'asr') return body.service === 'asr' && body.protocol === 1 &&
     (typeof body.device === 'string' || typeof body.model === 'string')
-  if (name === 'llm') return body.status === 'ok' || body.status === 'ready' || body.ok === true
+  if (name === 'llm') {
+    // 不能只接受任意服务的 {ok:true}，否则普通 HTTP 服务会被误认成 LLM。
+    // 兼容常见健康响应 status=ok/ready，以及我们自己的身份协议。
+    return body.status === 'ok' || body.status === 'ready' ||
+      (body.service === 'llm' && body.protocol === 1 && body.ok === true)
+  }
   return false
 }
 
