@@ -325,14 +325,14 @@ def check_gemma_alive():
         from services.ServiceClient import ServiceClient
         from urllib.parse import urlsplit, urlunsplit
         cfg = ServiceRegistry().get_service("llm")
+        if cfg["management"] == "external":
+            _gemma_failures = 0
+            return None  # 外部服务不归本机守护器管理，也不应显示假绿。
         model_path = ROOT / "config/modelConfig.json"
         model_cfg = json.loads(model_path.read_text(encoding="utf-8-sig"))
         if model_cfg.get("defaultModel", {}).get("provider") != cfg.get("provider", "gemma-local"):
             _gemma_failures = 0
             return None  # 云端对话不依赖可选本地模型，不能因此重启微信/QQ。
-        if cfg["management"] == "external":
-            _gemma_failures = 0
-            return None  # 外部服务不归本机守护器管理，也不应显示假绿。
         url = urlsplit(cfg["baseURL"])
         cfg["baseURL"] = urlunsplit((url.scheme, url.netloc, "", "", ""))
         cfg["timeoutSeconds"] = 10
