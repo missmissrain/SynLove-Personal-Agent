@@ -2,7 +2,7 @@
   "version": 1,
   "mode": "local",
   "host": "127.0.0.1",
-  "scanRadius": 1,
+  "scanRadius": 12,
   "services": {
     "tts": {
       "label": "TTS",
