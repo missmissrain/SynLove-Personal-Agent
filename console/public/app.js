@@ -863,6 +863,63 @@ $('hb-resume').addEventListener('click', async () => {
   render_heartbeat(await post('/api/heartbeat/resume'))
 })
 
+// ── Backend Service ──────────────────────────────────────────────────────
+
+/** 渲染公共后台服务配置及身份协议探测结果。 */
+function render_backend(data) {
+  const config = data.config ?? data
+  $('backend-mode').value = config.mode === 'remote' ? 'remote' : 'local'
+  $('backend-host').value = config.host ?? '127.0.0.1'
+  $('backend-radius').value = config.scanRadius ?? 12
+  const rows = data.services ?? Object.entries(config.services ?? {}).map(([name, spec]) => ({
+    name, label: spec.label ?? name.toUpperCase(), port: config.resolved?.[name]?.port,
+    available: Boolean(config.resolved?.[name]), detail: config.resolved?.[name] ? '已记录上次通过协议的端口' : '尚未查验',
+  }))
+  $('backend-services').innerHTML = rows.map(item => `
+    <div class="backend-service-row">
+      <span class="service-dot ${item.available ? 'is-up' : 'is-down'}" aria-label="${item.available ? '可用' : '未就绪'}"></span>
+      <strong>${escape_service(item.label)}</strong>
+      <span class="backend-service-port">${item.port ? `端口 ${item.port}` : '未找到'}</span>
+      <span class="hint">${escape_service(item.detail ?? '')}</span>
+    </div>`).join('') || '<span class="hint">还没有公共服务配置</span>'
+}
+
+/** 读取配置；页面打开时不自动扫描，避免频繁触碰远程端口。 */
+async function refresh_backend_config() {
+  render_backend(await get('/api/backend'))
+}
+
+$('backend-save').addEventListener('click', async () => {
+  const hint = $('backend-hint')
+  hint.textContent = '正在保存…'
+  try {
+    const result = await post('/api/backend/config', {
+      mode: $('backend-mode').value,
+      host: $('backend-host').value.trim(),
+      scanRadius: Number($('backend-radius').value),
+    })
+    render_backend(result)
+    hint.textContent = result.restartRequired ? '已保存；重启后端后新地址才会用于业务调用' : '已保存'
+  } catch (error) {
+    hint.textContent = `保存失败：${error.message}`
+  }
+})
+
+$('backend-probe').addEventListener('click', async () => {
+  const hint = $('backend-hint')
+  hint.textContent = '正在按递推规则查验端口…'
+  try {
+    render_backend(await post('/api/backend/probe', {
+      mode: $('backend-mode').value,
+      host: $('backend-host').value.trim(),
+      scanRadius: Number($('backend-radius').value),
+    }))
+    hint.textContent = '查验完成：只有通过 SynLove 身份协议的端口才会亮绿灯'
+  } catch (error) {
+    hint.textContent = `查验失败：${error.message}`
+  }
+})
+
 /**
  * 前端心跳：页面开着时每 30 秒给控制台发一次。
  * 控制台收到后会按节流触发一次真探活；页面关掉也照样有定时器兜底。
@@ -925,6 +982,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.dispatchEvent(new CustomEvent('synlove:overview-error', { detail: error.message }))
   })
   refresh_models().catch(() => {})
+  refresh_backend_config().catch(error => {
+    $('backend-hint').textContent = `读取后台配置失败：${error.message}`
+  })
 })
 refresh_toggles().catch(() => {})
 refresh_heartbeat().catch(() => {})

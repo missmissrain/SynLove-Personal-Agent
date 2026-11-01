@@ -36,6 +36,7 @@ const PROJECT = resolve(HERE, '..')
 const HARNESS = join(PROJECT, 'backend')
 const RUNTIME = join(PROJECT, 'runtime')
 const CONFIG = join(PROJECT, 'config')
+const BACKEND_SERVICE_CONFIG = join(CONFIG, 'backendService.json')
 const service_proxy = new ServiceProxy(PROJECT)
 const DSH_HOME = process.env.DSH_HOME ?? join(RUNTIME, 'dsh')
 const PORT = Number(process.argv[2] ?? process.env.CONSOLE_PORT ?? '3082')
@@ -185,6 +186,118 @@ function read_json(path, fallback) {
   } catch {
     return fallback
   }
+}
+
+/** 读取公共后台服务配置；只包含地址和探测参数，不保存密钥。 */
+function read_backend_service_config() {
+  const fallback = {
+    version: 1,
+    mode: 'local',
+    host: '127.0.0.1',
+    scanRadius: 12,
+    services: {
+      tts: { label: 'TTS', defaultPort: 7862, healthPath: '/health' },
+      asr: { label: 'ASR', defaultPort: 8081, healthPath: '/health' },
+      llm: { label: 'LLM', defaultPort: 8080, healthPath: '/health' },
+    },
+    resolved: {},
+  }
+  const value = read_json(BACKEND_SERVICE_CONFIG, fallback)
+  return {
+    ...fallback,
+    ...value,
+    services: { ...fallback.services, ...(value.services ?? {}) },
+    resolved: { ...(value.resolved ?? {}) },
+  }
+}
+
+/** 校验并保存公共后台服务配置；密钥、会话和个人数据不得进入该文件。 */
+function save_backend_service_config(body) {
+  const current = read_backend_service_config()
+  const mode = body?.mode === 'remote' ? 'remote' : 'local'
+  const host = String(body?.host ?? current.host ?? '127.0.0.1').trim()
+  if (!/^[a-zA-Z0-9.:[\]-]+$/.test(host)) throw new Error('后台服务器地址格式不正确')
+  const radius = Math.max(1, Math.min(64, Number(body?.scanRadius ?? current.scanRadius ?? 12)))
+  const next = { ...current, mode, host, scanRadius: Number.isFinite(radius) ? Math.floor(radius) : 12 }
+  writeFileSync(BACKEND_SERVICE_CONFIG, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
+  return { ok: true, config: next, restartRequired: mode !== current.mode || host !== current.host }
+}
+
+/** 判断响应是否属于 SynLove 预期的后台服务，避免把普通占用端口误认成在线。 */
+function backend_response_matches(name, body) {
+  if (!body || body.ok !== true) return false
+  if (name === 'tts') return body.service === 'tts' && body.protocol === 1 &&
+    (typeof body.device === 'string' || typeof body.freeVramMb === 'number')
+  if (name === 'asr') return body.service === 'asr' && body.protocol === 1 &&
+    (typeof body.device === 'string' || typeof body.model === 'string')
+  if (name === 'llm') return body.status === 'ok' || body.status === 'ready' || body.ok === true
+  return false
+}
+
+/** 将远程探测到的公共服务端点写入统一注册表；本机模式不改托管生命周期。 */
+function apply_backend_endpoints(mode, host, results, specs = {}) {
+  const path = process.env.SYNLOVE_SERVICE_CONFIG ?? join(CONFIG, 'serviceConfig.json')
+  const config = read_json(path, null)
+  if (!config?.services) return false
+  let changed = false
+  for (const item of results) {
+    if (!config.services[item.name]) continue
+    const nextPort = item.available ? item.port : Number(specs[item.name]?.defaultPort)
+    if (!nextPort) continue
+    const next = `http://${mode === 'remote' ? host : '127.0.0.1'}:${nextPort}/v1`
+    if (config.services[item.name].baseURL !== next || config.services[item.name].management !== 'external') {
+      config.services[item.name].baseURL = next
+      config.services[item.name].management = 'external'
+      changed = true
+    }
+  }
+  if (changed) writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`, 'utf8')
+  return changed
+}
+
+/** 按固定递推规则探测端口；每个候选端口必须通过健康协议才能认定为 SynLove 服务。 */
+async function probe_backend_service(name, spec, host, radius) {
+  const defaultPort = Number(spec.defaultPort)
+  const ports = []
+  for (let offset = 0; offset <= radius; offset += 1) {
+    ports.push(defaultPort + offset)
+    if (offset > 0) ports.push(defaultPort - offset)
+  }
+  for (const port of ports) {
+    if (port < 1 || port > 65535) continue
+    const endpoint = `http://${host}:${port}`
+    try {
+      const response = await fetch(new URL(spec.healthPath || '/health', endpoint), {
+        headers: { 'X-SynLove-Probe': 'synlove-backend-v1' },
+        redirect: 'error',
+        signal: AbortSignal.timeout(900),
+      })
+      const body = await response.json().catch(() => null)
+      if (response.ok && backend_response_matches(name, body)) {
+        return { name, label: spec.label || name.toUpperCase(), port, endpoint, available: true,
+          detail: '后台身份协议验证通过' }
+      }
+    } catch { /* 当前候选端口不可用，按协议继续递推 */ }
+  }
+  return { name, label: spec.label || name.toUpperCase(), port: null, endpoint: null,
+    available: false, detail: `默认端口及前后 ${radius} 个候选端口均未通过身份协议` }
+}
+
+/** 探测全部公共后台服务；成功端口写回配置，供下一次启动和服务卡片复用。 */
+async function probe_backend_services(body = {}) {
+  const current = read_backend_service_config()
+  const mode = body.mode === 'remote' ? 'remote' : (body.mode === 'local' ? 'local' : current.mode)
+  const host = String(body.host ?? current.host ?? '127.0.0.1').trim()
+  const radius = Math.max(1, Math.min(64, Number(body.scanRadius ?? current.scanRadius ?? 12)))
+  const results = await Promise.all(Object.entries(current.services).map(([name, spec]) =>
+    probe_backend_service(name, spec, host, Number.isFinite(radius) ? Math.floor(radius) : 12)))
+  const resolved = Object.fromEntries(results.filter(item => item.available)
+    .map(item => [item.name, { port: item.port, endpoint: item.endpoint, checkedAt: new Date().toISOString() }]))
+  const restartRequired = apply_backend_endpoints(mode, host, results, current.services)
+  const next = { ...current, mode, host, scanRadius: radius, resolved }
+  writeFileSync(BACKEND_SERVICE_CONFIG, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
+  return { ok: true, config: next, services: results, restartRequired,
+    protocol: 'synlove-backend-v1' }
 }
 
 function read_console_env() {
@@ -1795,6 +1908,8 @@ export const server = createServer((req, res) => {
         case '/api/logs': return void send(api.logs(url.searchParams.get('name') ?? 'probe', Number(url.searchParams.get('lines') ?? 200)))
         case '/api/usage': return void send(api.usage(Number(url.searchParams.get('days') ?? 7)))
         case '/api/heartbeat': return void send(heartbeat.snapshot())
+        case '/api/backend': return void send({ ok: true, config: read_backend_service_config(),
+          protocol: 'synlove-backend-v1' })
         default: return json(res, 404, { error: 'unknown api' })
       }
     }
@@ -1841,6 +1956,8 @@ export const server = createServer((req, res) => {
             }
             case '/api/heartbeat/ping': return void send(heartbeat.note_page_ping())
             case '/api/heartbeat/check': return void heartbeat.tick('手动').then(send, fail)
+            case '/api/backend/config': return void send(save_backend_service_config(body))
+            case '/api/backend/probe': return void probe_backend_services(body).then(send, fail)
             case '/api/service':
               if (body.action === 'stop') return void send(stop_service())
               return void send(run_service(String(body.action ?? 'restart')))

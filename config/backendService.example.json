@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "mode": "remote",
+  "host": "192.168.1.20",
+  "scanRadius": 12,
+  "services": {
+    "tts": { "label": "TTS", "defaultPort": 7862, "healthPath": "/health" },
+    "asr": { "label": "ASR", "defaultPort": 8081, "healthPath": "/health" },
+    "llm": { "label": "LLM", "defaultPort": 8080, "healthPath": "/health" }
+  },
+  "resolved": {}
+}

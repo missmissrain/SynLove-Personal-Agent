@@ -122,6 +122,32 @@
       <div class="hint" id="hb-note"></div>
       <pre id="hb-log"></pre>
     </div>
+    <div class="card backend-config-card">
+      <div class="section-heading">
+        <h3>Backend Service</h3>
+        <button id="backend-probe" class="primary">自动查验</button>
+      </div>
+      <p class="hint">配置公共后台服务的位置。每个端口都要通过 SynLove 身份协议，普通占用端口不会显示为在线。</p>
+      <div class="form-grid backend-config-grid">
+        <label>运行位置
+          <select id="backend-mode">
+            <option value="local">本机</option>
+            <option value="remote">远程服务器</option>
+          </select>
+        </label>
+        <label>服务器地址
+          <input id="backend-host" placeholder="127.0.0.1" />
+        </label>
+        <label>端口递推范围
+          <input id="backend-radius" type="number" min="1" max="64" step="1" />
+        </label>
+      </div>
+      <div id="backend-services" class="backend-services" aria-live="polite"></div>
+      <div class="row">
+        <button id="backend-save">保存配置</button>
+        <span id="backend-hint" class="hint">默认端口：TTS 7862 · ASR 8081 · LLM 8080</span>
+      </div>
+    </div>
     <div class="grid2">
       <div class="card">
         <h3>发送队列</h3>

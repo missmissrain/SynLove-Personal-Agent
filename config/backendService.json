@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "mode": "local",
+  "host": "127.0.0.1",
+  "scanRadius": 1,
+  "services": {
+    "tts": {
+      "label": "TTS",
+      "defaultPort": 7862,
+      "healthPath": "/health"
+    },
+    "asr": {
+      "label": "ASR",
+      "defaultPort": 8081,
+      "healthPath": "/health"
+    },
+    "llm": {
+      "label": "LLM",
+      "defaultPort": 8080,
+      "healthPath": "/health"
+    }
+  },
+  "resolved": {}
+}

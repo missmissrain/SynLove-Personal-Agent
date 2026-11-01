@@ -73,6 +73,8 @@
 
 TTS、ASR 和 LLM 的地址在 `config/serviceConfig.json` 中配置。本机托管使用 `managed`，自行运行或远程部署的服务使用 `external`；模型权重和服务端依赖需要另外安装。远程公共能力由配套仓库 `SynLove-Backend-Service` 提供，本仓库只保留个人实例的消息通道、记忆、会话、状态、日志、调用链和本地编码器。
 
+GUI 的“系统 → Backend Service”卡片可以选择本机或远程服务器，并按默认端口前后递推查验。只有返回 `synlove-backend-v1` 对应的健康身份协议才会亮绿灯；普通占用端口或无响应端口会继续查找，全部候选失败时显示灰灯。
+
 ## 统一微服务链路
 
 提醒、新闻摘要、视频处理、爬虫、记忆、微信状态、QQ 状态、观测和 Harness Session 都有独立的服务边界。上层通过统一 HTTP/MCP 请求访问它们，服务的地址、端口、超时、鉴权和生命周期集中写在 `config/serviceConfig.json`。本机部署时两套仓库可以放在同一台机器；远程部署时只需把公共服务的地址切换到 `SynLove-Backend-Service` 所在服务器，个人数据仍留在本机。

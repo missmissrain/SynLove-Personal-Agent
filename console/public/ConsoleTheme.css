@@ -100,6 +100,14 @@ pre#log-view, pre#hb-log { background: #fdfdfd; border-color: var(--line); font-
 .service-dot.is-down { background: #bbb; }
 #service-cards .hint { font-size: 11px; overflow-wrap: anywhere; }
 #service-cards .hint:last-child { text-align: right; }
+.backend-config-card .section-heading { margin-bottom: 8px; }
+.backend-config-grid { margin: 12px 0; }
+.backend-services { border-top: 1px solid var(--line); margin-top: 10px; }
+.backend-service-row { display: grid; grid-template-columns: 10px 72px 86px minmax(0, 1fr); align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.backend-service-row:last-child { border-bottom: 0; }
+.backend-service-row .service-dot { width: 8px; height: 8px; }
+.backend-service-port { color: var(--accent); font-variant-numeric: tabular-nums; }
+.backend-service-row .hint { overflow-wrap: anywhere; }
 .connection-row, .activity-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
 .connection-row:last-child, .activity-row:last-child { border-bottom: 0; }
 .connection-row > div, .activity-row > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
