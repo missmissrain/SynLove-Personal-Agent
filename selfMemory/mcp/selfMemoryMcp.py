@@ -28,7 +28,7 @@ try:
 except ImportError:  # 理论上不会发生；真缺了就让工具明确报错而不是静默无结果
     zstd = None
 
-DSH_HOME = Path(os.environ.get("DSH_HOME") or (Path.home() / ".dsh"))
+DSH_HOME = Path(os.environ.get("DSH_HOME") or Path(__file__).resolve().parents[2] / "runtime/dsh")
 SESSIONS = DSH_HOME / "sessions"
 DEFAULT_DAYS = float(os.environ.get("MEMORY_DAYS", "14"))
 # 这些是 harness 每轮自动注入的"上下文提示"，不是用户说的话，检索时要过滤掉

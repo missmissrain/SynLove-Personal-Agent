@@ -33,5 +33,6 @@ export * from "./memory/timelineTools.js";
 export * from "./memory/graphTypes.js";
 export * from "./memory/graphStore.js";
 export * from "./memory/graphTools.js";
+export * from "./memory/memoryRemoteClient.js";
 export * from "./memory/sharedMemory.js";
 //# sourceMappingURL=index.js.map

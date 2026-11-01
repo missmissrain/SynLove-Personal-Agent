@@ -586,7 +586,7 @@ def verify_harness_source() -> None:
         raise RuntimeError(
             "harness 源码疑似旧副本/残缺（缺少新架构目录: " + ", ".join(missing) + "）\n"
             + "  实际路径: " + str(HARNESS_ROOT) + "\n"
-            + "  唯一可用源码应为: <智能秘书>\\deepseek-harness，请勿指向备份或 *removed* 目录。"
+            + "  唯一可用源码应为当前安装目录的 backend，请勿指向备份或 *removed* 目录。"
         )
     # 游离副本告警：只提示，不阻断（它们不参与运行）。
     stray = [p.name for p in PROJECT_ROOT.glob("deepseek-harness*")

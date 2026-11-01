@@ -80,8 +80,10 @@ class ServiceManager:
                 harness_root = self.root / "backend"
                 env.update({
                     "SYNLOVE_SESSION_PORT": str(cfg["port"]),
+                    "SYNLOVE_SESSION_HOST": str(cfg["host"]),
                     "SYNLOVE_SESSION_ROOT": str((self.root / cfg.get("rootDir", "runtime/sessions")).resolve()),
                     "SYNLOVE_SESSION_COMPRESSION": str(cfg.get("compression", "zstd")),
+                    "SYNLOVE_SESSION_MODE": "local",
                 })
                 command = ["node", "tools/sessionServiceServer.mjs"]
                 cwd = harness_root
@@ -113,12 +115,31 @@ class ServiceManager:
     def stop_service(self, name):
         """name为服务名；只关闭配置为managed且身份匹配的端点，不接管external。"""
         cfg = self.registry.get_service(name)
-        if cfg["management"] != "managed" or not self.is_ready(name):
+        if cfg["management"] != "managed":
             return False
-        ServiceTransport(cfg).request("POST", "/shutdown", b"{}")
+
+        def port_closed():
+            """无参数；只有配置端口实际释放，才能确认进程不再提供服务。"""
+            try:
+                with socket.create_connection((cfg["host"], cfg["port"]), timeout=0.5):
+                    return False
+            except OSError:
+                return True
+
+        if not self.is_ready(name):
+            if not port_closed():
+                raise RuntimeError(name + "端口仍被占用且身份探活失败，拒绝报告已停止")
+            return False
+        try:
+            ServiceTransport(cfg).request("POST", "/shutdown", b"{}")
+        except Exception:
+            # Windows 服务可能先退出再送完 HTTP 响应；不能因连接中断把已释放的端口误报为失败。
+            if port_closed():
+                return True
+            raise
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
-            if not self.is_ready(name):
+            if port_closed():
                 child = self.children.get(name)
                 if child:
                     child.wait(timeout=30)

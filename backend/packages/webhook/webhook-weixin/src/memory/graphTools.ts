@@ -16,6 +16,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { KnowledgeGraphStore } from './graphStore.ts'
+import type { MemoryRemoteClient } from './memoryRemoteClient.ts'
 import { GRAPH_ASSISTANT_NAME, type PersonNode } from './graphTypes.ts'
 import { MemoryToolRegistry } from './MemoryToolRegistry.ts'
 
@@ -50,10 +51,10 @@ function describe_person(node: PersonNode): string {
 }
 
 /** 某人对外一层的称呼（"称呼 X 为 Y"），作为属性之外的补充。 */
-function relation_lines(graph: KnowledgeGraphStore, id: string): string[] {
-  const out = graph.edges_from(id)
+async function relation_lines(graph: KnowledgeGraphStore | MemoryRemoteClient, id: string): Promise<string[]> {
+  const out = await graph.edges_from(id)
   if (out.length === 0) return []
-  const by_id = new Map(graph.nodes().map(node => [node.id, node.name]))
+  const by_id = new Map((await graph.nodes()).map(node => [node.id, node.name]))
   return [`　他/她称呼：${out.map(edge => `${by_id.get(edge.to) ?? edge.to}为「${edge.label}」`).join('；')}`]
 }
 
@@ -63,7 +64,7 @@ function relation_lines(graph: KnowledgeGraphStore, id: string): string[] {
  * @param agent_ctx - agent 自己的 ctx。
  * @param graph - 知识图谱存储。
  */
-export function register_graph_tools(agent_ctx: Context, graph: KnowledgeGraphStore): void {
+export function register_graph_tools(agent_ctx: Context, graph: KnowledgeGraphStore | MemoryRemoteClient | undefined): void {
   MemoryToolRegistry.register_tools(agent_ctx, 'graph', register => {
   register(defineTool({
     name: 'relation_query',
@@ -107,6 +108,9 @@ export function register_graph_tools(agent_ctx: Context, graph: KnowledgeGraphSt
       render: (_args, value) => [{ type: 'text', text: String(value.text ?? '') }],
     },
     async execute(args: { from?: string, to?: string, max_depth?: number }) {
+      if (graph === undefined) {
+        return { ok: false, text: '知识图谱服务当前不可用。' }
+      }
       // 不填 from 就从中心（欣爱）出发：这才是"这张图以欣爱为中心"的实际含义，
       // 也让模型问"主人和 XX 什么关系"时少填一个参数、少错一次。
       const from = typeof args.from === 'string' ? args.from.trim() : ''
@@ -115,9 +119,9 @@ export function register_graph_tools(agent_ctx: Context, graph: KnowledgeGraphSt
         return { ok: false, text: '至少要给 from 或 to 一个人名。' }
       }
       const origin = from === '' ? GRAPH_ASSISTANT_NAME : from
-      const start = graph.find(origin)
+      const start = await graph.find(origin)
       if (start === undefined) {
-        const known = graph.nodes().map(node => node.name).slice(0, 30)
+        const known = (await graph.nodes()).map(node => node.name).slice(0, 30)
         return {
           ok: true,
           text: known.length === 0
@@ -130,8 +134,8 @@ export function register_graph_tools(agent_ctx: Context, graph: KnowledgeGraphSt
 
       // 只给 from：资料 + 关系网
       if (to === '') {
-        const attributes = graph.attributes(start.name)
-        const ring = graph.neighborhood(start.name, { max_depth: 2 })
+        const attributes = await graph.attributes(start.name)
+        const ring = await graph.neighborhood(start.name, { max_depth: 2 })
         const lines = [
           `【${start.name}】${describe_person(attributes ?? start)}`,
         ]
@@ -148,12 +152,12 @@ export function register_graph_tools(agent_ctx: Context, graph: KnowledgeGraphSt
       }
 
       // 给了 to：查链路
-      const end = graph.find(to)
+      const end = await graph.find(to)
       if (end === undefined) {
-        const known = graph.nodes().map(node => node.name).slice(0, 30)
+        const known = (await graph.nodes()).map(node => node.name).slice(0, 30)
         return { ok: true, text: `没有找到"${to}"。目前记录在册的人有：${known.join('、')}。` }
       }
-      const paths = graph.paths(start.name, end.name, { max_depth })
+      const paths = await graph.paths(start.name, end.name, { max_depth })
       if (paths.length === 0) {
         return {
           ok: true,
@@ -162,10 +166,10 @@ export function register_graph_tools(agent_ctx: Context, graph: KnowledgeGraphSt
         }
       }
       const lines = [
-        `【${start.name}】${describe_person(graph.attributes(start.name) ?? start)}`,
-        ...relation_lines(graph, start.id),
-        `【${end.name}】${describe_person(graph.attributes(end.name) ?? end)}`,
-        ...relation_lines(graph, end.id),
+        `【${start.name}】${describe_person(await graph.attributes(start.name) ?? start)}`,
+        ...await relation_lines(graph, start.id),
+        `【${end.name}】${describe_person(await graph.attributes(end.name) ?? end)}`,
+        ...await relation_lines(graph, end.id),
         '',
         `找到 ${paths.length} 条关系链路：`,
       ]

@@ -12,11 +12,15 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { WeixinStateStore } from '../state/weixinStateStore.ts'
 import { probe } from '../diagnostics/probe.ts'
 
 /** 单次返回给模型的最大字符数。 */
 const MAX_CHARS = 6_000
+
+interface ParkedResult {
+  text: string
+  created_at: number
+}
 
 function clip(text: string): string {
   return text.length <= MAX_CHARS ? text : `${text.slice(0, MAX_CHARS)}\n…（已截断，还有更多条，可再查）`
@@ -39,7 +43,7 @@ function ago(ms: number): string {
  */
 export function register_bridge_result_tools(
   agent_ctx: Context,
-  store: WeixinStateStore,
+  store: any,
   retention_ms = 6 * 3600_000,
 ): void {
   agent_ctx.tools.register(defineTool({
@@ -76,7 +80,7 @@ export function register_bridge_result_tools(
     async execute(args: { limit?: number, keyword?: string }) {
       const limit = Math.max(1, Math.min(50, Number(args.limit) || 10))
       const keyword = typeof args.keyword === 'string' ? args.keyword.trim() : ''
-      let rows = store.parked_results(limit * 3)
+      let rows: ParkedResult[] = await store.parked_results(limit * 3) as ParkedResult[]
       if (keyword !== '') rows = rows.filter(row => row.text.includes(keyword))
       rows = rows.slice(0, limit)
       probe('bridge-results', 'queried', { count: rows.length, keyword })

@@ -106,6 +106,46 @@ export class TurnContextStore {
             return undefined;
         return Date.now() - fallback.received_at <= max_age_ms ? fallback.context_token : undefined;
     }
+    /**
+     * 异步解析精确轮次上下文；本地 SQLite 会立即完成，远程端口会等待 HTTP 结果。
+     * 远程出站协调器必须使用这个入口，不能读取同步方法的 Promise。
+     */
+    async resolve_async(session_id, turn) {
+        const exact = await this.store.get_turn_context(session_id, turn);
+        if (exact !== undefined)
+            return exact;
+        const fallback = await this.store.latest_delivery_for_session(session_id);
+        if (fallback === undefined) {
+            probe('turn-context', 'resolve.miss', { session_id, turn });
+            return undefined;
+        }
+        return {
+            delivery_id: fallback.delivery_id,
+            user_id: fallback.user_id,
+            ...fallback.context_token === undefined ? {} : { context_token: fallback.context_token },
+        };
+    }
+    /** 异步读取新鲜 token，兼容本地和远程状态端口。 */
+    async latest_token_if_fresh_async(session_id, max_age_ms = 10 * 60_000) {
+        const fallback = await this.store.latest_delivery_for_session(session_id);
+        if (fallback === undefined || Date.now() - fallback.received_at > max_age_ms)
+            return undefined;
+        return fallback.context_token;
+    }
+    /** 异步绑定轮次上下文。 */
+    async bind_async(session_id, turn, context) {
+        await this.store.bind_turn_context({
+            session_id,
+            turn,
+            delivery_id: context.delivery_id,
+            user_id: context.user_id,
+            ...context.context_token === undefined ? {} : { context_token: context.context_token },
+        });
+    }
+    /** 异步清理旧轮次上下文。 */
+    async prune_async(session_id, keep = 20) {
+        await this.store.prune_turn_context(session_id, keep);
+    }
     /** 一轮结束后清理历史，避免表无限增长。 */
     prune(session_id, keep = 20) {
         this.store.prune_turn_context(session_id, keep);

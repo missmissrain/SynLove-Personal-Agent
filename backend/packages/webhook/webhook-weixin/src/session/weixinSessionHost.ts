@@ -146,11 +146,21 @@ export class HarnessSessionHost implements WeixinSessionHost {
   async resume_agent(session_id: SessionId): Promise<Agent> {
     this.assert_not_disposed()
     const composition = await this.compose()
-    const handle = await this.ctx.agents.resume({
-      resumeSessionId: session_id,
-      ...this.agent_options() === undefined ? {} : { agentOptions: this.agent_options()! },
-      ...composition.setup === undefined ? {} : { setup: composition.setup },
-    })
+    let handle
+    try {
+      handle = await this.ctx.agents.resume({
+        resumeSessionId: session_id,
+        ...this.agent_options() === undefined ? {} : { agentOptions: this.agent_options()! },
+        ...composition.setup === undefined ? {} : { setup: composition.setup },
+      })
+    } catch (error) {
+      // session_id 是共享路由名称，不代表磁盘已有会话；仅缺失错误允许首次创建。
+      // 损坏、权限、写句柄占用等错误必须上抛，禁止以新会话覆盖真实历史。
+      const message = error instanceof Error ? error.message : String(error)
+      if (!/^session ["'][^"']+["'] not found$/i.test(message)) throw error
+      probe('lifecycle', 'agent.resume_missing_create', { session_id: String(session_id) })
+      return this.create_agent(session_id)
+    }
     this.handles.set(String(handle.agent.id), handle)
     probe('lifecycle', 'agent.resumed', { session_id: String(handle.agent.id) })
     return handle.agent

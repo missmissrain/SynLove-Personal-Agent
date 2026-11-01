@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 import sys
 import time
@@ -28,7 +29,8 @@ from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-STATE_DB = Path.home() / ".dsh" / "weixin-state.db"
+STATE_DB = Path(os.environ.get("DSH_WEIXIN_STATE_DB") or
+                Path(os.environ.get("DSH_HOME") or Path(__file__).resolve().parents[1] / "runtime/dsh") / "weixin-state.db")
 PROBE = Path(__file__).resolve().parents[1] / "runtime" / "weixin-probe.log"
 
 

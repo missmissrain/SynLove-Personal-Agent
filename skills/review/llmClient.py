@@ -87,7 +87,7 @@ class llmClient:
         value = os.environ.get(env_name)
         if value:
             return value
-        path = Path.home() / ".dsh" / ".credentials.yaml"
+        path = Path(os.environ.get("DSH_HOME") or Path(__file__).resolve().parents[2] / "runtime/dsh") / ".credentials.yaml"
         if yaml is None or not path.is_file():
             return ""
         try:

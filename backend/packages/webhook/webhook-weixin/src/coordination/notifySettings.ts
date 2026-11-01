@@ -11,8 +11,6 @@
  * @module dsh-webhook-weixin/notify-settings
  */
 
-import type { WeixinStateStore } from '../state/weixinStateStore.ts'
-
 /** 可开关的通知来源。 */
 export type NotifyTarget = 'codex' | 'opencode'
 
@@ -24,6 +22,12 @@ export interface NotifySettings {
   set_enabled(target: NotifyTarget, enabled: boolean): void
   /** 两个来源的当前状态。 */
   snapshot(): Record<NotifyTarget, boolean>
+  /** 异步读取开关；远程状态端口必须使用此入口。 */
+  is_enabled_async?(target: NotifyTarget): Promise<boolean>
+  /** 异步设置开关；远程状态端口必须使用此入口。 */
+  set_enabled_async?(target: NotifyTarget, enabled: boolean): Promise<void>
+  /** 异步读取全部开关；远程状态端口必须使用此入口。 */
+  snapshot_async?(): Promise<Record<NotifyTarget, boolean>>
 }
 
 /** meta 键名。 */
@@ -36,7 +40,7 @@ function meta_key(target: NotifyTarget): string {
  *
  * @param store - 微信状态库（复用 meta 表，避免再引入一份配置）。
  */
-export function create_notify_settings(store: WeixinStateStore): NotifySettings {
+export function create_notify_settings(store: any): NotifySettings {
   return {
     is_enabled(target: NotifyTarget): boolean {
       // 默认开启：没写过就是开着的。
@@ -50,6 +54,19 @@ export function create_notify_settings(store: WeixinStateStore): NotifySettings 
         codex: store.get_meta(meta_key('codex')) !== '0',
         opencode: store.get_meta(meta_key('opencode')) !== '0',
       }
+    },
+    async is_enabled_async(target: NotifyTarget): Promise<boolean> {
+      return (await store.get_meta(meta_key(target))) !== '0'
+    },
+    async set_enabled_async(target: NotifyTarget, enabled: boolean): Promise<void> {
+      await store.set_meta(meta_key(target), enabled ? '1' : '0')
+    },
+    async snapshot_async(): Promise<Record<NotifyTarget, boolean>> {
+      const [codex, opencode] = await Promise.all([
+        store.get_meta(meta_key('codex')),
+        store.get_meta(meta_key('opencode')),
+      ])
+      return { codex: codex !== '0', opencode: opencode !== '0' }
     },
   }
 }

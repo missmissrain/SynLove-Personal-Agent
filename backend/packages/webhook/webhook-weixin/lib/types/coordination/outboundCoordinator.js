@@ -113,9 +113,15 @@ export class OutboundCoordinator {
             turn: input.turn,
             ...context?.context_token === undefined ? {} : { context_token: context.context_token },
         });
+        if (record instanceof Promise) {
+            void record.then(value => {
+                ObservationRecorder.bind_outbound(value.outbound_id, input.session_id, input.turn);
+            });
+            return;
+        }
         ObservationRecorder.bind_outbound(record.outbound_id, input.session_id, input.turn);
         // 长期记忆：只记"对用户的最终回复"（通知类走 enqueue_notice，不算对话回复）。
-        this.record_entry?.({
+        void Promise.resolve(this.record_entry?.({
             id: record.outbound_id,
             ts: record.created_at,
             role: 'assistant',
@@ -123,7 +129,7 @@ export class OutboundCoordinator {
             user_id: record.user_id,
             session_id: record.session_id,
             turn: input.turn,
-        });
+        })).catch(error => probe('timeline', 'append.failed', { id: record.outbound_id, error: String(error) }));
     }
     /** 入队控制回执 / 错误 / 进度。 */
     enqueue_notice(input) {
@@ -132,8 +138,11 @@ export class OutboundCoordinator {
         // 通知类（turn 为空）不做无上限堆积：超出上限丢最旧的。
         // 理由：通知时效性强，且会占用平台发送限额、把正式回复挤出窗口。
         // 带 turn 的正式回复不受影响（trim 只删 turn IS NULL 的 pending）。
-        if (input.turn === undefined)
-            this.store.trim_pending_notices(input.session_id);
+        if (input.turn === undefined) {
+            const trimmed = this.store.trim_pending_notices(input.session_id);
+            if (trimmed instanceof Promise)
+                void trimmed;
+        }
         // 没显式给 token 的通知，退而带上"该会话最近一次**且仍然新鲜**的 token"。
         //
         // 为什么强调新鲜：无 token 的发送在会话窗口关闭后会被拒（→ 延后，不阻塞队列），
@@ -141,7 +150,7 @@ export class OutboundCoordinator {
         // 所以只在窗口还开着时才带，过期的宁可不带（走"延后"而不是"熔断"）。
         const fallback_token = input.context_token
             ?? this.turn_context.latest_token_if_fresh(input.session_id);
-        this.store.enqueue_outbox({
+        const record = this.store.enqueue_outbox({
             session_id: input.session_id,
             user_id: input.user_id,
             kind: input.kind,
@@ -149,6 +158,8 @@ export class OutboundCoordinator {
             ...input.turn === undefined ? {} : { turn: input.turn },
             ...fallback_token === undefined ? {} : { context_token: fallback_token },
         });
+        if (record instanceof Promise)
+            void record;
     }
     // ── 发送 ──────────────────────────────────────────────────────────────
     /**
@@ -185,8 +196,8 @@ export class OutboundCoordinator {
             return;
         this.draining = true;
         try {
-            const heads = this.store.next_outbox_per_session();
-            await Promise.all(heads.map(head => this.send_head(head)));
+            const heads = await this.store.next_outbox_per_session();
+            await Promise.all(heads.map((head) => this.send_head(head)));
         }
         finally {
             this.draining = false;
@@ -220,7 +231,7 @@ export class OutboundCoordinator {
                 probe('outbound', 'pump.batch_capped', { session_id: current.session_id, sent });
                 return;
             }
-            current = this.store.next_outbox(current.session_id);
+            current = await this.store.next_outbox(current.session_id);
         }
     }
     /** 发送前等待，保证最小间隔（会话级 + 全局级）。 */
@@ -244,7 +255,7 @@ export class OutboundCoordinator {
             outbound_id: record.outbound_id, session_id: record.session_id, kind: record.kind,
             sequence: record.sequence, attempt: record.attempt, turn: record.turn,
         });
-        this.store.mark_outbox_sending(record.outbound_id);
+        await this.store.mark_outbox_sending(record.outbound_id);
         try {
             // 发送前**重新解析一次 token**，而不是只用入队时存下的那个。
             //
@@ -273,10 +284,10 @@ export class OutboundCoordinator {
                     ...send_token === undefined ? {} : { context_token: send_token },
                 });
                 // 每段成功即落盘：中途崩溃/失败重启后不会重复投递该段。
-                this.store.mark_outbox_part_sent(record.outbound_id, index);
+                await this.store.mark_outbox_part_sent(record.outbound_id, index);
                 sent_any = true;
             }
-            this.store.mark_outbox_sent(record.outbound_id);
+            await this.store.mark_outbox_sent(record.outbound_id);
             // 发送成功说明限流窗口已过：清空熔断与连击计数。
             this.paused_until = 0;
             this.rate_limit_streak = 0;
@@ -312,9 +323,9 @@ export class OutboundCoordinator {
                     // 但结果本身有价值（"你让我做的事做完了"），所以停放在队列里保留一段时间，
                     // 由工具 `处理结果日志` 在用户主动询问时返回。
                     const park_ms = this.parked_retention_ms;
-                    this.store.mark_outbox_failed(record.outbound_id, 'failed_retryable', '会话窗口已关闭：已停放，等用户询问时返回', Date.now() + park_ms);
+                    await this.store.mark_outbox_failed(record.outbound_id, 'failed_retryable', '会话窗口已关闭：已停放，等用户询问时返回', Date.now() + park_ms);
                     // 顺手清理超过保留期的停放结果，避免长期堆积
-                    this.store.prune_parked_results(park_ms);
+                    await this.store.prune_parked_results(park_ms);
                     done({ outcome: 'notice_parked', error: detail, attempt, park_ms });
                     probe('outbound', 'notice.parked', {
                         outbound_id: record.outbound_id, park_ms,
@@ -324,7 +335,7 @@ export class OutboundCoordinator {
                 }
                 if (record.context_token === undefined) {
                     const defer_ms = this.no_token_defer_ms;
-                    this.store.mark_outbox_failed(record.outbound_id, 'failed_retryable', detail, Date.now() + defer_ms);
+                    await this.store.mark_outbox_failed(record.outbound_id, 'failed_retryable', detail, Date.now() + defer_ms);
                     done({ outcome: 'deferred_no_token', error: detail, attempt, defer_ms });
                     probe('outbound', 'send.deferred_no_token', {
                         outbound_id: record.outbound_id, kind: record.kind, defer_ms,
@@ -337,7 +348,7 @@ export class OutboundCoordinator {
                 this.rate_limit_streak += 1;
                 const cooldown = Math.min(this.rate_limit_cooldown_ms * 2 ** (this.rate_limit_streak - 1), this.rate_limit_cooldown_max_ms);
                 this.paused_until = Date.now() + cooldown;
-                this.store.mark_outbox_failed(record.outbound_id, 'failed_retryable', detail, Date.now() + cooldown);
+                await this.store.mark_outbox_failed(record.outbound_id, 'failed_retryable', detail, Date.now() + cooldown);
                 done({
                     outcome: 'rate_limited', error: detail, attempt,
                     cooldown_ms: cooldown, streak: this.rate_limit_streak,
@@ -345,7 +356,7 @@ export class OutboundCoordinator {
                 return false;
             }
             if (!retryable || attempt >= this.max_attempts) {
-                this.store.mark_outbox_failed(record.outbound_id, 'failed_terminal', detail);
+                await this.store.mark_outbox_failed(record.outbound_id, 'failed_terminal', detail);
                 done({ outcome: 'failed_terminal', error: detail, attempt });
                 // 失败只落日志/探针，**绝不再往 outbox 回投"发送失败"通知**：
                 // 那条通知本身也要占用发送配额，发送被限流时它会跟着失败，等于把一次
@@ -359,7 +370,7 @@ export class OutboundCoordinator {
             // 普通可重试错误（网络抖动等）：按指数退避，重试仍计入突发节流。
             const base = this.retry_base_ms;
             const next_retry_at = Date.now() + base * 2 ** Math.min(attempt, 6);
-            this.store.mark_outbox_failed(record.outbound_id, 'failed_retryable', detail, next_retry_at);
+            await this.store.mark_outbox_failed(record.outbound_id, 'failed_retryable', detail, next_retry_at);
             done({
                 outcome: 'failed_retryable',
                 error: detail, attempt, next_retry_in_ms: next_retry_at - Date.now(),
@@ -439,7 +450,73 @@ export class OutboundCoordinator {
         if (context === undefined)
             return;
         this.note_visible(session_id);
-        this.store.enqueue_outbox({
+        const record = this.store.enqueue_outbox({
+            session_id,
+            user_id: context.user_id,
+            kind: 'progress',
+            text,
+            turn: state.turn,
+            ...context.context_token === undefined ? {} : { context_token: context.context_token },
+        });
+        if (record instanceof Promise)
+            void record;
+    }
+    /**
+     * 远程状态端口专用的异步正式回复入口。
+     *
+     * 本方法与旧同步入口语义一致，但会等待 turn context、outbox 和长期记忆写入，
+     * 用于避免远程 HTTP 状态尚未落库就开始发送。
+     */
+    async enqueue_assistant_async(input) {
+        if (!input.text.trim())
+            return;
+        const context = await this.turn_context.resolve_async(input.session_id, input.turn);
+        const record = await this.store.enqueue_outbox({
+            session_id: input.session_id,
+            user_id: context?.user_id ?? input.user_id,
+            kind: 'assistant',
+            text: input.text,
+            turn: input.turn,
+            ...context?.context_token === undefined ? {} : { context_token: context.context_token },
+        });
+        ObservationRecorder.bind_outbound(record.outbound_id, input.session_id, input.turn);
+        await Promise.resolve(this.record_entry?.({
+            id: record.outbound_id,
+            ts: record.created_at,
+            role: 'assistant',
+            text: input.text,
+            user_id: record.user_id,
+            session_id: record.session_id,
+            turn: input.turn,
+        }));
+    }
+    /** 远程状态端口专用的异步通知入口。 */
+    async enqueue_notice_async(input) {
+        if (!input.text.trim())
+            return;
+        if (input.turn === undefined)
+            await this.store.trim_pending_notices(input.session_id);
+        const fallback_token = input.context_token
+            ?? await this.turn_context.latest_token_if_fresh_async(input.session_id);
+        await this.store.enqueue_outbox({
+            session_id: input.session_id,
+            user_id: input.user_id,
+            kind: input.kind,
+            text: input.text,
+            ...input.turn === undefined ? {} : { turn: input.turn },
+            ...fallback_token === undefined ? {} : { context_token: fallback_token },
+        });
+    }
+    /** 远程状态端口专用的异步进度入口。 */
+    async enqueue_progress_async(session_id, text) {
+        const state = this.progress.get(session_id);
+        if (state === undefined)
+            return;
+        const context = await this.turn_context.resolve_async(session_id, state.turn);
+        if (context === undefined)
+            return;
+        this.note_visible(session_id);
+        await this.store.enqueue_outbox({
             session_id,
             user_id: context.user_id,
             kind: 'progress',
@@ -468,7 +545,7 @@ export class OutboundCoordinator {
     }
     /** 启动时恢复 pending outbox（设计文档 §10.3）。 */
     async recover_pending() {
-        const pending = this.store.list_pending_outbox();
+        const pending = await this.store.list_pending_outbox();
         const now = Date.now();
         // 超过 10 分钟的旧回复不再补发：用户早就翻篇了，补发只会变成一次突发，
         // 反而触发服务端限流。标记为终态并留下记录即可。
@@ -485,13 +562,13 @@ export class OutboundCoordinator {
                 ? Math.max(stale_ms, this.parked_retention_ms)
                 : Math.max(stale_ms, reply_stale_ms);
             if (now - record.created_at > limit) {
-                this.store.mark_outbox_failed(record.outbound_id, 'failed_terminal', '重启恢复：超过补发时限，已丢弃');
+                await this.store.mark_outbox_failed(record.outbound_id, 'failed_terminal', '重启恢复：超过补发时限，已丢弃');
                 dropped += 1;
                 continue;
             }
             // sending 卡住的记录重置为可重试（client_id 不变，服务端幂等）。
             if (record.status === 'sending') {
-                this.store.mark_outbox_failed(record.outbound_id, 'failed_retryable', '重启恢复：上次发送中断');
+                await this.store.mark_outbox_failed(record.outbound_id, 'failed_retryable', '重启恢复：上次发送中断');
             }
         }
         probe('outbound', 'recover.pending', { count: pending.length, dropped_stale: dropped });

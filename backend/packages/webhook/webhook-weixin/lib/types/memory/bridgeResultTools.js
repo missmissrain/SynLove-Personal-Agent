@@ -67,7 +67,7 @@ export function register_bridge_result_tools(agent_ctx, store, retention_ms = 6 
         async execute(args) {
             const limit = Math.max(1, Math.min(50, Number(args.limit) || 10));
             const keyword = typeof args.keyword === 'string' ? args.keyword.trim() : '';
-            let rows = store.parked_results(limit * 3);
+            let rows = await store.parked_results(limit * 3);
             if (keyword !== '')
                 rows = rows.filter(row => row.text.includes(keyword));
             rows = rows.slice(0, limit);

@@ -37,9 +37,12 @@ sys.path.insert(0, str(ROOT))
 from skills.store.durableFile import durableFile  # noqa: E402
 from skills.store.runLock import runLock  # noqa: E402
 from tools.PowerKeepAlive import PowerKeepAlive  # noqa: E402
+from services.RuntimePaths import RuntimePaths
 
-STATE_DB = Path.home() / ".dsh" / "weixin-state.db"
-QQ_LOCK = Path.home() / ".dsh" / "qq-gateway.pid"
+PATHS = RuntimePaths(ROOT)
+STATE_DB = PATHS.state
+QQ_LOCK = PATHS.qq_lock
+GUARD_STARTED_AT = time.time()
 LOG = ROOT / "runtime" / "guard-service.log"
 PID_FILE = ROOT / "runtime" / "guard.pid"
 RSSHUB_ENTRY = ROOT / "rsshub" / "RSSHub" / "dist" / "index.mjs"
@@ -66,7 +69,6 @@ _preset_failures = 0        # 已废弃：不再定时造探针会话；保留�
 _gemma_failures = 0         # Gemma 探活连续失败次数
 _last_outbound_alert = 0.0  # 上次「推送失败」告警时间（1 小时去重）
 _seen_inbound_failures: set[str] = set()   # 已告警过的入站失败（按 delivery_id 去重）
-STATE_DB = Path.home() / ".dsh" / "weixin-state.db"
 PAUSE_MARKER = ROOT / "runtime" / "guardian.pause"
 _SUPERVISOR = None                         # 自愈状态机（第一次用到时才建）
 _POWER = PowerKeepAlive()
@@ -279,7 +281,7 @@ def check_weixin_stall():
                 last_poll = max(last_poll, datetime.datetime.fromisoformat(at.replace("Z", "+00:00")).timestamp())
             except ValueError:
                 pass
-    if last_poll > 0 and time.time() - last_poll > 300:
+    if last_poll >= GUARD_STARTED_AT and time.time() - last_poll > 300:
         restart_stack(f"微信 ingress 静默 {int(time.time() - last_poll)} 秒")
 
 
@@ -323,6 +325,11 @@ def check_gemma_alive():
         from services.ServiceClient import ServiceClient
         from urllib.parse import urlsplit, urlunsplit
         cfg = ServiceRegistry().get_service("llm")
+        model_path = ROOT / "config/modelConfig.json"
+        model_cfg = json.loads(model_path.read_text(encoding="utf-8-sig"))
+        if model_cfg.get("defaultModel", {}).get("provider") != cfg.get("provider", "gemma-local"):
+            _gemma_failures = 0
+            return None  # 云端对话不依赖可选本地模型，不能因此重启微信/QQ。
         if cfg["management"] == "external":
             _gemma_failures = 0
             return None  # 外部服务不归本机守护器管理，也不应显示假绿。

@@ -131,13 +131,16 @@ export class QqGateway {
       case 10: {
         const interval = Number((frame.d as { heartbeat_interval?: number })?.heartbeat_interval ?? 30_000)
         if (!Number.isFinite(interval) || interval < 1_000) throw new Error('心跳间隔无效')
-        this.start_heartbeat(interval, gen)
+        // Hello 尚未完成鉴权；此时发心跳可能得不到 ACK，导致每个周期都误断线。
+        // READY/RESUMED 携带的最新序号才是首次心跳的依据。
+        this.interval_ms = interval
         await this.identify(gen)
         return
       }
       case 11:
         this.awaiting_ack = false
         this.health(this.ready ? 'healthy' : 'connecting')
+        this.options.log?.('gateway 心跳已确认')
         return
       case 0:
         if (typeof frame.s === 'number') this.seq = frame.s
@@ -148,6 +151,7 @@ export class QqGateway {
           this.handshake = undefined
           this.ready = true
           this.attempt = 0
+          this.start_heartbeat(this.interval_ms, gen)
           this.health('ready')
           this.options.log?.('gateway READY')
         } else if (frame.t === 'C2C_MESSAGE_CREATE' || frame.t === 'GROUP_AT_MESSAGE_CREATE') {

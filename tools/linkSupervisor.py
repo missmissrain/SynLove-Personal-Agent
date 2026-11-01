@@ -27,6 +27,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from services.RuntimePaths import RuntimePaths
 
 ROOT_DEFAULT = Path(__file__).resolve().parents[1]
 
@@ -40,7 +41,7 @@ class linkSupervisor:
         self.runtime = self.root / "runtime"
         self.state_file = self.runtime / "link-supervisor.json"
         self.log_file = self.runtime / "link-supervisor.log"
-        self.state_db = Path.home() / ".dsh" / "weixin-state.db"
+        self.state_db = RuntimePaths(self.root).state
         self.cooldown = cooldown
         self.max_attempts = max_attempts
         self.state = self._load()

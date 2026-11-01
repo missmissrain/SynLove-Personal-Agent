@@ -76,7 +76,7 @@ export class OpencodeWatcher {
                 if (Date.now() - session.time_updated < this.idle_ms)
                     continue;
                 // 微信发起的任务由桥自己汇报，这里跳过（防重复）。
-                if (this.within_bridge_window(session.time_created)) {
+                if (await this.within_bridge_window(session.time_created)) {
                     probe('opencode-watch', 'skip_bridge_session', { session_id: session.id });
                     continue;
                 }
@@ -87,9 +87,9 @@ export class OpencodeWatcher {
                 if (last === undefined)
                     continue;
                 const key = 'oc_done:' + session.id;
-                if (this.store.get_meta(key) === last.message_id)
+                if (await this.store.get_meta(key) === last.message_id)
                     continue;
-                this.store.set_meta(key, last.message_id);
+                await this.store.set_meta(key, last.message_id);
                 if (!this.seeded)
                     continue;
                 const text = last.text;
@@ -106,8 +106,8 @@ export class OpencodeWatcher {
                     text.slice(0, this.summary_limit),
                 ].join('\n');
                 probe('opencode-watch', 'notify', { session_id: session.id });
-                for (const user_id of this.store.list_users())
-                    this.push(user_id, body);
+                for (const user_id of await this.store.list_users())
+                    await this.push(user_id, body);
             }
             this.seeded = true;
         }
@@ -119,8 +119,8 @@ export class OpencodeWatcher {
         }
     }
     /** 该会话是否落在微信桥的运行窗口内（防重复汇报）。 */
-    within_bridge_window(created_at) {
-        const raw = this.store.get_meta('oc_bridge_window');
+    async within_bridge_window(created_at) {
+        const raw = await this.store.get_meta('oc_bridge_window');
         if (raw === undefined || raw === '')
             return false;
         try {

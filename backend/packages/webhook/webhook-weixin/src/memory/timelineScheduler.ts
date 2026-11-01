@@ -14,11 +14,12 @@
 
 import { probe } from '../diagnostics/probe.ts'
 import type { TimelineStore } from './timelineStore.ts'
+import type { MemoryRemoteClient } from './memoryRemoteClient.ts'
 import type { TimelineSummarizer } from './timelineTypes.ts'
 
 /** 构造参数。 */
 export interface TimelineSchedulerOptions {
-  readonly store: TimelineStore
+  readonly store: TimelineStore | MemoryRemoteClient
   readonly summarizer: TimelineSummarizer
   /** 检查间隔（毫秒），默认 5 分钟（`DSH_TIMELINE_CHECK_MINUTES`）。 */
   readonly interval_ms?: number
@@ -54,7 +55,7 @@ export function start_timeline_scheduler(options: TimelineSchedulerOptions): Tim
     }
     busy = true
     try {
-      const due = options.store.days_needing_summary(now)
+      const due = await options.store.days_needing_summary(now)
       if (due.length === 0) return []
       probe('timeline', 'check.due', { dates: due })
       const updated = await options.store.summarize_due(options.summarizer, now)

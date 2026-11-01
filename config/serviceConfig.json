@@ -69,8 +69,8 @@
       "mode": "local",
       "apiKeyEnv": "SYNLOVE_MEMORY_API_KEY",
       "timeoutSeconds": 120,
-      "timelineDir": "runtime/timeline",
-      "graphDir": "runtime/graph"
+      "timelineDir": "runtime/dsh/timeline",
+      "graphDir": "runtime/dsh/graph"
     },
     "state": {
       "baseURL": "http://127.0.0.1:8798/v1",
@@ -78,7 +78,7 @@
       "mode": "local",
       "apiKeyEnv": "SYNLOVE_STATE_API_KEY",
       "timeoutSeconds": 120,
-      "databasePath": "runtime/weixin-state.db"
+      "databasePath": "runtime/dsh/weixin-state.db"
     },
     "qqstate": {
       "baseURL": "http://127.0.0.1:8799/v1",
@@ -86,7 +86,7 @@
       "mode": "local",
       "apiKeyEnv": "SYNLOVE_QQSTATE_API_KEY",
       "timeoutSeconds": 120,
-      "databasePath": "runtime/qq-state.db"
+      "databasePath": "runtime/dsh/qq-state.db"
     },
     "observation": {
       "baseURL": "http://127.0.0.1:8800/v1",
@@ -94,7 +94,7 @@
       "mode": "local",
       "apiKeyEnv": "SYNLOVE_OBSERVATION_API_KEY",
       "timeoutSeconds": 120,
-      "databasePath": "runtime/observation.db"
+      "databasePath": "runtime/observations.sqlite"
     },
     "session": {
       "baseURL": "http://127.0.0.1:8801/v1",
@@ -102,7 +102,7 @@
       "mode": "local",
       "apiKeyEnv": "SYNLOVE_SESSION_API_KEY",
       "timeoutSeconds": 120,
-      "rootDir": "runtime/sessions",
+      "rootDir": "runtime/dsh/sessions",
       "compression": "zstd"
     },
     "rsshub": {

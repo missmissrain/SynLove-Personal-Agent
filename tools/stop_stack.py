@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import json
+import argparse
 import os
 import re
 import subprocess
@@ -55,7 +56,7 @@ def list_processes() -> list[dict]:
     out = subprocess.run(
         ["powershell.exe", "-NoLogo", "-NoProfile", "-Command",
          "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; "
-         "Get-CimInstance Win32_Process | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress"],
+         "Get-CimInstance Win32_Process | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"],
         capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
     ).stdout
     data = json.loads(out or "[]")
@@ -131,14 +132,23 @@ def kill_port_owners(ports: tuple[int, ...] = (3080, 3081)) -> list[int]:
 
 
 def main() -> int:
+    """解析停栈范围和暂停时长；仅在目标端口释放、受管服务确认关闭后返回成功。"""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--no-pause", action="store_true")
+    parser.add_argument("--pause-seconds", type=float, default=86400)
+    parser.add_argument("--with-business", action="store_true")
+    args = parser.parse_args()
+    if args.pause_seconds <= 0:
+        parser.error("--pause-seconds 必须大于0")
     # --no-pause：给"重启"用（马上还要起回来），不要留暂停标记把守护按住
-    no_pause = "--no-pause" in sys.argv[1:]
+    no_pause = args.no_pause
     if no_pause:
         print("guardian_pause=skipped(--no-pause)")
         if PAUSE_MARKER.exists():
             PAUSE_MARKER.unlink()
     else:
-        marker = write_pause_marker("命令行执行了 tools/stop_stack.py（停止后端）")
+        marker = write_pause_marker("命令行执行了 tools/stop_stack.py（停止后端）",
+                                    hours=args.pause_seconds / 3600)
         print("guardian_pause=%s" % marker)
     # ① 先按端口持有者杀（可靠），② 再按命令行匹配兜底（没监听端口但仍存活的残留进程）
     by_port = kill_port_owners()
@@ -149,6 +159,20 @@ def main() -> int:
     time.sleep(2)
     print("port3080=%s" % ("free" if port_free(3080) else "still_listening"))
     print("port3081=%s" % ("free" if port_free(3081) else "still_listening"))
+    if not port_free(3080) or not port_free(3081):
+        return 1
+    if args.with_business:
+        # 相对 argv 的 Node 会话服务不能靠命令行绝对路径识别；由服务身份和配置决定归属。
+        sys.path.insert(0, str(PROJECT_ROOT))
+        from microServices.ServiceManager import ServiceManager
+        try:
+            manager = ServiceManager(PROJECT_ROOT)
+            states = manager.stop_managed_services()
+            states["core"] = manager.stop_service("core")
+            print("business_stopped=" + json.dumps(states, ensure_ascii=False))
+        except Exception as error:
+            print("business_stop_failed=" + type(error).__name__)
+            return 1
     return 0
 
 

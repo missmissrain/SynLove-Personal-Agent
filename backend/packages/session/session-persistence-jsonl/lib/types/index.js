@@ -22,6 +22,7 @@ import { compressZstdFrame, createZstdFrameDecoder, decompressZstdFrame, decompr
 import { ensureDurableDirectoryWin32, publishNewFileWin32 } from "./win32.js";
 import { verifyCurrentGenerationInWorker } from "./migration-verifier.js";
 import { JsonlGenerationSourceChangedError, JsonlGenerationUnsupportedMigrationError, prepareJsonlMigration, readStableJsonlFile, } from "./generation.js";
+import { RemoteSessionClient } from "./remote.js";
 /**
  * Internal handoff-reuse policy, not deployment configuration: a cold
  * observation and the resume that immediately follows it reuse one parsed
@@ -148,6 +149,8 @@ class JsonlSessionPersistence extends SessionPersistence {
     coldLogMemo = new Map();
     /** One joinable decode/migration operation per selected historical Session file revision. */
     migrationPreparations = new Map();
+    /** 远程模式下唯一的 Session 权威客户端；存在时绝不访问本地 JSONL 根目录。 */
+    remoteClient;
     constructor(ctx, config) {
         super(ctx);
         this.config = config;
@@ -159,6 +162,16 @@ class JsonlSessionPersistence extends SessionPersistence {
         // Resolve once so later process.cwd() changes cannot split one backend across roots.
         this.root = resolve(config.root);
         this.compression = config.compression ?? DEFAULT_COMPRESSION;
+        if ((process.env.SYNLOVE_SESSION_MODE ?? 'local').trim().toLowerCase() === 'remote') {
+            const endpoint = process.env.SYNLOVE_SESSION_BASE_URL;
+            if (!endpoint)
+                throw new Error('SYNLOVE_SESSION_MODE=remote 但未提供 SYNLOVE_SESSION_BASE_URL');
+            this.remoteClient = new RemoteSessionClient({
+                endpoint,
+                ...(process.env.SYNLOVE_SESSION_API_KEY ? { apiKey: process.env.SYNLOVE_SESSION_API_KEY } : {}),
+                timeoutMs: Number(process.env.SYNLOVE_SESSION_TIMEOUT_MS ?? '30000'),
+            });
+        }
         this.generationFormat = {
             currentVersion: sessionFormatCatalog.currentVersion,
             createRestore: header => sessionFormatCatalog.createRestore(header, {
@@ -169,7 +182,8 @@ class JsonlSessionPersistence extends SessionPersistence {
             encodeEvent: event => sessionFormatCatalog.encodeCurrentEvent(event),
             isUnsupportedMigrationError: (error) => error instanceof SessionFormatUnsupportedMigrationError,
         };
-        this.assertUsableRoot();
+        if (!this.remoteClient)
+            this.assertUsableRoot();
         this.tracker.install(ctx);
     }
     /**
@@ -192,6 +206,8 @@ class JsonlSessionPersistence extends SessionPersistence {
      */
     async create(header, options) {
         options?.signal?.throwIfAborted();
+        if (this.remoteClient)
+            return this.remoteClient.create(header, options);
         const snapshot = materializeCreateHeader(header);
         // Fail fast on a seeded/cut mismatch with the exact refusal the header
         // line encoder enforces at materialization.
@@ -219,6 +235,8 @@ class JsonlSessionPersistence extends SessionPersistence {
      */
     async open(id, access, options) {
         options?.signal?.throwIfAborted();
+        if (this.remoteClient)
+            return this.remoteClient.open(id, access, options);
         await this.ensureRootEncoding();
         options?.signal?.throwIfAborted();
         const pending = this.tracker.pendingOf(id);
@@ -300,6 +318,8 @@ class JsonlSessionPersistence extends SessionPersistence {
      * @returns resolution once every write handle active at the call has flushed.
      */
     flush() {
+        if (this.remoteClient)
+            return this.remoteClient.flush();
         return this.tracker.flushAll();
     }
     /**
@@ -311,6 +331,8 @@ class JsonlSessionPersistence extends SessionPersistence {
      */
     async stat(id, options) {
         options?.signal?.throwIfAborted();
+        if (this.remoteClient)
+            return this.remoteClient.stat(id, options);
         await this.ensureRootEncoding();
         options?.signal?.throwIfAborted();
         const pending = this.tracker.pendingOf(id);
@@ -346,6 +368,8 @@ class JsonlSessionPersistence extends SessionPersistence {
      * @returns one snapshot per session, in no promised order.
      */
     async list(options) {
+        if (this.remoteClient)
+            return this.remoteClient.list(options);
         const signal = options?.signal;
         const snapshots = [];
         const listed = new Set();
@@ -1398,4 +1422,5 @@ class JsonlSessionPersistence extends SessionPersistence {
  * under the stable-read loop.
  */
 export default JsonlSessionPersistence;
+export { RemoteSessionPersistence, } from "./remote.js";
 //# sourceMappingURL=index.js.map

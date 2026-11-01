@@ -22,7 +22,7 @@ import { probe, probe_timer } from '../diagnostics/probe.ts'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { WeixinAttachmentStore, WeixinSessionHost } from '../session/weixinSessionHost.ts'
 import type { NormalizedMedia, NormalizedWeixinMessage } from '../message/messageNormalizer.ts'
-import { INFLIGHT_TURN_PREFIX, type WeixinStateStore } from '../state/weixinStateStore.ts'
+import { INFLIGHT_TURN_PREFIX } from '../state/weixinStateStore.ts'
 import type { TurnContextStore } from '../state/turnContextStore.ts'
 import type { CodexCommand } from './codexBridge.ts'
 import type { OpencodeCommand } from './opencodeBridge.ts'
@@ -167,8 +167,16 @@ export type EnqueueOutbound = (input: {
 
 /** 构造参数。 */
 export interface InboundCoordinatorOptions {
-  readonly store: WeixinStateStore
-  readonly turn_context: TurnContextStore
+  /**
+   * 本地 store 与远程 state client 在迁移期共存；具体调用必须 await 可能的 Promise。
+   * 连接器完成整域切换后再收紧为显式端口接口。
+   */
+  readonly store: any
+  /**
+   * 轮次上下文存储；旧版测试和仅验证入站恢复的调用方可以省略。
+   * 真实连接器仍会注入正式实例，省略时协调器不执行依赖它的附加操作。
+   */
+  readonly turn_context?: TurnContextStore
   readonly host: WeixinSessionHost
   readonly attachments?: WeixinAttachmentStore
   readonly enqueue_outbound: EnqueueOutbound
@@ -228,7 +236,7 @@ export interface InboundCoordinatorOptions {
    * 在 delivery **首次登记**时调用（不是注入成功后）：用户确实说了这句话，
    * 而且 delivery_id 天然稳定，重放/恢复不会记重复。
    */
-  readonly record_entry?: (entry: TimelineEntry) => void
+  readonly record_entry?: (entry: TimelineEntry) => void | Promise<void>
 }
 
 /** 每个用户的分片状态：一条串行链 + 队列深度，互不阻塞。 */
@@ -281,7 +289,7 @@ export class InboundCoordinator {
    */
   async handle_batch(
     messages: readonly NormalizedWeixinMessage[],
-    cursor: string | undefined,
+    cursor: string | undefined = undefined,
     options?: { hold?: boolean },
   ): Promise<boolean> {
     const done = probe_timer('inbound', 'batch.start', {
@@ -290,7 +298,7 @@ export class InboundCoordinator {
     const tasks: Array<Promise<void>> = []
     for (const message of messages) {
       // 幂等登记在**任何异步分片之前**同步完成，避免同批次重复投递。
-      const first = this.options.store.put_delivery_if_absent({
+      const put_result = this.options.store.put_delivery_if_absent({
         delivery_id: message.delivery_id,
         user_id: message.user_id,
         received_at: message.received_at,
@@ -299,25 +307,32 @@ export class InboundCoordinator {
         // 落一份可恢复的入站事实：崩溃后据此重新注入，而不是假定"已喂给模型"。
         payload_json: serialize_payload(message),
       })
+      const first = put_result instanceof Promise ? await put_result : put_result
       if (!first) {
         probe('inbound', 'batch.skip_duplicate', { delivery_id: message.delivery_id })
         // 上次异步合并失败的消息仍由当前用户分片重试，不再永久跳过。
-        if (this.options.store.get_delivery(message.delivery_id)?.status === 'failed_retryable') {
+        const duplicate = this.options.store.get_delivery(message.delivery_id)
+        const duplicate_record = duplicate instanceof Promise ? await duplicate : duplicate
+        if (duplicate_record?.status === 'failed_retryable') {
           tasks.push(this.enqueue_for_user(message))
         }
         continue
       }
       // 长期记忆：记下用户这句话（幂等由 delivery_id 保证）。
-      this.options.record_entry?.({
+      const route_result = this.options.store.get_session_id(message.user_id)
+      const route = route_result instanceof Promise ? await route_result : route_result
+      const recorded = this.options.record_entry?.({
         id: message.delivery_id,
         ts: message.received_at,
         role: 'user',
         text: message.text,
         user_id: message.user_id,
-        ...this.options.store.get_session_id(message.user_id) === undefined
+        ...route === undefined
           ? {}
-          : { session_id: this.options.store.get_session_id(message.user_id) as string },
+          : { session_id: route as string },
       })
+      // 本地存储是同步追加，不额外让出批处理循环；远程端口返回 Promise 时才等待提交。
+      if (recorded !== undefined) await recorded
       // 压缩上下文期间：只入库、不进会话。压缩结束后恢复流程会把它们重投。
       if (options?.hold === true) {
         probe('inbound', 'batch.held', { delivery_id: message.delivery_id, user_id: message.user_id })
@@ -332,13 +347,13 @@ export class InboundCoordinator {
     if (rejected > 0) probe('inbound', 'batch.task_rejected', { rejected })
 
     const ids = messages.map(message => message.delivery_id)
-    const committable = this.options.store.batch_committable(ids)
+    const committable = await this.options.store.batch_committable(ids)
     done({ committable, rejected })
     return committable
   }
 
   /** 把一条消息排进其所属用户的分片链；同用户严格保序，不同用户并发。 */
-  private enqueue_for_user(message: NormalizedWeixinMessage, run?: () => Promise<void>): Promise<void> {
+  private async enqueue_for_user(message: NormalizedWeixinMessage, run?: () => Promise<void>): Promise<void> {
     if (this.disposed) return Promise.resolve()
     const previous = this.shards.get(message.user_id) ?? { chain: Promise.resolve(), depth: 0 }
 
@@ -349,17 +364,31 @@ export class InboundCoordinator {
       probe('inbound', 'shard.overflow', {
         user_id: message.user_id, depth: previous.depth, limit: MAX_SHARD_DEPTH,
       })
-      this.options.store.update_delivery(message.delivery_id, 'failed_terminal', {
+      const updated = this.options.store.update_delivery(message.delivery_id, 'failed_terminal', {
         last_error: `入站队列过深（${previous.depth} ≥ ${MAX_SHARD_DEPTH}），已丢弃`,
         increment_attempt: true,
       })
+      if (updated instanceof Promise) await updated
+      const route = this.options.store.get_session_id(message.user_id)
+      if (route instanceof Promise) {
+        const session_id = (await route) ?? `weixin-${message.user_id}`
+        this.options.enqueue_outbound({
+          session_id,
+          user_id: message.user_id,
+          kind: 'error',
+          text: `消息一下有点多啦，这条我先放一放（队列已满 ${MAX_SHARD_DEPTH} 条）😅 稍后再发一次好吗？`,
+        })
+        return
+      }
       this.options.enqueue_outbound({
-        session_id: this.options.store.get_session_id(message.user_id) ?? `weixin-${message.user_id}`,
+        session_id: route instanceof Promise
+          ? `weixin-${message.user_id}`
+          : route ?? `weixin-${message.user_id}`,
         user_id: message.user_id,
         kind: 'error',
         text: `消息一下有点多啦，这条我先放一放（队列已满 ${MAX_SHARD_DEPTH} 条）😅 稍后再发一次好吗？`,
       })
-      return Promise.resolve()
+      return
     }
 
     const shard: UserShard = { chain: previous.chain, depth: previous.depth + 1 }
@@ -403,8 +432,8 @@ export class InboundCoordinator {
       // `/opencode ...` 直接遥控本机 opencode（输出主动推送）。
       const oc_command = this.options.opencode_bridge?.parse(message.text)
       if (oc_command !== undefined && this.options.opencode_bridge !== undefined) {
-        const session_id = this.options.store.get_session_id(message.user_id) ?? `weixin-${message.user_id}`
-        this.options.store.update_delivery(message.delivery_id, 'control_applied', { injected_at: Date.now() })
+        const session_id = (await this.options.store.get_session_id(message.user_id)) ?? `weixin-${message.user_id}`
+        await this.options.store.update_delivery(message.delivery_id, 'control_applied', { injected_at: Date.now() })
         probe('inbound', 'opencode.command', { delivery_id: message.delivery_id, action: oc_command.action })
         await this.options.opencode_bridge.handle(
           message.user_id, session_id, oc_command, message.context_token,
@@ -414,8 +443,8 @@ export class InboundCoordinator {
       // `/codex ...` 直接遥控本机 Codex，不经过大模型（用户明确要求的能力）。
       const codex_command = this.options.codex_bridge?.parse(message.text)
       if (codex_command !== undefined && this.options.codex_bridge !== undefined) {
-        const session_id = this.options.store.get_session_id(message.user_id) ?? `weixin-${message.user_id}`
-        this.options.store.update_delivery(message.delivery_id, 'control_applied', { injected_at: Date.now() })
+        const session_id = (await this.options.store.get_session_id(message.user_id)) ?? `weixin-${message.user_id}`
+        await this.options.store.update_delivery(message.delivery_id, 'control_applied', { injected_at: Date.now() })
         probe('inbound', 'codex.command', { delivery_id: message.delivery_id, action: codex_command.action })
         await this.options.codex_bridge.handle(
           message.user_id, session_id, codex_command,
@@ -429,21 +458,21 @@ export class InboundCoordinator {
       }
       await this.coalesce_message(message)
     } catch (error) {
-      this.handle_message_failure(message, error)
+      await this.handle_message_failure(message, error)
     }
   }
 
   /** message 为原始投递，error 为处理异常；统一计次、记录原错并在达到上限时发送失败回执。 */
-  private handle_message_failure(message: NormalizedWeixinMessage, error: unknown): void {
+  private async handle_message_failure(message: NormalizedWeixinMessage, error: unknown): Promise<void> {
       if (this.disposed) return
-      const current = this.options.store.get_delivery(message.delivery_id)
+      const current = await this.options.store.get_delivery(message.delivery_id)
       if (current !== undefined && is_cursor_committable(current.status)) return
       const detail = error instanceof Error ? error.message : String(error)
-      const attempt = (this.options.store.get_delivery(message.delivery_id)?.attempt ?? 0) + 1
+      const attempt = ((await this.options.store.get_delivery(message.delivery_id))?.attempt ?? 0) + 1
       // 重试上限：超过就转终态。否则「注入失败 → 游标不提交 → 服务端重投 → 又失败」
       // 会变成热循环（实测一次 preset 挂载失败就打出上千条重复事件）。
       if (attempt >= MAX_DELIVERY_ATTEMPTS) {
-        this.options.store.update_delivery(message.delivery_id, 'failed_terminal', {
+        await this.options.store.update_delivery(message.delivery_id, 'failed_terminal', {
         last_error: detail, increment_attempt: true,
       })
         probe('inbound', 'message.failed_terminal', {
@@ -451,7 +480,7 @@ export class InboundCoordinator {
         })
         // 明确告知用户这条没处理成功，而不是让它静默消失。
         this.options.enqueue_outbound({
-          session_id: this.options.store.get_session_id(message.user_id) ?? `weixin-${message.user_id}`,
+          session_id: (await this.options.store.get_session_id(message.user_id)) ?? `weixin-${message.user_id}`,
           user_id: message.user_id,
           kind: 'error',
           text: '（这条消息处理失败了，我已经记录下来；请稍后再发一次或告诉我换种说法）',
@@ -459,7 +488,7 @@ export class InboundCoordinator {
         })
         return
       }
-      this.options.store.update_delivery(message.delivery_id, 'failed_retryable', {
+      await this.options.store.update_delivery(message.delivery_id, 'failed_retryable', {
         last_error: detail, increment_attempt: true,
       })
       probe('inbound', 'message.failed', { delivery_id: message.delivery_id, attempt, error: detail })
@@ -470,10 +499,10 @@ export class InboundCoordinator {
     const done = probe_timer('inbound', 'control.apply', {
       delivery_id: message.delivery_id, user_id: message.user_id, command: control.kind,
     })
-    const session_id = this.options.store.get_session_id(message.user_id)
+    const session_id = await this.options.store.get_session_id(message.user_id)
     if (session_id === undefined) {
       // 没有路由就没有可控制的 Agent：明确告知，而不是当普通正文丢给模型。
-      this.options.store.update_delivery(message.delivery_id, 'control_applied')
+      await this.options.store.update_delivery(message.delivery_id, 'control_applied')
       this.options.enqueue_outbound({
         session_id: `weixin-unrouted:${message.user_id}`,
         user_id: message.user_id,
@@ -486,7 +515,7 @@ export class InboundCoordinator {
     }
     const agent = this.options.host.get_agent(brandString<SessionId>(session_id))
     if (agent === undefined) {
-      this.options.store.update_delivery(message.delivery_id, 'control_applied')
+      await this.options.store.update_delivery(message.delivery_id, 'control_applied')
       this.options.enqueue_outbound({
         session_id,
         user_id: message.user_id,
@@ -510,7 +539,7 @@ export class InboundCoordinator {
         agent.cancel({ kind: 'user' }, { keepInbox: !control.clear_pending })
         // 用户主动取消 = 这一轮**不该**被"重启补跑"救回来。
         // 否则下次启动会把它当成"被打断的轮次"重新跑一遍（实测：取消掉的音量任务被重启复活）。
-        this.options.store.delete_meta(`${INFLIGHT_TURN_PREFIX}${session_id}`)
+        await this.options.store.delete_meta(`${INFLIGHT_TURN_PREFIX}${session_id}`)
         // abort 路径不会触发 `agent/turn-stopping`，所以这里手动收尾：停心跳 + 清轮次状态。
         this.options.on_turn_cancelled?.(session_id)
         // **同时中断外部 agent 的在跑进程**（opencode/codex）。
@@ -555,7 +584,7 @@ export class InboundCoordinator {
       })
     }
 
-    this.options.store.update_delivery(message.delivery_id, 'control_applied', {
+    await this.options.store.update_delivery(message.delivery_id, 'control_applied', {
       session_id, injected_at: Date.now(),
     })
     done({ outcome: 'applied', agent_status: agent.status })
@@ -612,17 +641,18 @@ export class InboundCoordinator {
       await this.inject_message(merged, extras)
     } catch (error) {
       probe('inbound', 'coalesce.inject_failed', { user_id, error: String(error) })
-      for (const message of bucket.messages) this.handle_message_failure(message, error)
+      for (const message of bucket.messages) await this.handle_message_failure(message, error)
     }
   }
 
   /** delivery_id 为已登记投递；复用既有 routing，只从明确可处理状态进入路由。 */
-  private begin_routing(delivery_id: string): void {
-    const row = this.options.store.get_delivery(delivery_id)
+  private async begin_routing(delivery_id: string): Promise<void> {
+    const row = await this.options.store.get_delivery(delivery_id)
     if (row?.status === 'routing') return
     const status = row?.status ?? 'received'
     if (status !== 'received' && status !== 'failed_retryable') throw new Error(`delivery 不可路由：${status}`)
-    if (this.options.store.update_delivery(delivery_id, 'routing', { expect: status }) === false) {
+    const claimed = await this.options.store.update_delivery(delivery_id, 'routing', { expect: status })
+    if (claimed === false) {
       throw new Error('delivery 状态已变更，路由未获得所有权')
     }
   }
@@ -642,7 +672,7 @@ export class InboundCoordinator {
     const done = probe_timer('inbound', 'message.inject', {
       delivery_id: message.delivery_id, user_id: message.user_id,
     })
-    this.begin_routing(message.delivery_id)
+    await this.begin_routing(message.delivery_id)
 
     const text = message.text.trim()
     // 仅媒体、无文字：缓存等用户补文字，缓存成功即算 control_applied（该 delivery 已处理完）。
@@ -651,7 +681,7 @@ export class InboundCoordinator {
       pending.push(...message.media)
       while (pending.length > PENDING_MEDIA_LIMIT) pending.shift()
       this.pending_media.set(message.user_id, pending)
-      this.options.store.update_delivery(message.delivery_id, 'control_applied', { injected_at: Date.now() })
+      await this.options.store.update_delivery(message.delivery_id, 'control_applied', { injected_at: Date.now() })
       done({ outcome: 'media_buffered', buffered: pending.length })
       return
     }
@@ -661,7 +691,7 @@ export class InboundCoordinator {
     const media = buffered === undefined || buffered.length === 0 ? message.media : [...buffered, ...message.media]
 
     // 路由 / 创建恢复 Agent（只用 Harness 原生能力）。
-    let session_id = this.options.store.get_session_id(message.user_id)
+    let session_id = await this.options.store.get_session_id(message.user_id)
     let agent: Agent
     if (session_id !== undefined) {
       const branded = brandString<SessionId>(session_id)
@@ -669,9 +699,9 @@ export class InboundCoordinator {
     } else {
       // 会话 id 由 store 统一生成：它会带上"上下文代次"，所以清空过上下文之后
       // 这里拿到的一定是**新名字**（不会又恢复回旧会话）。
-      session_id = this.options.store.session_id_for(message.user_id)
+      session_id = await this.options.store.session_id_for(message.user_id)
       agent = await this.options.host.create_agent(brandString<SessionId>(session_id))
-      this.options.store.set_session_id(message.user_id, session_id)
+      await this.options.store.set_session_id(message.user_id, session_id)
     }
     const session_key = String(agent.id)
     if (this.disposed) return
@@ -747,14 +777,14 @@ export class InboundCoordinator {
     }
     // 记录 delivery → session，供 outbox 与 turn context 使用。
     this.delivery_sessions.set(message.delivery_id, session_key)
-    this.options.store.update_delivery(message.delivery_id, 'injected', {
+    await this.options.store.update_delivery(message.delivery_id, 'injected', {
       session_id: session_key, injected_at: Date.now(),
     })
     // 合并窗口里被并进来的其它消息：同一轮回答覆盖了它们，一起标成已注入，
     // 否则那些 delivery 停在 routing，批次游标提交不了（服务端会反复重投）。
     for (const delivery_id of also_mark) {
       this.delivery_sessions.set(delivery_id, session_key)
-      this.options.store.update_delivery(delivery_id, 'injected', {
+      await this.options.store.update_delivery(delivery_id, 'injected', {
         session_id: session_key, injected_at: Date.now(),
       })
     }
@@ -806,7 +836,7 @@ export class InboundCoordinator {
    * 失败则保持 failed_retryable，交给现有重试机制——绝不"假成功"地丢消息。
    */
   async recover_unfinished(): Promise<{ recovered: number; needs_reinject: number }> {
-    const unfinished = this.options.store.list_unfinished_deliveries()
+    const unfinished = await this.options.store.list_unfinished_deliveries()
     let needs_reinject = 0
     let reinjected = 0
     for (const record of unfinished) {
@@ -825,7 +855,7 @@ export class InboundCoordinator {
       }
       // 缺少原始载荷时不能以“有会话”冒充注入成功；保留明确的失败事实。
       needs_reinject += 1
-      this.options.store.update_delivery(record.delivery_id, 'failed_terminal', {
+      await this.options.store.update_delivery(record.delivery_id, 'failed_terminal', {
         last_error: '无法恢复：入站载荷缺失，未重新执行',
       })
     }
@@ -836,6 +866,12 @@ export class InboundCoordinator {
   /** 该 delivery 是否可提交 cursor。 */
   is_committable(delivery_id: string): boolean {
     const record = this.options.store.get_delivery(delivery_id)
+    return record !== undefined && is_cursor_committable(record.status)
+  }
+
+  /** 异步查询 delivery 是否可提交，供远程状态端口使用。 */
+  async is_committable_async(delivery_id: string): Promise<boolean> {
+    const record = await this.options.store.get_delivery(delivery_id)
     return record !== undefined && is_cursor_committable(record.status)
   }
 }

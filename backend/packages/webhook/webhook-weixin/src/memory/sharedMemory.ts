@@ -12,11 +12,12 @@
 
 import type { TimelineStore } from './timelineStore.ts'
 import type { KnowledgeGraphStore } from './graphStore.ts'
+import type { MemoryRemoteClient } from './memoryRemoteClient.ts'
 
 /** 共享给其它通道的记忆套件。 */
 export interface SharedMemorySuite {
-  readonly timeline: TimelineStore
-  readonly graph: KnowledgeGraphStore
+  readonly timeline: TimelineStore | MemoryRemoteClient
+  readonly graph: KnowledgeGraphStore | MemoryRemoteClient
 }
 
 let suite: SharedMemorySuite | undefined

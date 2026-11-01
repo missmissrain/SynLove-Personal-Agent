@@ -21,7 +21,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-DSH_HOME = Path(os.environ.get("DSH_HOME") or (Path.home() / ".dsh"))
+DSH_HOME = Path(os.environ.get("DSH_HOME") or Path(__file__).resolve().parents[1] / "runtime/dsh")
 STATE_DB = DSH_HOME / "weixin-state.db"
 MEMORY_DIRS = [DSH_HOME / "timeline", DSH_HOME / "graph"]
 

@@ -71,10 +71,10 @@ export class CodexWatcher {
             for (const item of statuses) {
                 const key = 'codex_watch:' + item.thread_id;
                 const signature = `${item.status}|${item.event_at ?? ''}`;
-                const previous = this.store.get_meta(key);
+                const previous = await this.store.get_meta(key);
                 if (previous === signature)
                     continue;
-                this.store.set_meta(key, signature);
+                await this.store.set_meta(key, signature);
                 // 首轮只建基线：不通知，避免重启后把历史任务全部推给用户。
                 if (!this.seeded)
                     continue;
@@ -84,8 +84,8 @@ export class CodexWatcher {
                 probe('codex-watch', 'notify', {
                     thread_id: item.thread_id, status: item.status, event_at: item.event_at,
                 });
-                for (const user_id of this.store.list_users())
-                    this.push(user_id, text);
+                for (const user_id of await this.store.list_users())
+                    await this.push(user_id, text);
             }
             this.seeded = true;
         }

@@ -14,7 +14,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { probe } from '../diagnostics/probe.ts'
-import type { WeixinStateStore } from '../state/weixinStateStore.ts'
+import type { StatePort } from '../state/statePort.ts'
 
 /** lease 判定为过期的时间（毫秒）；超时未续租即可被抢占。 */
 const DEFAULT_STALE_MS = 90_000
@@ -25,7 +25,7 @@ const DEFAULT_HEARTBEAT_MS = 30_000
 /** 构造参数。 */
 export interface ConsumerLeaseOptions {
   /** 状态库。 */
-  readonly store: WeixinStateStore
+  readonly store: StatePort
   /** 账号标识（通常是 bot id），用于提示"谁占着这个账号"。 */
   readonly account_id: string
   /** 人类可读的锁文件路径（仅诊断用，不参与互斥判定）。 */
@@ -39,7 +39,7 @@ export interface ConsumerLeaseOptions {
 /** 原子 lease 的持有者句柄。 */
 export class ConsumerLease {
   private readonly owner_id: string
-  private readonly store: WeixinStateStore
+  private readonly store: StatePort
   private readonly account_id: string
   private readonly marker_path: string | undefined
   private readonly stale_ms: number
@@ -61,8 +61,8 @@ export class ConsumerLease {
    * 尝试获取 lease；失败抛出（调用方必须让连接器启动失败）。
    * @throws 已有活跃消费者时抛出，错误信息包含持有者 pid/账号，便于直接定位。
    */
-  acquire(): void {
-    const held = this.store.try_acquire_lease({
+  async acquire(): Promise<void> {
+    const held = await this.store.try_acquire_lease({
       owner_id: this.owner_id,
       pid: process.pid,
       process_started_at: Date.now() - Math.round(process.uptime() * 1000),
@@ -70,7 +70,7 @@ export class ConsumerLease {
       stale_ms: this.stale_ms,
     })
     if (!held) {
-      const existing = this.store.get_lease()
+      const existing = await this.store.get_lease()
       const detail = existing === undefined
         ? '（未知持有者）'
         : `pid=${existing.pid} owner=${existing.owner_id} account=${existing.account_id} `
@@ -83,27 +83,32 @@ export class ConsumerLease {
     }
     this.write_marker()
     this.timer = setInterval(() => {
-      if (!this.store.heartbeat_lease(this.owner_id)) {
+      void Promise.resolve(this.store.heartbeat_lease(this.owner_id)).then(held => {
+        if (held) return
         probe('lifecycle', 'lease.heartbeat_lost', { owner_id: this.owner_id })
         console.error('[webhook-weixin] lease 已丢失（可能被抢占），停止续租')
         this.stop_heartbeat()
-      }
+      }).catch(error => {
+        probe('lifecycle', 'lease.heartbeat_error', { owner_id: this.owner_id, error: String(error) })
+        this.stop_heartbeat()
+      })
     }, this.heartbeat_ms)
     this.timer.unref?.()
     probe('lifecycle', 'lease.held', { owner_id: this.owner_id, account_id: this.account_id })
   }
 
   /** 是否仍持有 lease（心跳丢失后为 false）。 */
-  is_held(): boolean {
-    return !this.released && this.store.get_lease()?.owner_id === this.owner_id
+  async is_held(): Promise<boolean> {
+    const lease = await this.store.get_lease()
+    return !this.released && lease?.owner_id === this.owner_id
   }
 
   /** 释放 lease；幂等。 */
-  release(): void {
+  async release(): Promise<void> {
     if (this.released) return
     this.released = true
     this.stop_heartbeat()
-    this.store.release_lease(this.owner_id)
+    await this.store.release_lease(this.owner_id)
     if (this.marker_path !== undefined) {
       try {
         writeFileSync(this.marker_path, '', 'utf8')

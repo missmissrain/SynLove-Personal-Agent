@@ -17,13 +17,14 @@
 
 import { probe } from '../diagnostics/probe.ts'
 import type { KnowledgeGraphStore } from './graphStore.ts'
+import type { MemoryRemoteClient } from './memoryRemoteClient.ts'
 import { update_graph_from_records, type GraphUpdateResult } from './graphUpdater.ts'
 import type { TimelineStore } from './timelineStore.ts'
 
 /** 构造参数。 */
 export interface GraphSchedulerOptions {
-  readonly graph: KnowledgeGraphStore
-  readonly timeline: TimelineStore
+  readonly graph: KnowledgeGraphStore | MemoryRemoteClient
+  readonly timeline: TimelineStore | MemoryRemoteClient
   /** 调用模型（Gemma）的入口。 */
   readonly complete: (prompt: string) => Promise<string>
   /** 空闲阈值，默认复用 DSH_TIMELINE_IDLE_HOURS（3 小时）。 */
@@ -65,10 +66,10 @@ export function start_graph_scheduler(options: GraphSchedulerOptions): GraphSche
     }
     busy = true
     try {
-      const since = options.graph.last_update_ms() ?? 0
-      const done_ids = new Set(options.graph.last_update_ids())
-      const days = options.timeline.list_days().slice(-max_days)
-      const all = days.flatMap(day => options.timeline.read_day(day.date).entries)
+      const since = await options.graph.last_update_ms() ?? 0
+      const done_ids = new Set(await options.graph.last_update_ids())
+      const days = (await options.timeline.list_days()).slice(-max_days)
+      const all = (await Promise.all(days.map(day => options.timeline.read_day(day.date)))).flatMap(day => day.entries)
       // **复合水位**：比 since 新，或者"同一毫秒但还没处理过"。
       // 只比时间戳会永久跳过同毫秒新增的记录（审计复现过）。
       const fresh = all
@@ -88,7 +89,7 @@ export function start_graph_scheduler(options: GraphSchedulerOptions): GraphSche
         { graph: options.graph, complete: options.complete },
         records,
       )
-      options.graph.set_last_update(last_ts, ids_at_watermark)
+      await options.graph.set_last_update(last_ts, ids_at_watermark)
       options.on_update?.(result)
       return result
     } catch (error) {

@@ -25,6 +25,7 @@
 
 import { probe } from '../diagnostics/probe.ts'
 import type { KnowledgeGraphStore } from './graphStore.ts'
+import type { MemoryRemoteClient } from './memoryRemoteClient.ts'
 import {
   is_known_attribute_field,
   map_attribute_field,
@@ -65,7 +66,7 @@ export function canonical_person_name(name: string): string {
 
 /** 构造参数。 */
 export interface GraphUpdaterOptions {
-  readonly graph: KnowledgeGraphStore
+  readonly graph: KnowledgeGraphStore | MemoryRemoteClient
   /** 调用模型：输入完整提示词，返回模型文本。由调用方注入（便于测试）。 */
   readonly complete: (prompt: string) => Promise<string>
   /**
@@ -216,7 +217,7 @@ export async function update_graph_from_records(
     ?? Number(process.env.DSH_GRAPH_MAX_PROMPT_CHARS ?? '30000')
   // 先把中心建好（幂等）：欣爱 + 主人两个节点、两人互相的称呼。
   // 它们让"主人""欣爱"始终出现在指代候选里，也多跳查询永远有一个共同起点。
-  graph.ensure_center()
+  await graph.ensure_center()
 
   const chunks = chunk_records(records, chunk_chars)
   const all_facts: Array<{ fact: ExtractedFact; date: string; quote: string }> = []
@@ -232,11 +233,11 @@ export async function update_graph_from_records(
   for (const [index, chunk] of chunks.entries()) {
     const date = chunk[chunk.length - 1]?.date ?? ''
     // 把"前文提要"按需裁剪：先丢最旧的提要，再丢最旧的事实，直到整段装得下。
-    const build = (gist_list: readonly string[], fact_list: readonly string[]): string => [
+    const build = async (gist_list: readonly string[], fact_list: readonly string[]): Promise<string> => [
       EXTRACT_RULES,
       '',
       '【已知人物名单（指代词只能从中选择，或用 未绑定）】',
-      render_candidates(candidate_names(graph)),
+      render_candidates(await candidate_names(graph)),
       ...carry_section(gist_list, fact_list, unresolved),
       ...tail_of(records, chunk, 4) === '' ? [] : ['', '【本块之前的几句（帮助判断指代）】', tail_of(records, chunk, 4)],
       '',
@@ -244,7 +245,7 @@ export async function update_graph_from_records(
       chunk.map(item => format_line(item)).join('\n'),
     ].join('\n')
 
-    let prompt = build(gists, facts_carried)
+    let prompt = await build(gists, facts_carried)
 
     // 超限时：**把"旧压缩块 + 当前块"合并压缩成一个新块**，而不是丢掉旧提要。
     // 压缩是"信息变短"，丢弃是"信息消失"——前者可接受，后者会让长期记忆缺块。
@@ -290,7 +291,7 @@ export async function update_graph_from_records(
       gists.push(...gist_list)
       facts_carried.length = 0
       facts_carried.push(...fact_list)
-      prompt = build(gists, facts_carried)
+      prompt = await build(gists, facts_carried)
     }
 
     const parsed = parse_facts(await options.complete(prompt))
@@ -326,8 +327,8 @@ export async function update_graph_from_records(
   for (const item of all_facts) {
     switch (item.fact.kind) {
       case 'person': {
-        const existed = graph.find(item.fact.name) !== undefined
-        graph.upsert_person({
+        const existed = await graph.find(item.fact.name) !== undefined
+        await graph.upsert_person({
           name: item.fact.name,
           ...item.fact.aliases === undefined ? {} : { aliases: item.fact.aliases },
           evidence: { date: item.date, note: item.quote },
@@ -350,11 +351,11 @@ export async function update_graph_from_records(
 
   // ── 逐节点审核（只审这批被提到的人；full_scan 时审全部） ───────────────
   const to_review = options.full_scan === true
-    ? graph.nodes().map(node => node.name)
+    ? (await graph.nodes()).map(node => node.name)
     : [...touched]
   const updated: string[] = []
   for (const name of to_review) {
-    const node = graph.find(name)
+    const node = await graph.find(name)
     if (node === undefined) continue
     const related = all_facts.filter(item =>
       (item.fact.kind === 'attribute' && item.fact.name === name)
@@ -376,7 +377,7 @@ export async function update_graph_from_records(
     if (Object.keys(patch).length === 0) continue
     // 带 id：审核里若给出"姓名"就是**就地改名**（旧名自动变别名），
     // 不带 id 会按新名字匹配不到、凭空多建一个人。
-    graph.upsert_person({
+    await graph.upsert_person({
       id: node.id, name: node.name, ...patch,
       evidence: { date: all_facts[0]?.date ?? '', note: '逐节点审核' },
     })
@@ -389,8 +390,8 @@ export async function update_graph_from_records(
     if (item.fact.kind !== 'attribute') continue
     const patch = patch_from_updates([{ field: item.fact.field, value: item.fact.value }])
     if (Object.keys(patch).length === 0) continue
-    const existing = graph.find(item.fact.name)
-    graph.upsert_person({
+    const existing = await graph.find(item.fact.name)
+    await graph.upsert_person({
       name: item.fact.name, ...patch,
       // 只有"要改姓名"时才带 id（改名走就地改名 + 旧名转别名）。
       // 其它字段带 id 会把正名覆盖成别名——"属性|妈妈|职业|医生"不该把"王丽"改名成"妈妈"。
@@ -404,7 +405,7 @@ export async function update_graph_from_records(
   let relations_created = 0
   for (const item of all_facts) {
     if (item.fact.kind !== 'relation') continue
-    const edge = graph.upsert_edge({
+    const edge = await graph.upsert_edge({
       from: item.fact.from, to: item.fact.to, label: item.fact.label,
       // 两个中心人物之间是"当面称呼"（替换语义）：她说的是"以后叫我老板"，
       // 那旧称呼就该让位；别人的亲属称谓仍然允许多个叫法并存。
@@ -415,7 +416,7 @@ export async function update_graph_from_records(
   }
 
   // ── 最后问：要不要加新人物 ────────────────────────────────────────────
-  const known = candidate_names(graph)
+  const known = await candidate_names(graph)
   // 这一步也要守上限：它带着"全部事实"，事实多起来同样会超。
   // 超了就从**最旧的事实**开始丢（最新的事实对"要不要加新人"更有参考价值）。
   const fact_lines = all_facts.map(item => render_fact(item.fact))
@@ -438,8 +439,8 @@ export async function update_graph_from_records(
   const new_parsed = parse_facts(await options.complete(new_prompt))
   bad_lines += new_parsed.bad_lines.length
   for (const fact of new_parsed.facts) {
-    if (fact.kind === 'person' && graph.find(fact.name) === undefined) {
-      graph.upsert_person({
+    if (fact.kind === 'person' && await graph.find(fact.name) === undefined) {
+      await graph.upsert_person({
         name: fact.name,
         ...fact.aliases === undefined ? {} : { aliases: fact.aliases },
         evidence: { date: all_facts[0]?.date ?? '', note: '新增人物审核' },
@@ -447,7 +448,7 @@ export async function update_graph_from_records(
       created.push(fact.name)
     }
     if (fact.kind === 'relation') {
-      const edge = graph.upsert_edge({
+      const edge = await graph.upsert_edge({
         from: fact.from, to: fact.to, label: fact.label,
         evidence: { date: all_facts[0]?.date ?? '', note: '新增人物审核' },
       })
@@ -526,9 +527,9 @@ function is_address_pair(from: string, to: string): boolean {
 }
 
 /** 候选人物名单：图谱里的姓名 + 别名（别名也列出来，方便指代匹配）。 */
-function candidate_names(graph: KnowledgeGraphStore): string[] {
+async function candidate_names(graph: KnowledgeGraphStore | MemoryRemoteClient): Promise<string[]> {
   const out: string[] = []
-  for (const node of graph.nodes()) {
+  for (const node of await graph.nodes()) {
     out.push(node.name)
     for (const alias of node.aliases ?? []) out.push(alias)
   }

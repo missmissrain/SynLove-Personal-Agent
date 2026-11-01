@@ -71,11 +71,11 @@
 
 只安装而不打开窗口：`python bootstrap.py --install-only`。检查发行文件：`python bootstrap.py --check`。
 
-TTS、ASR 和本地 LLM 的地址在 `config/serviceConfig.json` 中配置。本机托管使用 `managed`，自行运行或远程部署的服务使用 `external`；模型权重和服务端依赖需要另外安装。
+TTS、ASR 和 LLM 的地址在 `config/serviceConfig.json` 中配置。本机托管使用 `managed`，自行运行或远程部署的服务使用 `external`；模型权重和服务端依赖需要另外安装。远程公共能力由配套仓库 `SynLove-Backend-Service` 提供，本仓库只保留个人实例的消息通道、记忆、会话、状态、日志、调用链和本地编码器。
 
 ## 统一微服务链路
 
-提醒、新闻摘要、视频处理、爬虫、记忆、微信状态、QQ 状态、观测和 Harness Session 都有独立的服务边界。上层通过统一 HTTP/MCP 请求访问它们，服务的地址、端口、超时、鉴权和生命周期集中写在 `config/serviceConfig.json`，因此同一套代码既可以全量运行在本机，也可以把单个服务换成服务器端点。
+提醒、新闻摘要、视频处理、爬虫、记忆、微信状态、QQ 状态、观测和 Harness Session 都有独立的服务边界。上层通过统一 HTTP/MCP 请求访问它们，服务的地址、端口、超时、鉴权和生命周期集中写在 `config/serviceConfig.json`。本机部署时两套仓库可以放在同一台机器；远程部署时只需把公共服务的地址切换到 `SynLove-Backend-Service` 所在服务器，个人数据仍留在本机。
 
 服务只维护自己的状态库。微信和 QQ 分别使用自己的租约、入站状态与发送队列；重复请求使用稳定消息指纹幂等，两个通道同时发送不会共享序号或互相覆盖。`managed` 服务由启动器负责拉起和关闭，`external` 服务只探活、不在本机偷偷补拉，端口被未知进程占用时直接报错，不创建第二个消费者。
 

@@ -37,10 +37,10 @@ export function start_graph_scheduler(options) {
         }
         busy = true;
         try {
-            const since = options.graph.last_update_ms() ?? 0;
-            const done_ids = new Set(options.graph.last_update_ids());
-            const days = options.timeline.list_days().slice(-max_days);
-            const all = days.flatMap(day => options.timeline.read_day(day.date).entries);
+            const since = await options.graph.last_update_ms() ?? 0;
+            const done_ids = new Set(await options.graph.last_update_ids());
+            const days = (await options.timeline.list_days()).slice(-max_days);
+            const all = (await Promise.all(days.map(day => options.timeline.read_day(day.date)))).flatMap(day => day.entries);
             // **复合水位**：比 since 新，或者"同一毫秒但还没处理过"。
             // 只比时间戳会永久跳过同毫秒新增的记录（审计复现过）。
             const fresh = all
@@ -57,7 +57,7 @@ export function start_graph_scheduler(options) {
                 return undefined;
             probe('graph', 'scheduler.started_update', { records: records.length, since });
             const result = await update_graph_from_records({ graph: options.graph, complete: options.complete }, records);
-            options.graph.set_last_update(last_ts, ids_at_watermark);
+            await options.graph.set_last_update(last_ts, ids_at_watermark);
             options.on_update?.(result);
             return result;
         }

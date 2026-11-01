@@ -18,10 +18,27 @@ export interface TurnContext {
   readonly context_token?: string
 }
 
+type MaybePromise<T> = T | Promise<T>
+type ContextStorePort = {
+  bind_turn_context: (input: Parameters<WeixinStateStore['bind_turn_context']>[0]) => MaybePromise<void>
+  get_turn_context: (
+    session_id: string,
+    turn: number,
+  ) => MaybePromise<ReturnType<WeixinStateStore['get_turn_context']>>
+  latest_delivery_for_session: (
+    session_id: string,
+  ) => MaybePromise<ReturnType<WeixinStateStore['latest_delivery_for_session']>>
+  prune_turn_context: (session_id: string, keep?: number) => MaybePromise<void>
+}
+
 /** Turn 上下文的读写入口。 */
 export class TurnContextStore {
+  private readonly store: any
+
   /** 绑定到状态库。 */
-  constructor(private readonly store: WeixinStateStore) {}
+  constructor(store: ContextStorePort) {
+    this.store = store
+  }
 
   /** 绑定 `session_id + turn`；同 turn 重复绑定会覆盖为最新。 */
   bind(session_id: string, turn: number, context: TurnContext): void {
@@ -115,6 +132,48 @@ export class TurnContextStore {
     const fallback = this.store.latest_delivery_for_session(session_id)
     if (fallback?.context_token === undefined) return undefined
     return Date.now() - fallback.received_at <= max_age_ms ? fallback.context_token : undefined
+  }
+
+  /**
+   * 异步解析精确轮次上下文；本地 SQLite 会立即完成，远程端口会等待 HTTP 结果。
+   * 远程出站协调器必须使用这个入口，不能读取同步方法的 Promise。
+   */
+  async resolve_async(session_id: string, turn: number): Promise<TurnContext | undefined> {
+    const exact = await this.store.get_turn_context(session_id, turn)
+    if (exact !== undefined) return exact
+    const fallback = await this.store.latest_delivery_for_session(session_id)
+    if (fallback === undefined) {
+      probe('turn-context', 'resolve.miss', { session_id, turn })
+      return undefined
+    }
+    return {
+      delivery_id: fallback.delivery_id,
+      user_id: fallback.user_id,
+      ...fallback.context_token === undefined ? {} : { context_token: fallback.context_token },
+    }
+  }
+
+  /** 异步读取新鲜 token，兼容本地和远程状态端口。 */
+  async latest_token_if_fresh_async(session_id: string, max_age_ms = 10 * 60_000): Promise<string | undefined> {
+    const fallback = await this.store.latest_delivery_for_session(session_id)
+    if (fallback === undefined || Date.now() - fallback.received_at > max_age_ms) return undefined
+    return fallback.context_token
+  }
+
+  /** 异步绑定轮次上下文。 */
+  async bind_async(session_id: string, turn: number, context: TurnContext): Promise<void> {
+    await this.store.bind_turn_context({
+      session_id,
+      turn,
+      delivery_id: context.delivery_id,
+      user_id: context.user_id,
+      ...context.context_token === undefined ? {} : { context_token: context.context_token },
+    })
+  }
+
+  /** 异步清理旧轮次上下文。 */
+  async prune_async(session_id: string, keep = 20): Promise<void> {
+    await this.store.prune_turn_context(session_id, keep)
   }
 
   /** 一轮结束后清理历史，避免表无限增长。 */

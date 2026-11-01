@@ -15,7 +15,7 @@ import sys
 import time
 from pathlib import Path
 
-DSH_HOME = Path(os.environ.get("DSH_HOME") or (Path.home() / ".dsh"))
+DSH_HOME = Path(os.environ.get("DSH_HOME") or Path(__file__).resolve().parents[1] / "runtime/dsh")
 STATE_DB = DSH_HOME / "weixin-state.db"
 
 

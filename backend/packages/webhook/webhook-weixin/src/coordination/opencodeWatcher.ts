@@ -18,14 +18,12 @@ import { DatabaseSync } from 'node:sqlite'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { probe } from '../diagnostics/probe.ts'
-import type { WeixinStateStore } from '../state/weixinStateStore.ts'
-
 /** 推送回调。 */
-export type WatchPush = (user_id: string, text: string) => void
+export type WatchPush = (user_id: string, text: string) => void | Promise<void>
 
 /** 构造参数。 */
 export interface OpencodeWatcherOptions {
-  readonly store: WeixinStateStore
+  readonly store: any
   readonly push: WatchPush
   /** 轮询间隔（毫秒）；默认 10 秒。 */
   readonly poll_ms?: number
@@ -48,7 +46,7 @@ interface SessionRow {
 
 /** opencode 完成监视器。 */
 export class OpencodeWatcher {
-  private readonly store: WeixinStateStore
+  private readonly store: any
   private readonly push: WatchPush
   private readonly poll_ms: number
   private readonly data_dir: string
@@ -106,7 +104,7 @@ export class OpencodeWatcher {
         // 刚更新不久 → 可能还在跑，等静默期过后再判。
         if (Date.now() - session.time_updated < this.idle_ms) continue
         // 微信发起的任务由桥自己汇报，这里跳过（防重复）。
-        if (this.within_bridge_window(session.time_created)) {
+        if (await this.within_bridge_window(session.time_created)) {
           probe('opencode-watch', 'skip_bridge_session', { session_id: session.id })
           continue
         }
@@ -116,8 +114,8 @@ export class OpencodeWatcher {
         const last = this.last_assistant_message(db_path, session.id)
         if (last === undefined) continue
         const key = 'oc_done:' + session.id
-        if (this.store.get_meta(key) === last.message_id) continue
-        this.store.set_meta(key, last.message_id)
+        if (await this.store.get_meta(key) === last.message_id) continue
+        await this.store.set_meta(key, last.message_id)
         if (!this.seeded) continue
         const text = last.text
         if (text.trim() === '') continue
@@ -132,7 +130,7 @@ export class OpencodeWatcher {
           text.slice(0, this.summary_limit),
         ].join('\n')
         probe('opencode-watch', 'notify', { session_id: session.id })
-        for (const user_id of this.store.list_users()) this.push(user_id, body)
+        for (const user_id of await this.store.list_users()) await this.push(user_id, body)
       }
       this.seeded = true
     } catch (error) {
@@ -143,8 +141,8 @@ export class OpencodeWatcher {
   }
 
   /** 该会话是否落在微信桥的运行窗口内（防重复汇报）。 */
-  private within_bridge_window(created_at: number): boolean {
-    const raw = this.store.get_meta('oc_bridge_window')
+  private async within_bridge_window(created_at: number): Promise<boolean> {
+    const raw = await this.store.get_meta('oc_bridge_window')
     if (raw === undefined || raw === '') return false
     try {
       const window = JSON.parse(raw) as { start?: number, end?: number }

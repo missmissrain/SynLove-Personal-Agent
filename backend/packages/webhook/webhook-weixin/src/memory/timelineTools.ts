@@ -22,6 +22,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { TimelineStore } from './timelineStore.ts'
+import type { MemoryRemoteClient } from './memoryRemoteClient.ts'
 import { MemoryToolRegistry } from './MemoryToolRegistry.ts'
 
 /** 单次返回给模型的最大字符数，避免一次把上下文顶爆。 */
@@ -45,7 +46,7 @@ function as_date(value: unknown): string | undefined {
  * @param agent_ctx - agent 自己的 ctx（用 `agent.ctx.effect` 保证卸载时自动清理）。
  * @param store - 时间线存储。
  */
-export function register_timeline_tools(agent_ctx: Context, store: TimelineStore): void {
+export function register_timeline_tools(agent_ctx: Context, store: TimelineStore | MemoryRemoteClient): void {
   MemoryToolRegistry.register_tools(agent_ctx, 'timeline', register => {
   register(defineTool({
     name: 'timeline_days',
@@ -85,20 +86,20 @@ export function register_timeline_tools(agent_ctx: Context, store: TimelineStore
       render: (_args, value) => [{ type: 'text', text: String(value.text ?? '') }],
     },
     async execute(args: { limit?: number, include_summary?: boolean }) {
-      const days = store.list_days()
+      const days = await store.list_days()
       if (days.length === 0) return { ok: true, text: '长期记忆里还没有任何记录。' }
       const limit = Math.max(1, Math.min(120, Number(args.limit) || 14))
       const picked = days.slice(-limit).reverse()
       const with_summary = args.include_summary !== false
-      const lines = picked.map(meta => {
+      const lines = await Promise.all(picked.map(async meta => {
         const head = `- ${meta.date}（${meta.entries} 条：用户 ${meta.user_entries} / 我 ${meta.assistant_entries}）`
         if (!with_summary) return head
-        const summary = store.read_summary(meta.date)
+        const summary = await store.read_summary(meta.date)
         return summary === undefined
           ? `${head}\n  摘要：（尚未生成）`
           : `${head}\n  摘要：${summary.replace(/\n/g, ' / ')}`
-      })
-      const stats = store.stats()
+      }))
+      const stats = await store.stats()
       return {
         ok: true,
         text: clip(`共 ${stats.days} 天记忆（${stats.first_date ?? '?'} ~ ${stats.last_date ?? '?'}），最近 ${picked.length} 天：\n\n`
@@ -149,7 +150,7 @@ export function register_timeline_tools(agent_ctx: Context, store: TimelineStore
       if (keyword === '') return { ok: false, text: '需要一个非空 keyword。' }
       const from = as_date(args.from)
       const to = as_date(args.to)
-      const hits = store.search(keyword, {
+      const hits = await store.search(keyword, {
         limit: Math.max(1, Math.min(100, Number(args.limit) || 20)),
         ...from === undefined ? {} : { from },
         ...to === undefined ? {} : { to },
@@ -210,7 +211,7 @@ export function register_timeline_tools(agent_ctx: Context, store: TimelineStore
       const date = as_date(args.date)
       if (date === undefined) return { ok: false, text: 'date 必须是 YYYY-MM-DD 格式。' }
       const to = as_date(args.to) ?? date
-      const days = store.read_range(date, to)
+      const days = await store.read_range(date, to)
       const non_empty = days.filter(day => day.entries.length > 0)
       if (non_empty.length === 0) {
         return { ok: true, text: `${date}${to === date ? '' : ' ~ ' + to} 没有对话记录。不要编造内容。` }

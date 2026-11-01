@@ -16,6 +16,8 @@ export class ObservationRecorder {
     static outbound = new Map();
     static queue = [];
     static pending;
+    static remote_queue = [];
+    static remote_pending;
     static config = { maxFileBytes: 8_388_608, retainedFiles: 4, maxQueuedEvents: 2048 };
     static configuredPath = '';
     static dropped = 0;
@@ -133,7 +135,7 @@ export class ObservationRecorder {
      * @returns 是否配置本地观测输出。
      */
     static enabled() {
-        return this.log_path() !== undefined;
+        return this.log_path() !== undefined || this.remote_url() !== undefined;
     }
     /**
      * 参数 options：实际模型输入；source：接收观测标识的原始流工厂。
@@ -190,7 +192,8 @@ export class ObservationRecorder {
     static emit(record) {
         try {
             const path = this.log_path();
-            if (!path)
+            const remote = this.remote_url();
+            if (!path && !remote)
                 return;
             if (this.queue.length >= this.config.maxQueuedEvents) {
                 this.dropped++;
@@ -208,7 +211,19 @@ export class ObservationRecorder {
                 const usage = record.usage;
                 safe.usage = Object.fromEntries(['inputTokens', 'outputTokens', 'totalTokens', 'cacheReadTokens', 'cacheWriteTokens'].filter(key => typeof usage[key] === 'number' && Number.isFinite(usage[key])).map(key => [key, usage[key]]));
             }
-            const line = JSON.stringify({ ...safe, at: new Date().toISOString(), droppedEvents: this.dropped }) + '\n';
+            const safeRecord = { ...safe, at: new Date().toISOString(), droppedEvents: this.dropped };
+            if (remote !== undefined) {
+                if (this.remote_queue.length >= this.config.maxQueuedEvents) {
+                    this.dropped++;
+                    return;
+                }
+                this.remote_queue.push({ url: remote.url, apiKey: remote.apiKey, record: safeRecord });
+                this.start_remote_writer();
+                return;
+            }
+            if (path === undefined)
+                return;
+            const line = JSON.stringify(safeRecord) + '\n';
             if (Buffer.byteLength(line) > 16_384) {
                 this.dropped++;
                 return;
@@ -248,8 +263,13 @@ export class ObservationRecorder {
      */
     static async flush() {
         this.start_writer();
-        while (this.pending)
-            await this.pending;
+        this.start_remote_writer();
+        while (this.pending || this.remote_pending) {
+            if (this.pending)
+                await this.pending;
+            if (this.remote_pending)
+                await this.remote_pending;
+        }
     }
     /** 无参数；单写者收尾时检查新入队事件，避免微任务切换时遗留最后一条。 */
     static start_writer() {
@@ -259,6 +279,75 @@ export class ObservationRecorder {
             this.pending = undefined;
             this.start_writer();
         });
+    }
+    /** 读取观测远程端点；未配置时保持本地 JSONL 行为。 */
+    static remote_url() {
+        if ((process.env.SYNLOVE_OBSERVATION_MODE ?? 'local').trim().toLowerCase() !== 'remote')
+            return undefined;
+        const raw = process.env.SYNLOVE_OBSERVATION_BASE_URL?.trim();
+        if (!raw || process.env.DSH_OBSERVATION_ENABLED === '0')
+            return undefined;
+        return {
+            url: `${raw.replace(/\/+$/, '')}/rpc`,
+            apiKey: process.env.SYNLOVE_OBSERVATION_API_KEY ?? '',
+        };
+    }
+    /** 启动单写者远程队列，不阻塞模型调用。 */
+    static start_remote_writer() {
+        if (this.remote_pending || !this.remote_queue.length)
+            return;
+        this.remote_pending = this.drain_remote().finally(() => {
+            this.remote_pending = undefined;
+            this.start_remote_writer();
+        });
+    }
+    /** 顺序提交远程观测；网络失败只累计丢弃，不影响模型主流程。 */
+    static async drain_remote() {
+        while (this.remote_queue.length) {
+            const item = this.remote_queue.shift();
+            try {
+                const controller = new AbortController();
+                const timer = setTimeout(() => controller.abort(), 5_000);
+                try {
+                    const response = await fetch(item.url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...(item.apiKey === '' ? {} : { Authorization: `Bearer ${item.apiKey}` }),
+                        },
+                        body: JSON.stringify({
+                            requestId: `observation-${randomBytes(8).toString('hex')}`,
+                            message: {
+                                jsonrpc: '2.0', id: 1, method: 'tools/call',
+                                params: { name: 'observation_append', arguments: { record: item.record } },
+                            },
+                        }),
+                        signal: controller.signal,
+                    });
+                    if (!response.ok)
+                        throw new Error(`observation 服务 HTTP ${response.status}`);
+                    let body = await response.json();
+                    while (body.state === 'running') {
+                        await new Promise(resolve => setTimeout(resolve, 50));
+                        const poll = await fetch(`${item.url.replace(/\/rpc$/, '')}/operations/${encodeURIComponent(String(body.requestId ?? ''))}`, {
+                            headers: item.apiKey === '' ? {} : { Authorization: `Bearer ${item.apiKey}` },
+                            signal: controller.signal,
+                        });
+                        if (!poll.ok)
+                            throw new Error(`observation 任务 HTTP ${poll.status}`);
+                        body = await poll.json();
+                    }
+                    if (body.state !== undefined && body.state !== 'done')
+                        throw new Error(`observation 任务状态 ${String(body.state)}`);
+                }
+                finally {
+                    clearTimeout(timer);
+                }
+            }
+            catch {
+                this.dropped++;
+            }
+        }
     }
     /** 无参数；解析日志位置与有界轮转配置，配置损坏时沿用安全默认值。 */
     static log_path() {

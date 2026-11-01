@@ -13,6 +13,8 @@
   name: '@deepseek-ai/dsh-tool-fs'
 - id: tool-fs-search
   name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    sampleOverCapGlobResults: true
 - id: tool-jobs
   name: '@deepseek-ai/dsh-tool-jobs'
 - id: compaction
@@ -26,6 +28,8 @@
       name: '@deepseek-ai/dsh-compaction-basic'
 - id: tool-todo
   name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: false
 - id: tool-opencode
   name: '@deepseek-ai/dsh-tool-opencode'
 - id: tool-codex

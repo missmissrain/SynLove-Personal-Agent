@@ -41,7 +41,8 @@ ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = ROOT / "runtime"
 LOG = RUNTIME / "recovery.log"
 PAUSE_MARKER = RUNTIME / "guardian.pause"
-STATE_DB = Path(os.environ.get("DSH_HOME") or (Path.home() / ".dsh")) / "weixin-state.db"
+STATE_DB = Path(os.environ.get("DSH_WEIXIN_STATE_DB") or
+                Path(os.environ.get("DSH_HOME") or ROOT / "runtime/dsh") / "weixin-state.db")
 HARNESS_PORT = int(os.environ.get("DSH_HARNESS_PORT") or "3080")
 INJECT_PORT = int(os.environ.get("DSH_WEIXIN_INJECT_PORT") or "3081")
 

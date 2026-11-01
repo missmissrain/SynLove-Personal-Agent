@@ -146,7 +146,7 @@ export class OpencodeBridge {
     /** 处理一条 `/opencode` 指令。 */
     async handle(user_id, session_id, command, context_token) {
         if (command.action === 'help') {
-            this.push(user_id, session_id, [
+            await this.push(user_id, session_id, [
                 '这里是 opencode 远程控制，用法：',
                 '- /opencode <任务>     交给 opencode 执行',
                 '- /opencode status     查看状态',
@@ -160,45 +160,45 @@ export class OpencodeBridge {
         if (command.action === 'yes') {
             const waiting = this.pending.get(user_id);
             if (waiting === undefined) {
-                this.push(user_id, session_id, '（当前没有待确认的切换请求）', 'error', context_token);
+                await this.push(user_id, session_id, '（当前没有待确认的切换请求）', 'error', context_token);
                 return;
             }
             this.pending.delete(user_id);
             this.approvals.set(user_id, Date.now());
             const volcanic = this.chain[2] ?? this.chain[this.chain.length - 1];
-            this.push(user_id, session_id, `（好，这次用火山模型 ${volcanic} 继续）`, 'progress', context_token);
+            await this.push(user_id, session_id, `（好，这次用火山模型 ${volcanic} 继续）`, 'progress', context_token);
             await this.run(user_id, session_id, waiting.text, context_token, volcanic);
             return;
         }
         if (command.action === 'no') {
             const waiting = this.pending.get(user_id);
             if (waiting === undefined) {
-                this.push(user_id, session_id, '（当前没有待确认的切换请求）', 'error', context_token);
+                await this.push(user_id, session_id, '（当前没有待确认的切换请求）', 'error', context_token);
                 return;
             }
             this.pending.delete(user_id);
             this.approvals.delete(user_id);
-            this.push(user_id, session_id, '（好，那我停下了；opencode 和大黄蜂都不通，等你处理网络或用别的办法）', 'assistant', context_token);
+            await this.push(user_id, session_id, '（好，那我停下了；opencode 和大黄蜂都不通，等你处理网络或用别的办法）', 'assistant', context_token);
             return;
         }
         if (command.action === 'status') {
             const task = this.tasks.get(user_id);
-            this.push(user_id, session_id, task === undefined
+            await this.push(user_id, session_id, task === undefined
                 ? '（当前没有正在运行的 opencode 任务）'
                 : `（opencode 正在运行：已 ${Math.round((Date.now() - task.started_at) / 1000)} 秒）`, 'assistant', context_token);
             return;
         }
         if (command.action === 'stop') {
             const stopped = this.stop(user_id);
-            this.push(user_id, session_id, stopped ? '（已终止当前的 opencode 任务）' : '（当前没有正在运行的 opencode 任务）', 'assistant', context_token);
+            await this.push(user_id, session_id, stopped ? '（已终止当前的 opencode 任务）' : '（当前没有正在运行的 opencode 任务）', 'assistant', context_token);
             return;
         }
         if (this.tasks.has(user_id)) {
-            this.push(user_id, session_id, '（已经有一个 opencode 任务在跑，等它结束或先发 /opencode stop）', 'error', context_token);
+            await this.push(user_id, session_id, '（已经有一个 opencode 任务在跑，等它结束或先发 /opencode stop）', 'error', context_token);
             return;
         }
         if (!command.text.trim()) {
-            this.push(user_id, session_id, '（/opencode 后面要跟具体任务）', 'error', context_token);
+            await this.push(user_id, session_id, '（/opencode 后面要跟具体任务）', 'error', context_token);
             return;
         }
         const task = command.text.trim();
@@ -212,7 +212,7 @@ export class OpencodeBridge {
         if (outcome === 'connectivity_failed') {
             const volcanic = this.chain[2];
             if (volcanic === undefined) {
-                this.push(user_id, session_id, '（opencode 和大黄蜂都连不上，且没有配置第三级模型）', 'error', context_token);
+                await this.push(user_id, session_id, '（opencode 和大黄蜂都连不上，且没有配置第三级模型）', 'error', context_token);
                 return;
             }
             this.pending.set(user_id, {
@@ -220,7 +220,7 @@ export class OpencodeBridge {
                 ...context_token === undefined ? {} : { context_token },
                 asked_at: Date.now(),
             });
-            this.push(user_id, session_id, [
+            await this.push(user_id, session_id, [
                 'opencode（首选）和大黄蜂（次选）都连不通。',
                 `现在只剩火山可用：${volcanic}`,
                 '要我切到火山继续做这个任务吗？',
@@ -273,8 +273,8 @@ export class OpencodeBridge {
         // 记录运行窗口：OpencodeWatcher 据此跳过"微信发起的任务"，避免同一任务被报两次。
         // 结束时把 end 补上（保留 start），窗口即为 [start, end]。
         const window_start = Date.now();
-        this.store.set_meta('oc_bridge_window', JSON.stringify({ start: window_start, end: 0 }));
-        this.push(user_id, session_id, `（好呀，我让 opencode 开始做了～${model === undefined ? '' : '模型 ' + model}）`, 'progress', context_token);
+        await this.store.set_meta('oc_bridge_window', JSON.stringify({ start: window_start, end: 0 }));
+        await this.push(user_id, session_id, `（好呀，我让 opencode 开始做了～${model === undefined ? '' : '模型 ' + model}）`, 'progress', context_token);
         const child = spawn(bin, args, { cwd: this.workspace, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
         this.tasks.set(user_id, { child, started_at: Date.now(), model: model ?? '(default)' });
         const timer = setTimeout(() => {
@@ -313,30 +313,30 @@ export class OpencodeBridge {
                 this.tasks.delete(user_id);
                 resolve(result);
             };
-            child.on('close', code => {
+            child.on('close', async (code) => {
                 handle_lines(buffer);
                 // 关闭运行窗口（保留 start）：窗口内的会话被认为由微信发起，监视器不再重复汇报。
-                this.store.set_meta('oc_bridge_window', JSON.stringify({ start: window_start, end: Date.now() }));
+                await this.store.set_meta('oc_bridge_window', JSON.stringify({ start: window_start, end: Date.now() }));
                 const detail = strip_ansi(stderr).split('\n').filter(Boolean).slice(-3).join(' ').slice(0, 300);
                 const connectivity = CONNECTIVITY_FAILURE.test(detail);
                 probe('opencode-bridge', 'run.close', { user_id, code, model, pushed_lines: pushed, connectivity });
                 // 只推这一条：最终结果（输出尾部）。
                 const summary = tail.slice(-15).join('\n').trim();
                 if (code === 0) {
-                    this.push(user_id, session_id, summary === '' ? '（opencode 任务完成，没有输出内容）' : summary, 'assistant', context_token);
+                    await this.push(user_id, session_id, summary === '' ? '（opencode 任务完成，没有输出内容）' : summary, 'assistant', context_token);
                     finish({ ok: true, connectivity: false });
                     return;
                 }
                 // 连通性故障先不打扰用户：由调用方决定自动降级还是来问用户。
                 if (!connectivity) {
-                    this.push(user_id, session_id, `（opencode 退出码 ${code}${detail ? '：' + detail : ''}）`
+                    await this.push(user_id, session_id, `（opencode 退出码 ${code}${detail ? '：' + detail : ''}）`
                         + (summary === '' ? '' : `\n最近输出：\n${summary}`), 'error', context_token);
                 }
                 finish({ ok: false, connectivity });
             });
-            child.on('error', error => {
+            child.on('error', async (error) => {
                 probe('opencode-bridge', 'run.error', { user_id, error: error.message });
-                this.push(user_id, session_id, `（opencode 进程启动失败：${error.message}）`, 'error', context_token);
+                await this.push(user_id, session_id, `（opencode 进程启动失败：${error.message}）`, 'error', context_token);
                 finish({ ok: false, connectivity: false });
             });
         });

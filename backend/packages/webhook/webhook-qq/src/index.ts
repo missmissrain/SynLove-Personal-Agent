@@ -30,6 +30,9 @@ import { QqGateway } from './gateway.ts'
 import { send_qq_media, send_qq_text, type QqSendTarget } from './send.ts'
 import { QqTokenProvider } from './token.ts'
 import { QqOutbox } from './QqOutbox.ts'
+import { QqRemoteOutbox } from './QqRemoteOutbox.ts'
+import { QqStateRemoteClient } from './QqStateRemoteClient.ts'
+import { QqRemoteLease } from './QqRemoteLease.ts'
 import { QqGatewayLease } from './QqGatewayLease.ts'
 
 /**
@@ -118,7 +121,7 @@ export function apply(ctx: Context, config: Config): void {
   const pending = new Map<string, PendingReply>()
   /** 已经绑定过流监听的会话。 */
   const bound = new WeakSet<object>()
-  let outbox: QqOutbox | undefined
+  let outbox: QqOutbox | QqRemoteOutbox | undefined
   /** 各会话最近一条消息 id（媒体被动回复要用）。 */
   const last_msg = new Map<string, string>()
   /** 已经装过记忆查询工具（timeline 系列 / relation_query）的 agent ctx。 */
@@ -126,11 +129,11 @@ export function apply(ctx: Context, config: Config): void {
   const asst_seq = new Map<string, number>()
 
   /** 把一条 QQ 消息写进长期记忆时间线（写入由后台链路做，模型只有读工具）。 */
-  const record_memory = (session_id: string, role: 'user' | 'assistant', text: string, stable_id: string): void => {
+  const record_memory = async (session_id: string, role: 'user' | 'assistant', text: string, stable_id: string): Promise<void> => {
     const suite = get_shared_memory()
     if (suite === undefined) return
     try {
-      suite.timeline.append({
+      await suite.timeline.append({
         id: stable_id,
         ts: Date.now(),
         role,
@@ -157,9 +160,9 @@ export function apply(ctx: Context, config: Config): void {
     if (item === undefined || item.text.trim() === '') return
     const seq = (asst_seq.get(session_id) ?? 0) + 1
     asst_seq.set(session_id, seq)
-    record_memory(session_id, 'assistant', item.text.trim(), `qq-asst-${session_id}-${seq}`)
+    await record_memory(session_id, 'assistant', item.text.trim(), `qq-asst-${session_id}-${seq}`)
     {
-      get_outbox().enqueue_reply(item)
+      await get_outbox().enqueue_reply(item)
       pending.delete(session_id)
       await get_outbox().drain_queue()
     }
@@ -227,7 +230,7 @@ export function apply(ctx: Context, config: Config): void {
       : `qq-${group === undefined ? openid : `g-${group}-${openid}`}`)
     const target: QqSendTarget = group === undefined ? { userOpenid: openid } : { groupOpenid: group }
     probe('inbound', 'qq.message', { kind, session_id: String(session_id), chars: content.length, group: group !== undefined })
-    if (msg_id !== undefined) record_memory(String(session_id), 'user', content, `qq-${msg_id}`)
+    if (msg_id !== undefined) await record_memory(String(session_id), 'user', content, `qq-${msg_id}`)
 
     try {
       // 共享会话时微信那边可能已经建好同一个 Agent：先取，取不到再建（否则 create 会"已存在"冲突）。
@@ -290,19 +293,26 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   /** 无参数；仅当前网关的实际发送链按需打开本地队列。 */
-  const get_outbox = (): QqOutbox => {
-    outbox ??= new QqOutbox(
-      process.env.DSH_QQ_OUTBOX ?? join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'qq-outbox.json'),
-      async (row, mark) => {
-        const progress = { sent_parts: row.sent_parts, on_sent: mark }
-        const result = await send_qq_text(tokens, row.target, row.text, row.msgId, config.base_url, progress)
-        if (!result.ok && result.mode === 'passive' && /HTTP 400|HTTP 403/.test(result.error ?? '')) {
-          return send_qq_text(tokens, row.target, row.text, undefined, config.base_url, progress)
-        }
-        return result
-      },
-      state => probe('outbound', 'qq.send', state),
-    )
+  const get_outbox = (): QqOutbox | QqRemoteOutbox => {
+    if (outbox !== undefined) return outbox
+    const send = async (row: { sent_parts: number[]; target: QqSendTarget; text: string; msgId?: string }, mark: (index: number) => void): Promise<Awaited<ReturnType<typeof send_qq_text>>> => {
+      const progress = { sent_parts: row.sent_parts, on_sent: mark }
+      const result = await send_qq_text(tokens, row.target, row.text, row.msgId, config.base_url, progress)
+      if (!result.ok && result.mode === 'passive' && /HTTP 400|HTTP 403/.test(result.error ?? '')) {
+        return send_qq_text(tokens, row.target, row.text, undefined, config.base_url, progress)
+      }
+      return result
+    }
+    const report = (state: Record<string, unknown>): void => probe('outbound', 'qq.send', state)
+    if ((process.env.SYNLOVE_QQ_STATE_MODE ?? 'local').trim().toLowerCase() === 'remote') {
+      outbox = new QqRemoteOutbox(new QqStateRemoteClient(), send, report)
+    } else {
+      outbox = new QqOutbox(
+        process.env.DSH_QQ_OUTBOX ?? join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'qq-outbox.json'),
+        send,
+        report,
+      )
+    }
     return outbox
   }
 
@@ -316,6 +326,7 @@ export function apply(ctx: Context, config: Config): void {
   })
   // 单实例锁：两个 harness 同时连同一个机器人会被平台互相踢（op=7 死循环）。
   const lock_path = join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'qq-gateway.pid')
+  const remote_state = (process.env.SYNLOVE_QQ_STATE_MODE ?? 'local').trim().toLowerCase() === 'remote'
   const lock_held = (() => {
     try {
       const pid = Number(readFileSync(lock_path, 'utf8').trim())
@@ -333,22 +344,25 @@ export function apply(ctx: Context, config: Config): void {
     return false
   })()
   // 生命周期挂在 Cordis effect 上：插件卸载时关掉网关，不留野连接。
-  ctx.effect(() => {
-    if (lock_held) {
+  ctx.effect(async () => {
+    if (!remote_state && lock_held) {
       console.error('[webhook-qq] 另一个实例已占用网关（qq-gateway.pid），本实例不连 QQ')
       probe('lifecycle', 'qq.gateway.skip_duplicate', { pid: process.pid })
       return () => {}
     }
     const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
-    const lease = new QqGatewayLease(join(home, 'qq-gateway-lease.db'))
-    if (!lease.acquire_lease()) {
-      lease.release_lease()
+    const remote_client = remote_state ? new QqStateRemoteClient() : undefined
+    const lease = remote_client === undefined
+      ? new QqGatewayLease(join(home, 'qq-gateway-lease.db'))
+      : new QqRemoteLease(remote_client, config.app_id)
+    if (!await lease.acquire_lease()) {
+      await lease.release_lease()
       probe('lifecycle', 'qq.gateway.skip_duplicate', { pid: process.pid })
       return () => {}
     }
     let retry: ReturnType<typeof setInterval> | undefined
     try {
-      writeFileSync(lock_path, String(process.pid), 'utf8')
+      if (!remote_state) writeFileSync(lock_path, String(process.pid), 'utf8')
       get_outbox()
       retry = setInterval(() => {
         void outbox?.drain_queue().catch(error => probe('outbound', 'qq.outbox_failed', { error: String(error).slice(0, 160) }))
@@ -359,19 +373,19 @@ export function apply(ctx: Context, config: Config): void {
     } catch (error) {
       if (retry !== undefined) clearInterval(retry)
       outbox?.stop_queue()
-      lease.release_lease()
+      await lease.release_lease()
       try {
-        if (readFileSync(lock_path, 'utf8').trim() === String(process.pid)) unlinkSync(lock_path)
+        if (!remote_state && readFileSync(lock_path, 'utf8').trim() === String(process.pid)) unlinkSync(lock_path)
       } catch { /* ignore */ }
       throw error
     }
-    return () => {
+    return async () => {
       gateway.stop()
       if (retry !== undefined) clearInterval(retry)
       outbox?.stop_queue()
-      lease.release_lease()
+      await lease.release_lease()
       try {
-        if (readFileSync(lock_path, 'utf8').trim() === String(process.pid)) unlinkSync(lock_path)
+        if (!remote_state && readFileSync(lock_path, 'utf8').trim() === String(process.pid)) unlinkSync(lock_path)
       } catch { /* ignore */ }
       probe('lifecycle', 'qq.gateway.stop', {})
     }

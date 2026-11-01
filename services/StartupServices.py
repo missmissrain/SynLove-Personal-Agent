@@ -54,6 +54,9 @@ class StartupServices:
                 "rsshub": lambda: start_stack.ensure_rsshub(dict(os.environ)),
                 "guard": lambda: start_stack.ensure_guard_service(dict(os.environ)),
             }
+            # 这些是轻量 API 宿主；模型权重仍按需加载，远程端点仍只由部署方管理。
+            for name in ("history", "memory", "state", "qqstate", "observation", "session", "coding", "crawler"):
+                calls[name] = lambda service=name: manager.ensure_service(service)
 
             def start_one(item):
                 """item为服务名与启动函数；只记录分类错误，详细错误留在服务自身日志中。"""

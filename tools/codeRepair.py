@@ -36,7 +36,7 @@ import time
 from pathlib import Path
 
 ROOT_DEFAULT = Path(__file__).resolve().parents[1]
-PRESET_DEFAULT = Path.home() / ".dsh" / ".agent-presets" / "weixin-lite"
+PRESET_DEFAULT = Path(os.environ.get("DSH_HOME") or ROOT_DEFAULT / "runtime/dsh") / ".agent-presets" / "weixin-lite"
 
 
 def _first_existing(candidates) -> Path | None:

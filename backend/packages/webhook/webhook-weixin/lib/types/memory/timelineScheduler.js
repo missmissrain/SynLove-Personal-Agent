@@ -31,7 +31,7 @@ export function start_timeline_scheduler(options) {
         }
         busy = true;
         try {
-            const due = options.store.days_needing_summary(now);
+            const due = await options.store.days_needing_summary(now);
             if (due.length === 0)
                 return [];
             probe('timeline', 'check.due', { dates: due });

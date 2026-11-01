@@ -101,7 +101,7 @@ def write_heartbeat(config, dry_run):
 def _review_once(cfg, dry_run=False, since_hours=None, notify=True):
     """真正的一轮复盘（取素材 → 调模型 → 落盘 → 推水位）。"""
     log_path = cfg.get("logFile")
-    sessions_home = Path.home() / ".dsh" / "sessions"
+    sessions_home = Path(os.environ.get("DSH_HOME") or ROOT / "runtime/dsh") / "sessions"
     session_root = find_session_root(sessions_home, ROOT)
     if session_root is None:
         log(log_path, f"找不到本项目会话目录（token={ROOT.name}），跳过")

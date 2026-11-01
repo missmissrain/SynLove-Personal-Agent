@@ -40,8 +40,8 @@ export class ConsumerLease {
      * 尝试获取 lease；失败抛出（调用方必须让连接器启动失败）。
      * @throws 已有活跃消费者时抛出，错误信息包含持有者 pid/账号，便于直接定位。
      */
-    acquire() {
-        const held = this.store.try_acquire_lease({
+    async acquire() {
+        const held = await this.store.try_acquire_lease({
             owner_id: this.owner_id,
             pid: process.pid,
             process_started_at: Date.now() - Math.round(process.uptime() * 1000),
@@ -49,7 +49,7 @@ export class ConsumerLease {
             stale_ms: this.stale_ms,
         });
         if (!held) {
-            const existing = this.store.get_lease();
+            const existing = await this.store.get_lease();
             const detail = existing === undefined
                 ? '（未知持有者）'
                 : `pid=${existing.pid} owner=${existing.owner_id} account=${existing.account_id} `
@@ -60,26 +60,32 @@ export class ConsumerLease {
         }
         this.write_marker();
         this.timer = setInterval(() => {
-            if (!this.store.heartbeat_lease(this.owner_id)) {
+            void Promise.resolve(this.store.heartbeat_lease(this.owner_id)).then(held => {
+                if (held)
+                    return;
                 probe('lifecycle', 'lease.heartbeat_lost', { owner_id: this.owner_id });
                 console.error('[webhook-weixin] lease 已丢失（可能被抢占），停止续租');
                 this.stop_heartbeat();
-            }
+            }).catch(error => {
+                probe('lifecycle', 'lease.heartbeat_error', { owner_id: this.owner_id, error: String(error) });
+                this.stop_heartbeat();
+            });
         }, this.heartbeat_ms);
         this.timer.unref?.();
         probe('lifecycle', 'lease.held', { owner_id: this.owner_id, account_id: this.account_id });
     }
     /** 是否仍持有 lease（心跳丢失后为 false）。 */
-    is_held() {
-        return !this.released && this.store.get_lease()?.owner_id === this.owner_id;
+    async is_held() {
+        const lease = await this.store.get_lease();
+        return !this.released && lease?.owner_id === this.owner_id;
     }
     /** 释放 lease；幂等。 */
-    release() {
+    async release() {
         if (this.released)
             return;
         this.released = true;
         this.stop_heartbeat();
-        this.store.release_lease(this.owner_id);
+        await this.store.release_lease(this.owner_id);
         if (this.marker_path !== undefined) {
             try {
                 writeFileSync(this.marker_path, '', 'utf8');

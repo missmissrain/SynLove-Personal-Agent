@@ -45,6 +45,7 @@ import { ReplyAggregator } from '../reply/replyAggregator.ts'
 import { HarnessSessionHost, type WeixinAttachmentStore } from '../session/weixinSessionHost.ts'
 import { migrate_legacy_route_state } from '../state/migrateLegacyRouteState.ts'
 import { TimelineStore } from '../memory/timelineStore.ts'
+import { MemoryRemoteClient } from '../memory/memoryRemoteClient.ts'
 import { register_timeline_tools } from '../memory/timelineTools.ts'
 import { KnowledgeGraphStore } from '../memory/graphStore.ts'
 import { register_graph_tools } from '../memory/graphTools.ts'
@@ -72,6 +73,7 @@ import { set_shared_memory } from '../memory/sharedMemory.ts'
 import type { TimelineAttachment, TimelineEntry } from '../memory/timelineTypes.ts'
 import type { NormalizedMedia, NormalizedWeixinMessage } from '../message/messageNormalizer.ts'
 import { INFLIGHT_TURN_PREFIX, WeixinStateStore } from '../state/weixinStateStore.ts'
+import { StateRemoteClient } from '../state/stateRemoteClient.ts'
 import { TurnContextStore } from '../state/turnContextStore.ts'
 import { WeixinIngress } from '../transport/weixinIngress.ts'
 
@@ -187,7 +189,10 @@ function read_json_file(path: string): Record<string, unknown> {
 
 /** 微信连接器：装配 + 生命周期。 */
 export class WeixinConnector {
-  private readonly store: WeixinStateStore
+  /** 本地 SQLite 或远程 state API；远程模式下所有调用点必须等待可能的 Promise。 */
+  private readonly store: any
+  /** 是否使用远程状态服务；用于选择同步兼容入口或真正等待的异步入口。 */
+  private readonly remote_state: boolean
   private readonly turn_context: TurnContextStore
   private readonly ingress: WeixinIngress
   private readonly inbound: InboundCoordinator
@@ -252,9 +257,9 @@ export class WeixinConnector {
   /** 本机调试注入口（仅当设置 DSH_WEIXIN_INJECT_PORT 时启用）。 */
   private inject_server: Server | undefined
   /** 长期记忆（时间线）；DSH_TIMELINE_ENABLED=0 可整体关闭。 */
-  private readonly timeline: TimelineStore | undefined
+  private readonly timeline: TimelineStore | MemoryRemoteClient | undefined
   /** 知识图谱（社交网络）：人物 + "谁称呼谁为什么"的有向边。 */
-  private readonly graph: KnowledgeGraphStore
+  private readonly graph: KnowledgeGraphStore | MemoryRemoteClient
   /** 会话工作目录（会话落盘路径由它推导，必须与 HarnessSessionHost 一致）。 */
   private readonly workspace_path: string = process.cwd()
   /** 通知开关：codex / opencode 的完成汇报是否推送。 */
@@ -291,40 +296,55 @@ export class WeixinConnector {
       ctx.on('session/disposed', session => { ObservationRecorder.forget_session(String(session.id)) }),
     ]
     const db_path = options.state_db ?? join(join(process.env.DSH_HOME ?? join(process.env.USERPROFILE ?? '.', '.dsh')), 'weixin-state.db')
-    this.store = new WeixinStateStore({ path: db_path })
-    // 阶段 5：把旧 JSON 路由状态迁移进 SQLite（只在目标库为空时执行；失败 fail closed）。
-    // 旧文件保持只读，迁移会先复制一份 .migrated-<时间戳> 副本。
-    const legacy_path = options.state_file
-      ?? join(process.env.DSH_WEIXIN_STATE_FILE ?? join(process.cwd(), 'runtime', 'weixin-route-state.json'))
-    const migration = migrate_legacy_route_state(this.store, legacy_path)
-    probe('lifecycle', 'migration.result', { ...migration })
+    const remote_state = process.env.SYNLOVE_STATE_MODE === 'remote'
+    this.remote_state = remote_state
+    this.store = remote_state
+      ? new StateRemoteClient()
+      : new WeixinStateStore({ path: db_path })
+    if (!remote_state) {
+      // 阶段 5：把旧 JSON 路由状态迁移进 SQLite（只在目标库为空时执行；失败 fail closed）。
+      // 旧文件保持只读，迁移会先复制一份 .migrated-<时间戳> 副本。
+      const legacy_path = options.state_file
+        ?? join(process.env.DSH_WEIXIN_STATE_FILE ?? join(process.cwd(), 'runtime', 'weixin-route-state.json'))
+      const migration = migrate_legacy_route_state(this.store, legacy_path)
+      probe('lifecycle', 'migration.result', { ...migration })
+    } else {
+      probe('lifecycle', 'state.remote', { base_url: process.env.SYNLOVE_STATE_BASE_URL ?? 'default' })
+    }
     this.turn_context = new TurnContextStore(this.store)
     // 长期记忆（时间线）：默认开启，写到 ~/.dsh/timeline（可用 DSH_TIMELINE_DIR 改）。
     const timeline_enabled = process.env.DSH_TIMELINE_ENABLED !== '0'
+    const remote_timeline = process.env.SYNLOVE_MEMORY_TIMELINE_MODE === 'remote'
+    const remote_memory = remote_timeline ? new MemoryRemoteClient() : undefined
     this.timeline = timeline_enabled
-      ? new TimelineStore({
+      ? remote_timeline
+        ? remote_memory
+        : new TimelineStore({
         dir: options.timeline_dir
           ?? process.env.DSH_TIMELINE_DIR
           ?? join(process.env.DSH_HOME ?? join(process.env.USERPROFILE ?? '.', '.dsh'), 'timeline'),
         ...process.env.DSH_TIMELINE_TIMEZONE === undefined
           ? {}
           : { timezone: process.env.DSH_TIMELINE_TIMEZONE },
-      })
+        })
       : undefined
     // 知识图谱与时间线同级存放（默认 ~/.dsh/graph）。
-    this.graph = new KnowledgeGraphStore({
-      dir: options.graph_dir
-        ?? process.env.DSH_GRAPH_DIR
-        ?? join(process.env.DSH_HOME ?? join(process.env.USERPROFILE ?? '.', '.dsh'), 'graph'),
-    })
+    this.graph = remote_memory ?? new KnowledgeGraphStore({
+        dir: options.graph_dir
+          ?? process.env.DSH_GRAPH_DIR
+          ?? join(process.env.DSH_HOME ?? join(process.env.USERPROFILE ?? '.', '.dsh'), 'graph'),
+      })
     // 把时间线+图谱共享给 QQ 等其它通道：QQ 只写记录、装查询工具，
     // 摘要/图谱更新仍由本连接器里的调度器统一做（避免双实例双写）。
     if (this.timeline !== undefined) set_shared_memory({ timeline: this.timeline, graph: this.graph })
     // 启动即把中心建好（幂等）：欣爱为绝对中心，另有主人节点与两人互相的称呼。
     // 不等到第一次空闲更新——否则刚启动时查询工具会告"图谱里还没有任何人物"。
     try {
-      this.graph.ensure_center()
-      probe('graph', 'center.ready', { ...this.graph.stats() })
+      const center_result = this.graph.ensure_center()
+      if (center_result instanceof Promise) {
+        void center_result.catch(error => probe('graph', 'center.failed', { error: String(error) }))
+      }
+      probe('graph', 'center.ready', { remote: this.graph instanceof MemoryRemoteClient })
     } catch (error) {
       probe('graph', 'center.failed', { error: String(error) })
     }
@@ -383,7 +403,7 @@ export class WeixinConnector {
       store: this.store,
       turn_context: this.turn_context,
       sender: async input => {
-        if (!this.lease.is_held()) throw new Error('微信消费者所有权已丢失，停止发送')
+        if (!await this.lease.is_held()) throw new Error('微信消费者所有权已丢失，停止发送')
         await this.client.send_message_with_retry({
           to_user_id: input.user_id,
           text: input.text,
@@ -391,7 +411,7 @@ export class WeixinConnector {
           ...input.context_token === undefined ? {} : { context_token: input.context_token },
         })
       },
-      record_entry: entry => { this.record_timeline(entry) },
+      record_entry: entry => this.record_timeline(entry),
       classify_retryable: error => {
         const retryable = (error as { retryable?: boolean } | undefined)?.retryable
         // 明确标注不可重试才放弃；未标注的按可重试处理（网络抖动居多）。
@@ -403,7 +423,7 @@ export class WeixinConnector {
     this.codex_bridge = new CodexBridge(
       this.store,
       (user_id, session_id, text, kind, context_token) => {
-        this.outbound.enqueue_notice({
+        this.queue_notice({
           session_id,
           user_id,
           kind,
@@ -418,7 +438,7 @@ export class WeixinConnector {
     this.opencode_bridge = new OpencodeBridge(
       this.store,
       (user_id, session_id, text, kind, context_token) => {
-        this.outbound.enqueue_notice({
+        this.queue_notice({
           session_id, user_id, kind, text,
           ...context_token === undefined ? {} : { context_token },
         })
@@ -428,28 +448,34 @@ export class WeixinConnector {
     // opencode 完成监视器：只汇报"外部发起"的 opencode 任务（微信发起的由桥自己汇报）。
     this.opencode_watcher = new OpencodeWatcher({
       store: this.store,
-      push: (user_id, text) => {
+      push: async (user_id, text) => {
         // 用户可以用 notify_control 关掉这类被动汇报（真实对话回复不受影响）。
-        if (!this.notify.is_enabled('opencode')) {
+        const enabled = this.notify.is_enabled_async === undefined
+          ? this.notify.is_enabled('opencode')
+          : await this.notify.is_enabled_async('opencode')
+        if (!enabled) {
           probe('opencode-watch', 'notify.suppressed')
           return
         }
-        const session_id = this.store.get_session_id(user_id) ?? `weixin-${user_id}`
-        this.outbound.enqueue_notice({ session_id, user_id, kind: 'assistant', text })
-        void this.outbound.drain()
+        const session_id = await this.store.get_session_id(user_id) ?? `weixin-${user_id}`
+        this.queue_notice({ session_id, user_id, kind: 'assistant', text })
+        await this.outbound.drain()
       },
     })
     // Codex 完成监视器：轮询 ~/.codex 的会话状态，任务结束就通过 outbox 主动推微信。
     this.codex_watcher = new CodexWatcher({
       store: this.store,
-      push: (user_id, text) => {
-        if (!this.notify.is_enabled('codex')) {
+      push: async (user_id, text) => {
+        const enabled = this.notify.is_enabled_async === undefined
+          ? this.notify.is_enabled('codex')
+          : await this.notify.is_enabled_async('codex')
+        if (!enabled) {
           probe('codex-watch', 'notify.suppressed')
           return
         }
-        const session_id = this.store.get_session_id(user_id) ?? `weixin-${user_id}`
-        this.outbound.enqueue_notice({ session_id, user_id, kind: 'assistant', text })
-        void this.outbound.drain()
+        const session_id = await this.store.get_session_id(user_id) ?? `weixin-${user_id}`
+        this.queue_notice({ session_id, user_id, kind: 'assistant', text })
+        await this.outbound.drain()
       },
     })
     this.inbound = new InboundCoordinator({
@@ -457,13 +483,13 @@ export class WeixinConnector {
       turn_context: this.turn_context,
       host: this.host,
       ...attachments === undefined ? {} : { attachments },
-      enqueue_outbound: input => { this.outbound.enqueue_notice(input) },
+      enqueue_outbound: input => { this.queue_notice(input) },
       // 媒体回传：iLink 目前只提供 send_image（图片），文件类走文本提示
       send_media: async (user_id, path, context_token) => {
-        if (!this.lease.is_held()) throw new Error('微信消费者所有权已丢失，停止发送媒体')
+        if (!await this.lease.is_held()) throw new Error('微信消费者所有权已丢失，停止发送媒体')
         const { readFile } = await import('node:fs/promises')
         const data = new Uint8Array(await readFile(path))
-        if (!this.lease.is_held()) throw new Error('微信消费者所有权已丢失，停止发送媒体')
+        if (!await this.lease.is_held()) throw new Error('微信消费者所有权已丢失，停止发送媒体')
         await this.client.send_image({
           to_user_id: user_id,
           data,
@@ -484,7 +510,7 @@ export class WeixinConnector {
       },
       // 取消后的收尾（abort 路径不会触发 agent/turn-stopping，必须在这里补：
       // 停心跳、清 inflight 标记、清聚合器，避免"还在处理中"和"取消的任务被复活"）。
-      on_turn_cancelled: session_id => this.finalize_turn(session_id),
+      on_turn_cancelled: session_id => { void this.finalize_turn(session_id) },
       codex_bridge: {
         parse: text => parse_codex_command(text),
         handle: (user_id, session_id, command, context_token) =>
@@ -508,11 +534,29 @@ export class WeixinConnector {
         return hydrated
       },
       // 长期记忆：用户上行落盘（幂等，重放不会重复记）。
-      record_entry: entry => { this.record_timeline(entry) },
+      record_entry: entry => this.record_timeline(entry),
     })
     probe('lifecycle', 'connector.constructed', {
       db_path, preset: options.agent_preset ?? '(default)', workspace: options.workspace_path,
     })
+  }
+
+  /** 入队通知；远程状态模式等待 outbox 与 token 的异步提交。 */
+  private queue_notice(input: Parameters<OutboundCoordinator['enqueue_notice']>[0]): void {
+    if (this.remote_state) void this.outbound.enqueue_notice_async(input)
+    else this.outbound.enqueue_notice(input)
+  }
+
+  /** 入队正式回复；远程状态模式等待轮次上下文和 outbox 提交。 */
+  private queue_assistant(input: Parameters<OutboundCoordinator['enqueue_assistant']>[0]): void {
+    if (this.remote_state) void this.outbound.enqueue_assistant_async(input)
+    else this.outbound.enqueue_assistant(input)
+  }
+
+  /** 入队思考进度；远程状态模式等待状态服务写入。 */
+  private queue_progress(session_id: string, text: string): void {
+    if (this.remote_state) void this.outbound.enqueue_progress_async(session_id, text)
+    else this.outbound.enqueue_progress(session_id, text)
   }
 
   /**
@@ -539,19 +583,22 @@ export class WeixinConnector {
     }
     // 2. Harness 能力装配检查（设计文档 §9.3）。
     this.host.assert_capabilities()
+    // 在接收消息前实际挂载一次预设；只创建并释放探针，不调用模型、不发送消息。
+    // 仅检查服务存在无法发现插件新增必填参数，曾导致“在线但所有对话失败”。
+    await this.reload_preset()
     // 3. 原子 lease（失败必须致命）。
-    this.lease.acquire()
+    await this.lease.acquire()
     // 4. 上次进程死在一轮中途？先把那些 delivery 退回 received，让下面的恢复流程把它们重投。
     //    为什么需要：进程被强杀时 delivery 已经是 injected（终态），恢复流程不会再看它，
     //    用户就只看到"发出去没回音"（实测：重启撞进行中一轮 = 静默丢消息）。
-    const rescued = this.rescue_interrupted_turns()
+    const rescued = await this.rescue_interrupted_turns()
     // 5. 恢复未完成状态。
     const recovered = await this.inbound.recover_unfinished()
     const pending = await this.outbound.recover_pending()
     probe('lifecycle', 'recover.summary', { ...recovered, outbox_pending: pending, rescued_turns: rescued })
     console.error(`[webhook-weixin] 启动恢复：delivery=${recovered.recovered} outbox=${pending}`
       + `${rescued > 0 ? `，补跑被打断的轮次=${rescued}` : ''}；` +
-      `状态快照 ${JSON.stringify(this.store.snapshot())}`)
+      `状态快照 ${JSON.stringify(await this.store.snapshot())}`)
     // 4.5 启动完成监视（被动通知：外部发起的任务一结束就推微信）。
     // 注意分工：微信 `/codex` `/opencode` 发起的任务由各自桥汇报，监视器只盯外部发起的。
     this.codex_watcher.start()
@@ -601,12 +648,12 @@ export class WeixinConnector {
         if (target !== 'timeline' && target !== 'graph') {
           throw new Error(`clear-memory 的 target 只能是 timeline 或 graph，收到：${target}`)
         }
-        return this.clear_memory(target)
+        return await this.clear_memory(target)
       }
       case 'memory-stats':
-        return this.memory_stats()
+        return await this.memory_stats()
       case 'clear-queue':
-        return { removed: this.store.clear_queue() }
+        return { removed: await this.store.clear_queue() }
       case 'failover-status': {
         const path = find_model_config(PROJECT_CONFIG_DIR)
         const config = path === undefined ? {} : read_json_file(path)
@@ -632,16 +679,19 @@ export class WeixinConnector {
    *
    * 与"清空上下文"是两件事：这里清的是"她长期记得什么"，上下文是"这次聊天记得什么"。
    */
-  private clear_memory(target: 'timeline' | 'graph'): {
+  private async clear_memory(target: 'timeline' | 'graph'): Promise<{
     target: string
     files: number
     bytes: number
     dir: string
     note?: string
-  } {
+  }> {
     if (target === 'timeline') {
       if (this.timeline === undefined) {
         return { target, files: 0, bytes: 0, dir: '', note: '时间线记忆未启用（DSH_TIMELINE_ENABLED=0）' }
+      }
+      if (!(this.timeline instanceof TimelineStore)) {
+        return { target, files: 0, bytes: 0, dir: 'remote', note: '远程时间线必须由 memory 服务执行清空；本地控制器不会绕过 API 删除服务端数据' }
       }
       const removed = clear_directory_contents(this.timeline.dir_path())
       // 清空会把 days/ 一起删掉；store 是长驻实例，必须显式重建目录，
@@ -650,6 +700,9 @@ export class WeixinConnector {
       this.timeline.forget_caches()
       probe('memory', 'timeline.cleared', { ...removed })
       return { target, ...removed }
+    }
+    if (!(this.graph instanceof KnowledgeGraphStore)) {
+      return { target, files: 0, bytes: 0, dir: 'remote', note: '远程图谱必须由 memory 服务执行清空；本地控制器不会绕过 API 删除服务端数据' }
     }
     const removed = clear_directory_contents(this.graph.dir_path())
     this.graph.ensure_center()
@@ -667,13 +720,17 @@ export class WeixinConnector {
    * 上下文的体量按**落盘会话文件**算（用户 id → 会话 id → 会话目录），
    * 所以它显示的是真实占用，而不是一个估计值。
    */
-  private memory_stats(): {
+  private async memory_stats(): Promise<{
     timeline: { days: number, entries: number, bytes: number, dir: string } | { error: string }
     graph: { people: number, relations: number, bytes: number, dir: string } | { error: string }
     context: { users: Array<{ user_id: string, session_id: string, epoch: number, online: boolean, bytes: number, modified_at: number }>, bytes: number }
-  } {
+  }> {
     const stats = this.timeline === undefined
       ? { error: '时间线记忆未启用' } as { error: string }
+      : this.timeline instanceof MemoryRemoteClient
+        ? (() => {
+          return { error: '时间线由远程 memory 服务托管；目录大小由服务端统计' } as { error: string }
+        })()
       : (() => {
         const summary = this.timeline!.stats() as { days?: number, entries?: number }
         return {
@@ -684,7 +741,9 @@ export class WeixinConnector {
         }
       })()
 
-    const graph_stats = (() => {
+    const graph_stats = this.graph instanceof MemoryRemoteClient
+      ? { error: '图谱由远程 memory 服务托管；目录大小由服务端统计' } as { error: string }
+      : (() => {
       const summary = this.graph.stats()
       return {
         people: summary.people,
@@ -692,25 +751,27 @@ export class WeixinConnector {
         bytes: directory_bytes(this.graph.dir_path()),
         dir: this.graph.dir_path(),
       }
-    })()
+      })()
 
     const root = sessions_root()
-    const users = this.store.list_users().map(user_id => {
-      const session_id = this.store.get_session_id(user_id) ?? this.store.session_id_for(user_id)
+    const users: Array<{ user_id: string; session_id: string; epoch: number; online: boolean; bytes: number; modified_at: number }> = []
+    for (const user_id of await this.store.list_users()) {
+      const route = await this.store.get_session_id(user_id)
+      const session_id = route ?? await this.store.session_id_for(user_id)
       const log = session_log_stats(session_dir_path(root, this.workspace_path, session_id))
-      return {
+      users.push({
         user_id,
         session_id,
-        epoch: this.store.context_epoch(user_id),
+        epoch: await this.store.context_epoch(user_id),
         online: this.host.get_agent(brandString<SessionId>(session_id)) !== undefined,
         bytes: log?.bytes ?? 0,
         modified_at: log?.modified_at ?? 0,
-      }
-    })
+      })
+    }
     return {
       timeline: stats,
       graph: graph_stats,
-      context: { users, bytes: users.reduce((sum, item) => sum + item.bytes, 0) },
+      context: { users, bytes: users.reduce((sum: number, item: { bytes: number }) => sum + item.bytes, 0) },
     }
   }
 
@@ -733,13 +794,13 @@ export class WeixinConnector {
     epochs: Record<string, number>
   }> {
     const users = input.user_id === undefined || input.user_id === ''
-      ? this.store.list_users()
+      ? await this.store.list_users()
       : [input.user_id]
     const epochs: Record<string, number> = {}
     const results: Array<{ user_id: string, session_id: string, disposed: boolean, deleted: boolean, note?: string }> = []
     for (const user_id of users) {
-      const session_id = this.store.get_session_id(user_id)
-        ?? this.store.session_id_for(user_id)
+      const session_id = await this.store.get_session_id(user_id)
+        ?? await this.store.session_id_for(user_id)
       const disposed = await this.host.dispose_agent(session_id)
       this.forget_session(session_id)
       const deletion = delete_session_artifacts({
@@ -747,8 +808,8 @@ export class WeixinConnector {
         cwd: this.workspace_path,
         id: session_id,
       })
-      this.store.clear_session_id(user_id)
-      epochs[user_id] = this.store.bump_context_epoch(user_id)
+      await this.store.clear_session_id(user_id)
+      epochs[user_id] = await this.store.bump_context_epoch(user_id)
       results.push({
         user_id,
         session_id,
@@ -816,7 +877,7 @@ export class WeixinConnector {
 
   /** 注入一条测试消息：复用真实入站管线，但不提交 iLink 游标（它本来就不是 iLink 来的）。 */
   private async inject_test_message(input: { text: string; user_id?: string }): Promise<{ delivery_id: string; session_id?: string }> {
-    const user_id = input.user_id ?? this.store.latest_user_id()
+    const user_id = input.user_id ?? await this.store.latest_user_id()
     if (user_id === undefined) {
       throw new Error('还没有任何入站用户，无法确定收件人；请先用真实微信发一条消息')
     }
@@ -831,11 +892,10 @@ export class WeixinConnector {
       media: [],
       received_at: Date.now(),
     }], undefined)
+    const route = await this.store.get_session_id(user_id)
     return {
       delivery_id,
-      ...this.store.get_session_id(user_id) === undefined
-        ? {}
-        : { session_id: this.store.get_session_id(user_id) as string },
+      ...(route === undefined ? {} : { session_id: route }),
     }
   }
 
@@ -880,7 +940,7 @@ export class WeixinConnector {
       }
     }
     if (refs.length === 0) return
-    this.timeline.update_entry(date, message.delivery_id, { attachments: refs })
+    await this.timeline.update_entry(date, message.delivery_id, { attachments: refs })
     probe('timeline', 'media.recorded', { date, delivery_id: message.delivery_id, count: refs.length })
 
     // 后台补描述：失败只留痕（原图已经在附件库里，不会因为描述失败而丢）。
@@ -906,17 +966,17 @@ export class WeixinConnector {
         media_type: media.mime_type ?? 'image/jpeg',
       }))
       if (text.trim() === '') return
-      this.timeline.update_attachment_description(date, entry_id, attachment_id, text.trim())
+      await this.timeline.update_attachment_description(date, entry_id, attachment_id, text.trim())
     } catch (error) {
       probe('timeline', 'media.describe_failed', { attachment_id, error: String(error) })
     }
   }
 
   /** 写一条长期记忆；失败只留痕，绝不影响消息收发。 */
-  private record_timeline(entry: TimelineEntry): void {
+  private async record_timeline(entry: TimelineEntry): Promise<void> {
     if (this.timeline === undefined) return
     try {
-      this.timeline.append(entry)
+      await this.timeline.append(entry)
     } catch (error) {
       probe('timeline', 'append.failed', { id: entry.id, error: String(error) })
     }
@@ -942,12 +1002,17 @@ export class WeixinConnector {
       on_update: dates => probe('timeline', 'summary.updated_days', { dates }),
     })
     // 知识图谱：同一个"空闲 N 小时"触发，读时间线做增量更新。
-    this.graph_scheduler = start_graph_scheduler({
-      graph: this.graph,
-      timeline: this.timeline,
-      complete: prompt => this.gemma.run('graph-extract', () => this.memory.complete(prompt)),
-      on_update: result => probe('graph', 'updated', { ...result }),
-    })
+    if ((this.timeline instanceof TimelineStore && this.graph instanceof KnowledgeGraphStore)
+      || (this.timeline instanceof MemoryRemoteClient && this.graph instanceof MemoryRemoteClient)) {
+      this.graph_scheduler = start_graph_scheduler({
+        graph: this.graph,
+        timeline: this.timeline,
+        complete: prompt => this.gemma.run('graph-extract', () => this.memory.complete(prompt)),
+        on_update: result => probe('graph', 'updated', { ...result }),
+      })
+    } else {
+      probe('graph', 'scheduler.deferred_mixed_memory_backend')
+    }
   }
 
   /**
@@ -991,7 +1056,7 @@ export class WeixinConnector {
     /** 游标连续被卡住的次数；用于退避，避免服务端立刻重投造成热循环。 */
     let cursor_stall = 0
     while (!this.controller.signal.aborted && !this.stopped) {
-      if (!this.lease.is_held()) {
+      if (!await this.lease.is_held()) {
         this.controller.abort()
         this.outbound.stop()
         await this.inbound.dispose()
@@ -1000,16 +1065,16 @@ export class WeixinConnector {
       }
       // 队列里有待发送的，顺手泵一次（不依赖新消息触发）。
       void this.outbound.drain()
-      const cursor = this.store.get_cursor()
+      const cursor = await this.store.get_cursor()
       const result = await this.ingress.poll(cursor, this.controller.signal)
-      if (!this.lease.is_held()) continue
+      if (!await this.lease.is_held()) continue
 
       switch (result.kind) {
         case 'messages': {
           backoff_index = 0
           const committable = await this.handle_inbound(result.messages, result.cursor)
           if (committable && result.cursor !== undefined) {
-            this.store.set_cursor(result.cursor)
+            await this.store.set_cursor(result.cursor)
             cursor_stall = 0
           } else if (!committable) {
             probe('inbound', 'cursor.held', {
@@ -1027,7 +1092,7 @@ export class WeixinConnector {
         }
         case 'idle': {
           backoff_index = 0
-          if (result.cursor !== undefined) this.store.set_cursor(result.cursor)
+          if (result.cursor !== undefined) await this.store.set_cursor(result.cursor)
           await this.outbound.drain()
           break
         }
@@ -1097,9 +1162,9 @@ export class WeixinConnector {
     // 真正的 turn 边界：pre-step（step===1 或 turn 变化 = 新 turn）与 turn-stopping（turn 结束）。
     const dispose_pre_step = agent.ctx.on(
       'agent/pre-step',
-      ({ agent: subject, turn, step }: { agent: Agent; turn: number; step: number }, next: () => Promise<unknown>) => {
+      async ({ agent: subject, turn, step }: { agent: Agent; turn: number; step: number }, next: () => Promise<unknown>) => {
         if (subject === agent && (step === 1 || this.current_turn.get(session_id) !== turn)) {
-          this.begin_turn_once(session_id, turn)
+          await this.begin_turn_once(session_id, turn)
         }
         return next() as never
       },
@@ -1168,24 +1233,24 @@ export class WeixinConnector {
    *
    * @returns 补跑的轮次数
    */
-  private rescue_interrupted_turns(): number {
+  private async rescue_interrupted_turns(): Promise<number> {
     let rescued = 0
-    for (const item of this.store.list_meta_prefix(INFLIGHT_TURN_PREFIX)) {
+    for (const item of await this.store.list_meta_prefix(INFLIGHT_TURN_PREFIX)) {
       const session_id = item.key.slice(INFLIGHT_TURN_PREFIX.length)
       let detail: { turn?: number; delivery_id?: string; at?: number } = {}
       try {
         detail = JSON.parse(item.value) as typeof detail
       } catch { /* 标记坏了也删掉，别一直挂着 */ }
-      this.store.delete_meta(item.key)
+      await this.store.delete_meta(item.key)
       if (typeof detail.delivery_id !== 'string') continue
       if (typeof detail.at === 'number' && Date.now() - detail.at < INFLIGHT_RESCUE_MIN_AGE_MS) continue
-      const record = this.store.get_delivery(detail.delivery_id)
+      const record = await this.store.get_delivery(detail.delivery_id)
       if (record === undefined || record.status === 'failed_terminal') continue
       try {
-        this.store.update_delivery(detail.delivery_id, 'received', { last_error: '重启打断了这一轮，自动重投' })
+        await this.store.update_delivery(detail.delivery_id, 'received', { last_error: '重启打断了这一轮，自动重投' })
         rescued += 1
         probe('inbound', 'turn.rescued', { session_id, turn: detail.turn, delivery_id: detail.delivery_id })
-        this.outbound.enqueue_notice({
+        this.queue_notice({
           session_id,
           user_id: record.user_id,
           kind: 'assistant',
@@ -1216,12 +1281,13 @@ export class WeixinConnector {
     messages: readonly NormalizedWeixinMessage[],
     cursor: string | undefined,
   ): Promise<boolean> {
-    const compacting = messages.filter((item) => {
-      const session = this.store.session_id_for(item.user_id)
-      return session !== undefined && this.compacting_sessions.has(session)
-    })
+    const compacting: NormalizedWeixinMessage[] = []
+    for (const item of messages) {
+      const session = await this.store.session_id_for(item.user_id)
+      if (this.compacting_sessions.has(session)) compacting.push(item)
+    }
     if (compacting.length > 0) {
-      for (const item of compacting) this.notify_compacting(item.user_id)
+      for (const item of compacting) await this.notify_compacting(item.user_id)
       await this.inbound.handle_batch(messages, cursor, { hold: true })
       probe('inbound', 'batch.held_for_compaction', { count: messages.length })
       await this.outbound.drain()
@@ -1234,13 +1300,12 @@ export class WeixinConnector {
    * 压缩上下文期间收到消息：回一句"正在压缩上下文，稍后回复"（同一个窗口只回一次）。
    * 消息本身已经入库，压缩结束后会补处理。
    */
-  private notify_compacting(user_id: string): void {
-    const session_id = this.store.session_id_for(user_id)
-    const key = session_id ?? `weixin-${user_id}`
+  private async notify_compacting(user_id: string): Promise<void> {
+    const key = await this.store.session_id_for(user_id)
     if (this.compact_ack_sent.has(key)) return
     this.compact_ack_sent.add(key)
     probe('outbound', 'compaction_ack', { user_id, session_id: key })
-    this.outbound.enqueue_notice({
+    this.queue_notice({
       session_id: key,
       user_id,
       kind: 'assistant',
@@ -1256,10 +1321,10 @@ export class WeixinConnector {
    * 停心跳（否则每 5 分钟继续发「还在处理中」）、删 inflight 标记（否则下次启动会重跑已取消的任务）、
    * 清错误/可见性/聚合器/当前轮次状态。
    */
-  private finalize_turn(session_id: string): void {
+  private async finalize_turn(session_id: string): Promise<void> {
     const turn = this.current_turn.get(session_id)
     this.outbound.end_turn(session_id)
-    this.store.delete_meta(`${INFLIGHT_TURN_PREFIX}${session_id}`)
+    await this.store.delete_meta(`${INFLIGHT_TURN_PREFIX}${session_id}`)
     this.turn_error.delete(session_id)
     this.turn_visible.delete(session_id)
     this.clear_turn_failure(session_id)
@@ -1276,15 +1341,15 @@ export class WeixinConnector {
    * 已经绑定过的 turn 绝不重绑——长任务期间用户再发消息时，
    * 那条新消息属于下一个 turn，不能改写本轮回复该用的 context_token。
    */
-  private begin_turn_once(session_id: string, turn: number): void {
-    const already = this.turn_context.get(session_id, turn)
+  private async begin_turn_once(session_id: string, turn: number): Promise<void> {
+    const already = await this.turn_context.resolve_async(session_id, turn)
     this.current_turn.set(session_id, turn)
     this.aggregators.set(session_id, new ReplyAggregator())
     this.tool_calls_seen.set(session_id, new Set())
     this.outbound.begin_turn(session_id, turn)
-    if (already !== undefined && this.binding_is_fresh(already.delivery_id)) {
+    if (already !== undefined && await this.binding_is_fresh(already.delivery_id)) {
       probe('outbound', 'turn.start_reuse', { session_id, turn, delivery_id: already.delivery_id })
-      this.store.set_meta(`${INFLIGHT_TURN_PREFIX}${session_id}`, JSON.stringify({
+      await this.store.set_meta(`${INFLIGHT_TURN_PREFIX}${session_id}`, JSON.stringify({
         turn, delivery_id: already.delivery_id, at: Date.now(),
       }))
       return
@@ -1296,22 +1361,22 @@ export class WeixinConnector {
     }
     // delivery → session 映射由入站协调器写入；取最近一条注入的 delivery 作为本轮上下文。
     // 用 bind_if_absent 而非 bind：同一 turn 的绑定一旦建立就不可被后续消息覆盖。
-    const latest = this.store.latest_delivery_for_session(session_id)
+    const latest = await this.store.latest_delivery_for_session(session_id)
     if (latest !== undefined) {
-      const delivery = this.store.get_delivery(latest.delivery_id)
-      const context_token = this.store.delivery_context_token(latest.delivery_id)
-      this.turn_context.bind_if_absent(session_id, turn, {
+      const delivery = await this.store.get_delivery(latest.delivery_id)
+      const context_token = await this.store.delivery_context_token(latest.delivery_id)
+      await this.turn_context.bind_async(session_id, turn, {
         delivery_id: latest.delivery_id,
         user_id: delivery?.user_id ?? latest.user_id,
         ...context_token === undefined ? {} : { context_token },
       })
     }
-    const context = this.turn_context.resolve(session_id, turn)
+    const context = await this.turn_context.resolve_async(session_id, turn)
     probe('outbound', 'turn.start', {
       session_id, turn, delivery_id: context?.delivery_id, has_token: context?.context_token !== undefined,
     })
     // 记录"这一轮还在进行中"：进程被强杀时靠它补跑（见 rescue_interrupted_turns）。
-    this.store.set_meta(`${INFLIGHT_TURN_PREFIX}${session_id}`, JSON.stringify({
+    await this.store.set_meta(`${INFLIGHT_TURN_PREFIX}${session_id}`, JSON.stringify({
       turn, delivery_id: context?.delivery_id, at: Date.now(),
     }))
   }
@@ -1320,8 +1385,8 @@ export class WeixinConnector {
    * 该 turn 绑定是否仍然新鲜。
    * 超过 TTL 就视为"重启前的旧绑定"：turn 号会重复，但 context_token 可能已失效。
    */
-  private binding_is_fresh(delivery_id: string): boolean {
-    const record = this.store.get_delivery(delivery_id)
+  private async binding_is_fresh(delivery_id: string): Promise<boolean> {
+    const record = await this.store.get_delivery(delivery_id)
     if (record === undefined) return false
     return Date.now() - record.received_at < BINDING_TTL_MS
   }
@@ -1353,15 +1418,15 @@ export class WeixinConnector {
       const next = next_alive_candidate(failover.order, current, candidate => this.model_health.is_dead(candidate))
       if (next === undefined) {
         probe('failover', 'no_candidate', { tried: current })
-        const user_id = this.store.latest_user_id()
+        const user_id = await this.store.latest_user_id()
         if (user_id !== undefined) {
-          const session_key = this.store.get_session_id(user_id) ?? session_id
-          this.outbound.enqueue_notice({
+          const session_key = await this.store.get_session_id(user_id) ?? session_id
+          this.queue_notice({
             session_id: session_key, user_id, kind: 'assistant',
             text: `配置里的模型接口都不可用了（${current.model}：${detail.slice(0, 80)}）。`
               + '换个 key 或等额度恢复后我再试；也可以让我用别的模型。',
           })
-          void this.outbound.drain()
+          await this.outbound.drain()
         }
         return
       }
@@ -1389,15 +1454,15 @@ export class WeixinConnector {
       })
 
       // ③ 告诉用户，并把刚才那条消息重做一遍
-      const user_id = this.store.latest_user_id()
+      const user_id = await this.store.latest_user_id()
       if (user_id !== undefined) {
-        const session_key = this.store.get_session_id(user_id) ?? session_id
-        this.outbound.enqueue_notice({
+        const session_key = await this.store.get_session_id(user_id) ?? session_id
+        this.queue_notice({
           session_id: session_key, user_id, kind: 'assistant',
           text: `「${current.model}」这个接口用不了了（${reason === 'quota' ? '额度用完' : reason === 'auth' ? 'key 失效' : '模型下线'}），`
             + `我先换成「${next.model}」，把你刚才那条重做一遍。`,
         })
-        void this.outbound.drain()
+        await this.outbound.drain()
         await this.retry_last_message(session_id, user_id)
       }
     } catch (error) {
@@ -1513,11 +1578,11 @@ export class WeixinConnector {
   private async fail_turn(session_id: string, detail: string): Promise<void> {
     const turn = this.current_turn.get(session_id)
     if (turn === undefined) return
-    const user_id = this.turn_context.resolve(session_id, turn)?.user_id ?? ''
+    const user_id = (await this.turn_context.resolve_async(session_id, turn))?.user_id ?? ''
     probe('inbound', 'turn.failed', { session_id, turn, detail })
     // 已经在这里说明过了：清掉错误标记，免得 handle_turn_end 再补一条重复的
     this.turn_error.delete(session_id)
-    this.outbound.enqueue_assistant({
+    this.queue_assistant({
       session_id, user_id, turn,
       text: `我这轮没做成：模型接口报错「${detail.slice(0, 140)}」。\n${this.explain_llm_failure(detail)}`,
     })
@@ -1528,7 +1593,7 @@ export class WeixinConnector {
   private async handle_turn_end(session_id: string, turn: number): Promise<void> {
     this.clear_turn_failure(session_id)
     // 这一轮正常收尾了：删掉"进行中"标记，别让下次启动把它当被打断的轮次补跑。
-    this.store.delete_meta(`${INFLIGHT_TURN_PREFIX}${session_id}`)
+    await this.store.delete_meta(`${INFLIGHT_TURN_PREFIX}${session_id}`)
     // 整轮报过错、又一个字都没发出去 → 必须说一句，不能让用户对着空气等
     // （实测：中转站上游过载时 harness 会以 error 结束这一轮，若这里不补，用户什么都收不到）
     const error = this.turn_error.get(session_id)
@@ -1537,9 +1602,9 @@ export class WeixinConnector {
     this.turn_visible.delete(session_id)
     if (error !== undefined && !visible) {
       probe('outbound', 'turn.failed_notice', { session_id, turn })
-      this.outbound.enqueue_notice({
+      this.queue_notice({
         session_id,
-        user_id: this.turn_context.resolve(session_id, turn)?.user_id ?? '',
+        user_id: (await this.turn_context.resolve_async(session_id, turn))?.user_id ?? '',
         kind: 'assistant',
         text: `我这轮没做成：模型接口报错「${error.slice(0, 120)}」。\n${this.explain_llm_failure(error)}`,
       })
@@ -1549,8 +1614,8 @@ export class WeixinConnector {
     if (aggregator !== undefined) {
       const tail = aggregator.finish()
       if (tail) {
-        this.outbound.enqueue_assistant({
-          session_id, user_id: this.turn_context.resolve(session_id, turn)?.user_id ?? '', turn, text: tail,
+        this.queue_assistant({
+          session_id, user_id: (await this.turn_context.resolve_async(session_id, turn))?.user_id ?? '', turn, text: tail,
         })
       }
     }
@@ -1558,7 +1623,7 @@ export class WeixinConnector {
     this.tool_calls_seen.delete(session_id)
     this.current_turn.delete(session_id)
     this.last_progress_at.delete(session_id)
-    this.turn_context.prune(session_id)
+    await this.turn_context.prune_async(session_id)
     await this.outbound.drain()
     probe('outbound', 'turn.done', { session_id, turn })
   }
@@ -1577,7 +1642,7 @@ export class WeixinConnector {
       for (const segment of aggregator.accept_chunk(chunk.text)) {
         this.outbound.note_visible(session_id)
         this.turn_visible.add(session_id)          // 本轮确实有正文发出
-        this.outbound.enqueue_assistant({ session_id, user_id: '', turn, text: segment })
+        this.queue_assistant({ session_id, user_id: '', turn, text: segment })
       }
       this.outbound.note_visible(session_id)
       void this.outbound.drain()
@@ -1620,7 +1685,7 @@ export class WeixinConnector {
     const cjk = (excerpt.match(/[\u4e00-\u9fff]/g) ?? []).length
     if (cjk < PROGRESS_MIN_CHARS) return
     this.last_progress_at.set(session_id, now)
-    this.outbound.enqueue_progress(session_id, `（进度·欣爱在想）${excerpt}`)
+    this.queue_progress(session_id, `（进度·欣爱在想）${excerpt}`)
     probe('outbound', 'progress.pushed', { session_id, chars: excerpt.length })
     void this.outbound.drain()
   }
@@ -1642,7 +1707,7 @@ export class WeixinConnector {
     this.timeline_scheduler = undefined
     // 视图是惰性重建的，停止前把待写的一次性刷出来（否则 .md 可能落后于记录）
     try {
-      this.timeline?.flush_views()
+      if (this.timeline instanceof TimelineStore) this.timeline.flush_views()
     } catch (error) {
       probe('timeline', 'flush.failed', { error: String(error) })
     }
@@ -1658,7 +1723,7 @@ export class WeixinConnector {
     await this.outbound.drain().catch(() => undefined)
     await this.host.dispose_agents()
     for (const dispose of this.observation_disposers) dispose()
-    this.lease.release()
+    await this.lease.release()
     this.store.close()
     probe('lifecycle', 'connector.stopped')
   }

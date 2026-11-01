@@ -69,7 +69,7 @@ export class CodexBridge {
     /** 处理一条 `/codex` 指令。 */
     async handle(user_id, session_id, command, context_token) {
         if (command.action === 'help') {
-            this.push(user_id, session_id, [
+            await this.push(user_id, session_id, [
                 '这里是 Codex 远程控制，用法：',
                 '- /codex <任务>     交给 Codex 执行（默认续用上次线程）',
                 '- /codex new <任务> 新开一个 Codex 线程',
@@ -81,27 +81,27 @@ export class CodexBridge {
         }
         if (command.action === 'status') {
             const task = this.tasks.get(user_id);
-            const thread = this.thread_for(user_id);
+            const thread = await this.thread_for(user_id);
             const text = task === undefined
                 ? `（当前没有正在运行的 Codex 任务${thread === undefined ? '' : `；上次线程 ${thread.slice(0, 8)}`}）`
                 : `（Codex 正在运行：第 ${task.turn} 轮，已 ${Math.round((Date.now() - task.started_at) / 1000)} 秒，线程 ${task.thread_id?.slice(0, 8) ?? '初始化中'}）`;
-            this.push(user_id, session_id, text, 'assistant', context_token);
+            await this.push(user_id, session_id, text, 'assistant', context_token);
             return;
         }
         if (command.action === 'stop') {
             const stopped = this.stop(user_id);
-            this.push(user_id, session_id, stopped ? '（已终止当前的 Codex 任务）' : '（当前没有正在运行的 Codex 任务）', 'assistant', context_token);
+            await this.push(user_id, session_id, stopped ? '（已终止当前的 Codex 任务）' : '（当前没有正在运行的 Codex 任务）', 'assistant', context_token);
             return;
         }
         if (command.action === 'new') {
-            this.store.set_meta('codex_thread:' + user_id, '');
+            await this.store.set_meta('codex_thread:' + user_id, '');
         }
         if (this.tasks.has(user_id)) {
-            this.push(user_id, session_id, '（已经有一个 Codex 任务在跑，等它结束或先发 /codex stop）', 'error', context_token);
+            await this.push(user_id, session_id, '（已经有一个 Codex 任务在跑，等它结束或先发 /codex stop）', 'error', context_token);
             return;
         }
         if (!command.text.trim()) {
-            this.push(user_id, session_id, '（/codex 后面要跟具体任务）', 'error', context_token);
+            await this.push(user_id, session_id, '（/codex 后面要跟具体任务）', 'error', context_token);
             return;
         }
         await this.run(user_id, session_id, command.text.trim(), context_token);
@@ -121,13 +121,13 @@ export class CodexBridge {
         return this.tasks.has(user_id);
     }
     /** 读取该用户记住的 Codex 线程 id。 */
-    thread_for(user_id) {
-        const value = this.store.get_meta('codex_thread:' + user_id);
+    async thread_for(user_id) {
+        const value = await this.store.get_meta('codex_thread:' + user_id);
         return value !== undefined && value.length > 0 ? value : undefined;
     }
     /** 执行一次 Codex 任务，边跑边把事件推给用户，结束后发最终结果。 */
     async run(user_id, session_id, task, context_token) {
-        const thread = this.thread_for(user_id);
+        const thread = await this.thread_for(user_id);
         const bin = resolve_codex_bin();
         const args = thread === undefined
             ? ['exec', '--json', '--skip-git-repo-check', '--dangerously-bypass-approvals-and-sandbox',
@@ -174,11 +174,11 @@ export class CodexBridge {
                     catch {
                         continue;
                     }
-                    this.consume_event(user_id, session_id, event, pushed, () => last_push_at, at => { last_push_at = at; }, context_token);
+                    void this.consume_event(user_id, session_id, event, pushed, () => last_push_at, at => { last_push_at = at; }, context_token);
                 }
             };
             child.stdout?.on('data', flush_lines);
-            child.on('close', code => {
+            child.on('close', async (code) => {
                 flush_lines();
                 clearTimeout(timer);
                 this.tasks.delete(user_id);
@@ -186,19 +186,19 @@ export class CodexBridge {
                 probe('codex', 'run.close', { user_id, turn, code, pushed: pushed.size });
                 if (!ok) {
                     const detail = stderr.split('\n').filter(Boolean).slice(-6).join(' ');
-                    this.push(user_id, session_id, `（Codex 退出码 ${code}${detail ? '：' + detail : ''}）`, 'error', context_token);
+                    await this.push(user_id, session_id, `（Codex 退出码 ${code}${detail ? '：' + detail : ''}）`, 'error', context_token);
                 }
                 resolve();
             });
         });
     }
     /** 解析单个 Codex JSON 事件并（必要时）推送给用户。 */
-    consume_event(user_id, session_id, event, pushed, _get_last, set_last, context_token) {
+    async consume_event(user_id, session_id, event, pushed, _get_last, set_last, context_token) {
         const type = String(event.type ?? '');
         if (type === 'thread.started') {
             const thread_id = String(event.thread_id ?? '');
             if (thread_id) {
-                this.store.set_meta('codex_thread:' + user_id, thread_id);
+                await this.store.set_meta('codex_thread:' + user_id, thread_id);
                 const running = this.tasks.get(user_id);
                 if (running !== undefined)
                     running.thread_id = thread_id;
@@ -232,7 +232,7 @@ export class CodexBridge {
                 return;
             pushed.add(key);
             set_last(Date.now());
-            this.push(user_id, session_id, text.trim(), item_type === 'agent_message' ? 'assistant' : 'progress', context_token);
+            await this.push(user_id, session_id, text.trim(), item_type === 'agent_message' ? 'assistant' : 'progress', context_token);
         }
     }
 }

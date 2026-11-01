@@ -72,8 +72,9 @@ export function register_notify_tools(agent_ctx, settings) {
         async execute(args) {
             const action = typeof args.action === 'string' ? args.action.trim().toLowerCase() : '';
             const render = (state) => `codex 完成汇报：${state.codex ? '已开启' : '已关闭'}\nopencode 完成汇报：${state.opencode ? '已开启' : '已关闭'}`;
+            const snapshot = async () => settings.snapshot_async === undefined ? settings.snapshot() : await settings.snapshot_async();
             if (action === 'status' || action === '') {
-                return { ok: true, text: `当前通知开关：\n${render(settings.snapshot())}` };
+                return { ok: true, text: `当前通知开关：\n${render(await snapshot())}` };
             }
             if (action !== 'set') {
                 return { ok: false, text: `未知动作"${action}"；可用：status | set` };
@@ -85,11 +86,15 @@ export function register_notify_tools(agent_ctx, settings) {
             if (typeof args.enabled !== 'boolean') {
                 return { ok: false, text: 'set 需要 enabled（true 打开、false 关闭）。' };
             }
-            for (const target of targets)
-                settings.set_enabled(target, args.enabled);
+            for (const target of targets) {
+                if (settings.set_enabled_async === undefined)
+                    settings.set_enabled(target, args.enabled);
+                else
+                    await settings.set_enabled_async(target, args.enabled);
+            }
             return {
                 ok: true,
-                text: `已${args.enabled ? '开启' : '关闭'}：${targets.join('、')}。\n${render(settings.snapshot())}`,
+                text: `已${args.enabled ? '开启' : '关闭'}：${targets.join('、')}。\n${render(await snapshot())}`,
             };
         },
     }));
