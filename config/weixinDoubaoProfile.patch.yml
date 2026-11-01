@@ -288,7 +288,7 @@
         transport: stdio
         serverName: self-memory
         command: "G:/desktop/\u65e5\u5e38\u667a\u80fd\u4f53\u7a7a\u95f4/\u667a\u80fd\u79d8\u4e66/\u53d1\u5e03/\u5fae\u4fe1\u7535\u63a7AI\u7ba1\u5bb6/.venv/Scripts/python.exe"
-        args: ['G:/desktop/日常智能体空间/智能秘书/发布/微信电控AI管家/selfMemory/mcp/selfMemoryMcp.py']
+        args: ['G:/desktop/日常智能体空间/智能秘书/发布/SynLove-Personal-Agent/selfMemory/mcp/selfMemoryMcp.py']
         env:
           DSH_HOME: !!js process.env.DSH_HOME
           PYTHONUTF8: '1'
@@ -304,7 +304,7 @@
         transport: stdio
         serverName: digest
         command: "G:/desktop/\u65e5\u5e38\u667a\u80fd\u4f53\u7a7a\u95f4/\u667a\u80fd\u79d8\u4e66/\u53d1\u5e03/\u5fae\u4fe1\u7535\u63a7AI\u7ba1\u5bb6/.venv/Scripts/python.exe"
-        args: ['G:/desktop/日常智能体空间/智能秘书/发布/微信电控AI管家/newsDigest/mcp/digestMcp.py']
+        args: ['G:/desktop/日常智能体空间/智能秘书/发布/SynLove-Personal-Agent/newsDigest/mcp/digestMcp.py']
         env:
           PYTHONUTF8: '1'
           PYTHONIOENCODING: 'utf-8'
@@ -319,7 +319,7 @@
         transport: stdio
         serverName: reminders
         command: "G:/desktop/\u65e5\u5e38\u667a\u80fd\u4f53\u7a7a\u95f4/\u667a\u80fd\u79d8\u4e66/\u53d1\u5e03/\u5fae\u4fe1\u7535\u63a7AI\u7ba1\u5bb6/.venv/Scripts/python.exe"
-        args: ['G:/desktop/日常智能体空间/智能秘书/发布/微信电控AI管家/reminders/mcp/reminderMcp.py']
+        args: ['G:/desktop/日常智能体空间/智能秘书/发布/SynLove-Personal-Agent/reminders/mcp/reminderMcp.py']
         env:
           PYTHONUTF8: '1'
           PYTHONIOENCODING: 'utf-8'
@@ -333,7 +333,7 @@
         transport: stdio
         serverName: video-digest
         command: "G:/desktop/\u65e5\u5e38\u667a\u80fd\u4f53\u7a7a\u95f4/\u667a\u80fd\u79d8\u4e66/\u53d1\u5e03/\u5fae\u4fe1\u7535\u63a7AI\u7ba1\u5bb6/.venv/Scripts/python.exe"
-        args: ['G:/desktop/日常智能体空间/智能秘书/发布/微信电控AI管家/videoDigest/mcp/videoMcp.py']
+        args: ['G:/desktop/日常智能体空间/智能秘书/发布/SynLove-Personal-Agent/videoDigest/mcp/videoMcp.py']
         env:
           PYTHONUTF8: '1'
           PYTHONIOENCODING: 'utf-8'
@@ -347,7 +347,7 @@
         transport: stdio
         serverName: kugou
         command: "G:/desktop/\u65e5\u5e38\u667a\u80fd\u4f53\u7a7a\u95f4/\u667a\u80fd\u79d8\u4e66/\u53d1\u5e03/\u5fae\u4fe1\u7535\u63a7AI\u7ba1\u5bb6/.venv/Scripts/python.exe"
-        args: ['G:/desktop/日常智能体空间/智能秘书/发布/微信电控AI管家/kugou/mcp/kugouMcp.py']
+        args: ['G:/desktop/日常智能体空间/智能秘书/发布/SynLove-Personal-Agent/kugou/mcp/kugouMcp.py']
         env:
           PYTHONUTF8: '1'
           PYTHONIOENCODING: 'utf-8'

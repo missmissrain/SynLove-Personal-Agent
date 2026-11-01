@@ -7573,7 +7573,7 @@ ${partials.join("\n\n")}`,
 // backend/packages/webhook/webhook-weixin/src/memory/memoryModel.ts
 import { existsSync as existsSync12, readFileSync as readFileSync9 } from "node:fs";
 import { dirname as dirname3, join as join12 } from "node:path";
-var DEFAULT_CLOUD_MODEL = "volcengine/doubao-seed-2-0-lite-260215";
+var DEFAULT_CLOUD_MODEL = "volcengine/doubao-seed-2-0-pro-260215";
 function default_config_path() {
   return join12(process.env.DSH_WEIXIN_WORKSPACE ?? process.cwd(), "config", "modelConfig.json");
 }

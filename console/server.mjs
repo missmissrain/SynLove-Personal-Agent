@@ -147,7 +147,7 @@ const ENV_TOGGLES = [
   },
   {
     key: 'DSH_MEMORY_CLOUD_MODEL', label: '云端模型（provider/模型名）', kind: 'text',
-    default: 'volcengine/doubao-seed-2-0-lite-260215',
+    default: 'volcengine/doubao-seed-2-0-pro-260215',
     help: '仅当引擎选"云端"时生效；取值来自 config/modelConfig.json 的 provider 与模型 id（密钥在 secrets.json）。',
   },
   {

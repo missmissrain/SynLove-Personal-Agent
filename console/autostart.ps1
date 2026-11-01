@@ -18,8 +18,7 @@ function save_shortcut([string]$Path, [bool]$Hidden = $false, [bool]$Hotkey = $f
     $link = $shell.CreateShortcut($Path)
     if (Test-Path -LiteralPath $Path) {
         $isElectron = ([IO.Path]::GetFileName($link.TargetPath) -ieq "electron.exe")
-        $isSynLoveEntry = $link.Arguments.IndexOf("微信Harness链路", [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
-            $link.Arguments.IndexOf("微信电控AI管家", [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+        $isSynLoveEntry = $link.Arguments.IndexOf("SynLove-Personal-Agent", [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
             $link.Arguments.IndexOf($project, [StringComparison]::OrdinalIgnoreCase) -ge 0
         if (($link.TargetPath -ne $electron) -and -not ($isElectron -and $isSynLoveEntry)) {
             throw "同名快捷方式指向其他程序，拒绝覆盖：$Path"
@@ -39,8 +38,7 @@ function archive_startup([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) { return }
     $link = $shell.CreateShortcut($Path)
     $isElectron = ([IO.Path]::GetFileName($link.TargetPath) -ieq "electron.exe")
-    $isSynLoveEntry = $link.Arguments.IndexOf("微信Harness链路", [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
-        $link.Arguments.IndexOf("微信电控AI管家", [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+    $isSynLoveEntry = $link.Arguments.IndexOf("SynLove-Personal-Agent", [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
         $link.Arguments.IndexOf($project, [StringComparison]::OrdinalIgnoreCase) -ge 0
     if (-not (($link.TargetPath -eq $electron) -or ($isElectron -and $isSynLoveEntry))) {
         throw "启动项不属于当前项目，拒绝迁移：$Path"

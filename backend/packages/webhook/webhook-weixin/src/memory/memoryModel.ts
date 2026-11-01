@@ -47,7 +47,7 @@ export interface MemoryModel {
 }
 
 /** 默认的云端模型（配置里没有指定时的兜底）。 */
-const DEFAULT_CLOUD_MODEL = 'volcengine/doubao-seed-2-0-lite-260215'
+const DEFAULT_CLOUD_MODEL = 'volcengine/doubao-seed-2-0-pro-260215'
 
 /** 项目里 modelConfig.json 的位置（本包 → 项目根 → config）。 */
 function default_config_path(): string {
