@@ -242,6 +242,7 @@ function apply_backend_endpoints(mode, host, results, specs = {}) {
   let changed = false
   for (const item of results) {
     if (!config.services[item.name]) continue
+    if (mode === 'remote' && !item.available) continue
     const nextPort = item.available ? item.port : Number(specs[item.name]?.defaultPort)
     if (!nextPort) continue
     const next = `http://${mode === 'remote' ? host : '127.0.0.1'}:${nextPort}/v1`
