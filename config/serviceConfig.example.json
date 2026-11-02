@@ -30,6 +30,7 @@
       "timeoutSeconds": 240
     },
     "reminders": {
+      "implementation": "backend",
       "baseURL": "http://127.0.0.1:8791/v1",
       "management": "managed",
       "apiKeyEnv": "SYNLOVE_REMINDERS_API_KEY",
@@ -37,6 +38,7 @@
       "databasePath": "runtime/reminders.db"
     },
     "digest": {
+      "implementation": "backend",
       "baseURL": "http://127.0.0.1:8792/v1",
       "management": "managed",
       "apiKeyEnv": "SYNLOVE_DIGEST_API_KEY",
@@ -44,6 +46,7 @@
       "databasePath": "runtime/newsDigest.db"
     },
     "video": {
+      "implementation": "backend",
       "baseURL": "http://127.0.0.1:8793/v1",
       "management": "managed",
       "apiKeyEnv": "SYNLOVE_VIDEO_API_KEY",
@@ -51,6 +54,7 @@
       "workDir": "runtime/videoService"
     },
     "crawler": {
+      "implementation": "backend",
       "baseURL": "http://127.0.0.1:8796/v1",
       "management": "managed",
       "apiKeyEnv": "SYNLOVE_CRAWLER_API_KEY",

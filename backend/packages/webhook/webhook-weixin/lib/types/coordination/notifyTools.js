@@ -1,29 +1,16 @@
-/**
- * 通知开关工具：让欣爱自己查/改 codex 与 opencode 的完成汇报是否推送。
- *
- * 一个工具两个动作（而不是两个工具）：模型在工具变多时更容易选错，
- * 而"查状态"和"改开关"本来就是一回事的两面，合成一个入口更不容易用错。
- *
- * 只影响**被动通知**（外部发起的任务完成汇报）；真实对话回复不受影响。
- *
- * @module dsh-webhook-weixin/notify-tools
- */
 import { defineTool } from '@deepseek-ai/dsh-tools';
-const TARGETS = ['codex', 'opencode'];
-/** 解析目标；'all'/'both' 表示两个都算。 */
+const TARGETS = [
+    'codex',
+    'opencode'
+];
 function parse_targets(raw) {
     const value = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
-    if (value === '' || value === 'all' || value === 'both' || value === '全部')
-        return [...TARGETS];
-    const matched = TARGETS.filter(target => value === target || value.includes(target));
+    if (value === '' || value === 'all' || value === 'both' || value === '全部') return [
+        ...TARGETS
+    ];
+    const matched = TARGETS.filter((target)=>value === target || value.includes(target));
     return matched.length === 0 ? undefined : matched;
 }
-/**
- * 在 agent 作用域注册通知开关工具。
- *
- * @param agent_ctx - agent 自己的 ctx。
- * @param settings - 通知开关（读写状态库 meta）。
- */
 export function register_notify_tools(agent_ctx, settings) {
     agent_ctx.tools.register(defineTool({
         name: 'notify_control',
@@ -41,62 +28,82 @@ export function register_notify_tools(agent_ctx, settings) {
             '',
             '什么时候不该用：',
             '- 不要因为"觉得吵"就自己关掉通知——必须用户明确要求才改；',
-            '- 这个开关只影响"外部任务的完成汇报"，不影响你正常的对话回复。',
+            '- 这个开关只影响"外部任务的完成汇报"，不影响你正常的对话回复。'
         ].join('\n'),
         parameters: {
             action: {
                 type: 'string',
                 required: true,
-                description: 'status（查看）或 set（设置）。',
+                description: 'status（查看）或 set（设置）。'
             },
             target: {
                 type: 'string',
-                description: 'set 时必填：codex / opencode / all。',
+                description: 'set 时必填：codex / opencode / all。'
             },
             enabled: {
                 type: 'boolean',
-                description: 'set 时必填：true 打开、false 关闭。',
-            },
+                description: 'set 时必填：true 打开、false 关闭。'
+            }
         },
         output: {
             schema: {
                 type: 'object',
                 additionalProperties: false,
                 properties: {
-                    ok: { type: 'boolean', required: true },
-                    text: { type: 'string', required: true },
-                },
+                    ok: {
+                        type: 'boolean',
+                        required: true
+                    },
+                    text: {
+                        type: 'string',
+                        required: true
+                    }
+                }
             },
-            render: (_args, value) => [{ type: 'text', text: String(value.text ?? '') }],
+            render: (_args, value)=>[
+                    {
+                        type: 'text',
+                        text: String(value.text ?? '')
+                    }
+                ]
         },
-        async execute(args) {
+        async execute (args) {
             const action = typeof args.action === 'string' ? args.action.trim().toLowerCase() : '';
-            const render = (state) => `codex 完成汇报：${state.codex ? '已开启' : '已关闭'}\nopencode 完成汇报：${state.opencode ? '已开启' : '已关闭'}`;
-            const snapshot = async () => settings.snapshot_async === undefined ? settings.snapshot() : await settings.snapshot_async();
+            const render = (state)=>`codex 完成汇报：${state.codex ? '已开启' : '已关闭'}\nopencode 完成汇报：${state.opencode ? '已开启' : '已关闭'}`;
+            const snapshot = async ()=>settings.snapshot_async === undefined ? settings.snapshot() : await settings.snapshot_async();
             if (action === 'status' || action === '') {
-                return { ok: true, text: `当前通知开关：\n${render(await snapshot())}` };
+                return {
+                    ok: true,
+                    text: `当前通知开关：\n${render(await snapshot())}`
+                };
             }
             if (action !== 'set') {
-                return { ok: false, text: `未知动作"${action}"；可用：status | set` };
+                return {
+                    ok: false,
+                    text: `未知动作"${action}"；可用：status | set`
+                };
             }
             const targets = parse_targets(args.target);
             if (targets === undefined) {
-                return { ok: false, text: 'target 必须是 codex / opencode / all 之一。' };
+                return {
+                    ok: false,
+                    text: 'target 必须是 codex / opencode / all 之一。'
+                };
             }
             if (typeof args.enabled !== 'boolean') {
-                return { ok: false, text: 'set 需要 enabled（true 打开、false 关闭）。' };
+                return {
+                    ok: false,
+                    text: 'set 需要 enabled（true 打开、false 关闭）。'
+                };
             }
-            for (const target of targets) {
-                if (settings.set_enabled_async === undefined)
-                    settings.set_enabled(target, args.enabled);
-                else
-                    await settings.set_enabled_async(target, args.enabled);
+            for (const target of targets){
+                if (settings.set_enabled_async === undefined) settings.set_enabled(target, args.enabled);
+                else await settings.set_enabled_async(target, args.enabled);
             }
             return {
                 ok: true,
-                text: `已${args.enabled ? '开启' : '关闭'}：${targets.join('、')}。\n${render(await snapshot())}`,
+                text: `已${args.enabled ? '开启' : '关闭'}：${targets.join('、')}。\n${render(await snapshot())}`
             };
-        },
+        }
     }));
 }
-//# sourceMappingURL=notifyTools.js.map

@@ -59,11 +59,11 @@ function service_info(service) {
     ASR: { name: 'ASR', role: '将语音识别为文字' },
     LLM: { name: '本地大模型', role: '本地推理与后台摘要' },
     CORE: { name: '核心控制', role: '远程管理系统启动、停止与配置' },
-    REMINDERS: { name: '定时提醒', role: '保存提醒并在到点时推送' },
-    DIGEST: { name: '新闻摘要', role: '采集新闻并生成定时摘要' },
+    REMINDERS: { name: '定时任务', role: '保存提醒并在到点时推送' },
+    DIGEST: { name: '爬虫中心', role: '采集订阅、整理新闻与每日推送' },
     VIDEO: { name: '视频理解', role: '转写语音、分析画面并生成报告' },
     HISTORY: { name: '历史检索', role: '查找过去的对话与会话记录' },
-    CRAWLER: { name: '网页采集', role: '抓取网页并提取正文' },
+    CRAWLER: { name: '网页收集', role: '浏览器采集与 Gemma 整理' },
     MEMORY: { name: '长期记忆', role: '读写每日时间线与人物关系图谱' },
     STATE: { name: '微信状态', role: '维护微信租约、收件记录与发送队列' },
     QQSTATE: { name: 'QQ 状态', role: '维护 QQ 租约与消息发送进度' },
@@ -83,7 +83,7 @@ function is_visible_service(service) {
   if (service.port === 3080 || service.port === 4096) return true
   return new Set([
     'CODEX', 'TTS', 'ASR', 'LLM', 'REMINDERS', 'DIGEST', 'VIDEO',
-    'CRAWLER', 'MEMORY', 'RSSHUB', 'OPENCODE', 'KUGOU',
+    'CRAWLER', 'MEMORY', 'OPENCODE', 'KUGOU',
   ]).has(name)
 }
 
@@ -115,7 +115,7 @@ function render_service_page() {
     const detail = `${label}：${service.detail || (available ? '服务已就绪' : '后端尚未启动')}`
     return `
     <div class="service">
-      <div class="name"><span class="service-dot ${available ? 'is-up' : 'is-down'}" role="img" aria-label="${label}"></span>${escape_service(info.name)}${tool_help(detail)}</div>
+      <div class="name"><span class="service-dot ${available ? service.location === 'remote' ? 'is-remote' : 'is-up' : 'is-down'}" role="img" aria-label="${available && service.location === 'remote' ? '远程可用' : label}"></span>${escape_service(info.name)}${tool_help(detail)}</div>
       <div class="hint">${escape_service(info.role)}</div>
     </div>`
   }).join('')
@@ -934,7 +934,7 @@ function render_backend(data) {
   }))
   $('backend-services').innerHTML = rows.map(item => `
     <div class="backend-service-row">
-      <span class="service-dot ${item.available ? 'is-up' : 'is-down'}" aria-label="${item.available ? '可用' : '未就绪'}"></span>
+      <span class="service-dot ${item.available ? config.mode === 'remote' ? 'is-remote' : 'is-up' : 'is-down'}" aria-label="${item.available ? '可用' : '未就绪'}"></span>
       <strong>${escape_service(item.label)}</strong>
       <span class="backend-service-port">${item.port ? `端口 ${item.port}` : '未找到'}</span>
       <span class="hint">${escape_service(item.detail ?? '')}</span>

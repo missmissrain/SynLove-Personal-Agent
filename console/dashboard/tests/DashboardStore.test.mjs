@@ -15,10 +15,10 @@ test('新闻服务已启用时覆盖旧 Windows 停用状态且只显示一个�
   f.store.tasks = async () => [{ id: 'SynLoveNewsDigest', state: 'Disabled', triggers: [] }]
   f.store.digestSnapshot = async () => ({ schedule: { hhmm: '08:55', enabled: 1, day: '2026-11-02' } })
   const result = await f.store.snapshot()
-  const rows = result.schedules.filter(row => row.name === '新闻摘要推送')
+  const rows = result.schedules.filter(row => row.name === '每日新闻')
   assert.equal(rows.length, 1)
   assert.equal(rows[0].status, 'Ready')
-  assert.equal(rows[0].source, '新闻服务')
+  assert.equal(rows[0].source, '爬虫中心')
   assert.equal(rows[0].nextLabel, '08:55')
   assert.ok(!result.schedules.some(row => row.id === 'SynLoveNewsDigest'))
 })
@@ -120,7 +120,7 @@ test('系统计划任务查询合并并发且缓存，维护任务归系统页',
   const results = await Promise.all(Array.from({ length: 12 }, () => f.store.snapshot()))
   assert.equal(calls, 1)
   assert.equal(results[0].systemTasks.length, 1)
-  assert.ok(results[0].schedules.some(row => row.name === '新闻摘要推送'))
+  assert.ok(results[0].schedules.some(row => row.name === '每日新闻'))
   assert.ok(!results[0].schedules.some(row => row.id === 'SynLoveGuard'))
 })
 

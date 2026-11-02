@@ -58,6 +58,15 @@ class QqStateServiceTests(unittest.TestCase):
         self.assertTrue(self.call("qq_release_lease", {"ownerId": "a"})["updated"])
         self.assertTrue(self.call("qq_acquire_lease", {**args, "ownerId": "b"})["acquired"])
 
+    def test_task_receipt_survives_sent_removal(self):
+        """完成通知发送后仍保留幂等凭据，防止任务库确认前重启造成重复入队。"""
+        reply = {"text": "后台总结", "target": {"kind": "c2c", "id": "u1"}, "dedupeKey": "task-1"}
+        first = self.call("qq_enqueue", {"reply": reply})["outbox"]
+        self.call("qq_mark_sent", {"id": first["id"]})
+        again = self.call("qq_enqueue", {"reply": reply})["outbox"]
+        self.assertEqual(first["id"], again["id"])
+        self.assertEqual(self.call("qq_list_pending", {})["outbox"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

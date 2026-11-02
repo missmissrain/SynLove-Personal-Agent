@@ -18,6 +18,7 @@ import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { probe } from '../diagnostics/probe.ts'
+import { TaskRuntime } from '../agentTasks/TaskRuntime.ts'
 
 /** 附件保存能力（由 harness attachments 服务提供）。 */
 export interface WeixinAttachmentStore {
@@ -27,6 +28,7 @@ export interface WeixinAttachmentStore {
 
 /** 宿主必须提供的能力。 */
 export interface WeixinSessionHost {
+  readonly tasks?: TaskRuntime
   get_agent(session_id: SessionId): Agent | undefined
   create_agent(session_id: SessionId): Promise<Agent>
   resume_agent(session_id: SessionId): Promise<Agent>
@@ -62,12 +64,15 @@ export interface HarnessSessionHostOptions {
 
 /** 唯一的 Agent 所有权实现。 */
 export class HarnessSessionHost implements WeixinSessionHost {
+  readonly tasks: TaskRuntime | undefined
   private readonly handles = new Map<string, { dispose(): Promise<void>; agent: Agent }>()
   private disposed = false
   private composition: Composition | undefined
 
   /** 绑定 Cordis 上下文与组合参数。 */
-  constructor(private readonly ctx: Context, private readonly options: HarnessSessionHostOptions) {}
+  constructor(private readonly ctx: Context, private readonly options: HarnessSessionHostOptions) {
+    this.tasks = TaskRuntime.for_host(ctx, options)
+  }
 
   /**
    * 启动时装配检查（设计文档 §8.2 / §9.3）：缺任何一个必需服务都立即失败。
@@ -132,6 +137,8 @@ export class HarnessSessionHost implements WeixinSessionHost {
         ...this.agent_options() === undefined ? {} : { agentOptions: this.agent_options()! },
         ...composition.setup === undefined ? {} : { setup: composition.setup },
       })
+      try { await this.tasks?.attach_presenter(handle.agent, this.options) }
+      catch (error) { await handle.dispose(); throw error }
       this.handles.set(String(handle.agent.id), handle)
       probe('lifecycle', 'agent.created', { session_id: String(handle.agent.id) })
       return handle.agent
@@ -161,6 +168,8 @@ export class HarnessSessionHost implements WeixinSessionHost {
       probe('lifecycle', 'agent.resume_missing_create', { session_id: String(session_id) })
       return this.create_agent(session_id)
     }
+    try { await this.tasks?.attach_presenter(handle.agent, this.options) }
+    catch (error) { await handle.dispose(); throw error }
     this.handles.set(String(handle.agent.id), handle)
     probe('lifecycle', 'agent.resumed', { session_id: String(handle.agent.id) })
     return handle.agent
@@ -215,7 +224,7 @@ export class HarnessSessionHost implements WeixinSessionHost {
       throw new Error('webhook-weixin: agentPresets 服务缺失，无法挂载 Agent preset（会导致 Agent 没有任何工具）。')
     }
     try {
-      const resolvedId = (await presets.resolve(this.options.agent_preset)).id
+      const resolvedId = (await presets.resolve(this.tasks?.config.presenterPreset ?? this.options.agent_preset)).id
       const composition: Composition = {
         agentPreset: resolvedId,
         setup: async (agentCtx: unknown) => {

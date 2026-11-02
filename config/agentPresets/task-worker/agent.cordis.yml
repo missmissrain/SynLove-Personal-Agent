@@ -1,0 +1,41 @@
+# 后台执行预设：独立执行提示词与工具；实际工具范围再按任务类别限制。
+# 参数：宿主注入工作区、模型与任务；不加载主人格，不加载第二套子 Agent 调度。
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  disabled: !!js process.platform === 'win32'
+- id: tool-pwsh
+  name: '@deepseek-ai/dsh-tool-pwsh'
+  disabled: !!js process.platform !== 'win32'
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    sampleOverCapGlobResults: true
+- id: tool-opencode
+  name: '@deepseek-ai/dsh-tool-opencode'
+- id: tool-codex
+  name: '@deepseek-ai/dsh-tool-codex'
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+- id: skills
+  name: cordis:group
+  group: true
+  isolate:
+    skills: true
+  config:
+    - id: skill
+      name: '@deepseek-ai/dsh-skill'
+    - id: skill-filesystem
+      name: '@deepseek-ai/dsh-skill-filesystem'
+    - id: tool-skill
+      name: '@deepseek-ai/dsh-tool-skill'
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: compaction-basic
+      name: '@deepseek-ai/dsh-compaction-basic'

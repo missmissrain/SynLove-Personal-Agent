@@ -75,6 +75,9 @@ def _connect():
           heartbeat_at INTEGER NOT NULL,
           account_id TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS qq_task_receipts (
+          key TEXT PRIMARY KEY, item_id TEXT UNIQUE NOT NULL
+        );
         """
     )
     db.commit()
@@ -102,6 +105,13 @@ def _call(name, args):
                 raise ValueError("reply 必须包含非空 text 和 object target")
             target_json = json.dumps(target, ensure_ascii=False, sort_keys=True)
             msg_id = reply.get("msgId")
+            task_key = reply.get("dedupeKey")
+            if task_key:
+                db.execute("BEGIN IMMEDIATE")
+                prior = db.execute("SELECT item_id FROM qq_task_receipts WHERE key=?",
+                                   (str(task_key),)).fetchone()
+                if prior:
+                    return {"outbox": {"id": prior["item_id"]}}
             if msg_id is not None:
                 old = db.execute(
                     "SELECT * FROM qq_outbox WHERE msg_id=? AND target_json=? AND text=? AND status <> 'failed_terminal'",
@@ -116,6 +126,8 @@ def _call(name, args):
                 "INSERT INTO qq_outbox(id,target_json,text,msg_id,created_at,status) VALUES(?,?,?,?,?,'pending')",
                 (item_id, target_json, text, None if msg_id is None else str(msg_id), now),
             )
+            if task_key:
+                db.execute("INSERT INTO qq_task_receipts VALUES(?,?)", (str(task_key), item_id))
             db.commit()
             return {"outbox": _row(db.execute("SELECT * FROM qq_outbox WHERE id=?", (item_id,)).fetchone())}
         if name == "qq_list_pending":

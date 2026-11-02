@@ -85,8 +85,9 @@ function strip_ansi(text: string): string {
  * execFile 留下的 stdin 管道永不关闭，opencode 就会一直等输入、永不退出
  * （实测卡死 300 秒以上；把 stdin 关掉后同一条命令 9~15 秒返回）。
  */
-function run_opencode(args: string[], cwd: string | undefined): Promise<CommandResult> {
+function run_opencode(args: string[], cwd: string | undefined, signal?: AbortSignal): Promise<CommandResult> {
   return new Promise((resolve) => {
+    if (signal?.aborted) { resolve({ ok: false, text: '本次调用已取消，未启动进程。' }); return }
     // .exe 直接执行（Node 会正确引用含空格的参数）；只有落到 .cmd 时才经 cmd.exe。
     const bin = resolve_bin()
     const command = bin.toLowerCase().endsWith('.exe') ? bin : 'cmd.exe'
@@ -100,9 +101,17 @@ function run_opencode(args: string[], cwd: string | undefined): Promise<CommandR
     const chunks: Buffer[] = []
     let bytes = 0
     let timed_out = false
+    /** 无参数；只结束本次创建的进程树，不按程序名终止其他任务。 */
+    const abort = () => {
+      if (process.platform === 'win32' && child.pid)
+        spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' })
+          .on('error', () => child.kill())
+      else child.kill()
+    }
+    signal?.addEventListener('abort', abort, { once: true })
     const timer = setTimeout(() => {
       timed_out = true
-      child.kill()
+      abort()
     }, RUN_TIMEOUT_MS)
     const collect = (data: Buffer): void => {
       bytes += data.length
@@ -112,10 +121,12 @@ function run_opencode(args: string[], cwd: string | undefined): Promise<CommandR
     child.stdout?.on('data', collect)
     child.stderr?.on('data', collect)
     child.on('error', error => {
+      signal?.removeEventListener('abort', abort)
       clearTimeout(timer)
       resolve({ ok: false, text: 'ERROR: ' + (error.message || 'opencode 启动失败') })
     })
     child.on('close', code => {
+      signal?.removeEventListener('abort', abort)
       clearTimeout(timer)
       // 剥掉 ANSI 转义序列：opencode 的彩色输出会塞满 \u001b[0m 之类的控制码，
       // 小模型（如 Gemma4 E4B）解析这些噪声后会误判"任务没完成"而反复重试。
@@ -123,6 +134,7 @@ function run_opencode(args: string[], cwd: string | undefined): Promise<CommandR
       const text = combined.length > MAX_OUTPUT_CHARS
         ? combined.slice(0, MAX_OUTPUT_CHARS) + `\n…（输出过长，已截断，共 ${combined.length} 字符）`
         : combined
+      if (signal?.aborted) { resolve({ ok: false, text: text + '\n调用已取消；远程 server 中已派出的任务仍需另行确认停止。' }); return }
       if (timed_out) {
         resolve({
           ok: false,
@@ -247,24 +259,26 @@ export function apply(ctx: Context): void {
       },
       render: (_args, value) => [{ type: 'text', text: String(value.text ?? '') }],
     },
-    async execute(args): Promise<{ ok: boolean, text: string }> {
+    async execute(args, exec): Promise<{ ok: boolean, text: string }> {
       const action = typeof args.action === 'string' ? args.action.trim() : ''
       if (!ACTIONS.includes(action as typeof ACTIONS[number])) {
         return { ok: false, text: `未知动作 "${action}"；可用：${ACTIONS.join(' | ')}` }
       }
       const workspace = typeof args.workspace === 'string' && args.workspace.trim() ? args.workspace.trim() : undefined
       const session = typeof args.session === 'string' && args.session.trim() ? args.session.trim() : undefined
-      const prompt = typeof args.prompt === 'string' ? args.prompt : ''
+      const raw = typeof args.prompt === 'string' ? args.prompt : ''
+      const prompt = raw && String(exec.agent?.id ?? '').startsWith('task-')
+        ? `[SynLoveTask:${exec.agent.id}]\n${raw}` : raw
 
       if (action === 'list_sessions') {
-        return run_opencode(['session', 'list'], workspace)
+        return run_opencode(['session', 'list'], workspace, exec.signal)
       }
       if (action === 'stats') {
-        return run_opencode(['stats'], workspace)
+        return run_opencode(['stats'], workspace, exec.signal)
       }
       if (action === 'export') {
         if (session === undefined) return { ok: false, text: ask_text('会话 id') }
-        return run_opencode(['export', session], workspace)
+        return run_opencode(['export', session], workspace, exec.signal)
       }
       // action === 'run'
       // 只要工作区；session 可省略——省略时 opencode 会新建一个会话（用户说"重新开一个会话"就走这条路）。
@@ -277,7 +291,7 @@ export function apply(ctx: Context): void {
       // 就是个真子进程，可能卡十几分钟才失败——那一轮对话就彻底僵在那里（用户只看到"还在处理中"）。
       // 这里先用 `session list` 快速核对（几秒），不存在就直接把候选会话摆出来。
       if (session !== undefined) {
-        const listed = await run_opencode(['session', 'list'], workspace)
+        const listed = await run_opencode(['session', 'list'], workspace, exec.signal)
         if (listed.ok && !session_listed(listed.text, session)) {
           return {
             ok: false,
@@ -296,7 +310,7 @@ export function apply(ctx: Context): void {
       const run_args = session === undefined
         ? ['run', '--auto', ...attach, ...dir_args, prompt]
         : ['run', '--auto', ...attach, ...dir_args, '--fork', '-s', session, prompt]
-      return run_opencode(run_args, workspace)
+      return run_opencode(run_args, workspace, exec.signal)
     },
   }))
 }

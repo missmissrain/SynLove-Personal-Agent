@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "presenterPreset": "presenter",
+  "workerPreset": "task-worker",
+  "maxConcurrent": 2,
+  "taskTimeoutMs": 1800000,
+  "presentationTimeoutMs": 90000,
+  "workerModel": {},
+  "toolAllow": {
+    "research": ["web_search", "web_fetch", "read", "read_image", "grep", "glob", "skill", "timeline_days", "timeline_search", "timeline_read", "relation_query"],
+    "coding": ["read", "read_image", "write", "edit", "grep", "glob", "pwsh", "bash", "opencode", "codex", "web_search", "web_fetch", "skill", "todo", "create_goal", "update_goal", "get_goal"]
+  }
+}

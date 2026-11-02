@@ -15,6 +15,7 @@
  */
 
 import { createServer } from 'node:http'
+import { BackendResults } from './dashboard/BackendResults.mjs'
 import { spawn, spawnSync } from 'node:child_process'
 import { execFileSync } from 'node:child_process'
 import {
@@ -32,6 +33,7 @@ import { ServiceProbe } from './dashboard/ServiceProbe.mjs'
 import { ServiceProxy } from './ServiceProxy.mjs'
 import { RemoteConnectionStore } from './remote/RemoteConnectionStore.mjs'
 import { RemoteConnectionRoutes } from './remote/RemoteConnectionRoutes.mjs'
+import { RelayTrust } from './remote/RelayTrust.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const PROJECT = resolve(HERE, '..')
@@ -39,6 +41,7 @@ const HARNESS = join(PROJECT, 'backend')
 const RUNTIME = join(PROJECT, 'runtime')
 const CONFIG = join(PROJECT, 'config')
 const BACKEND_SERVICE_CONFIG = join(CONFIG, 'backendService.json')
+RelayTrust.configure_trust(PROJECT)
 const service_proxy = new ServiceProxy(PROJECT)
 const DSH_HOME = process.env.DSH_HOME ?? join(RUNTIME, 'dsh')
 const PORT = Number(process.argv[2] ?? process.env.CONSOLE_PORT ?? '3082')
@@ -265,10 +268,22 @@ function read_backend_service_config() {
     resolved: {},
   }
   const value = read_json(BACKEND_SERVICE_CONFIG, fallback)
+  const business = {
+    reminders: { label: '定时任务', defaultPort: 8791, healthPath: '/health', relayCapability: 'scheduler' },
+    digest: { label: '爬虫中心', defaultPort: 8792, healthPath: '/health', relayCapability: 'crawlerCenter' },
+    video: { label: '视频理解', defaultPort: 8793, healthPath: '/health', relayCapability: 'video' },
+    crawler: { label: '网页收集', defaultPort: 8796, healthPath: '/health', relayCapability: 'webCollection' },
+  }
+  if (value.services?.llm?.transport === 'relay') {
+    for (const spec of Object.values(business)) {
+      spec.transport = 'relay'
+      spec.defaultPort = value.services.llm.defaultPort
+    }
+  }
   return {
     ...fallback,
     ...value,
-    services: { ...fallback.services, ...(value.services ?? {}) },
+    services: { ...fallback.services, ...business, ...(value.services ?? {}) },
     resolved: { ...(value.resolved ?? {}) },
   }
 }
@@ -314,6 +329,7 @@ function backend_response_matches(name, body) {
     return body.status === 'ok' || body.status === 'ready' ||
       (body.service === 'llm' && body.protocol === 1 && body.ok === true)
   }
+  if (['reminders', 'digest', 'video', 'crawler'].includes(name)) return body.service === name && body.protocol === 1
   return false
 }
 
@@ -325,6 +341,14 @@ function apply_backend_endpoints(mode, host, results, specs = {}, protocol = 'ht
   let changed = false
   for (const item of results) {
     if (!config.services[item.name]) continue
+    const business = ['reminders', 'digest', 'video', 'crawler'].includes(item.name)
+    // 已有日程必须走冻结/迁移/收据校验的切换工具，端口扫描不能绕过数据迁移。
+    if (business && config.services[item.name].management !== 'external' &&
+      ['reminders.db', 'newsDigest.db'].some(name => existsSync(join(RUNTIME, name)))) {
+      item.migrationRequired = true
+      item.detail = '服务可用；旧日程迁移完成后可切换'
+      continue
+    }
     if (mode === 'remote' && !item.available) continue
     const nextPort = item.available ? item.port : Number(specs[item.name]?.defaultPort)
     if (!nextPort) continue
@@ -333,6 +357,7 @@ function apply_backend_endpoints(mode, host, results, specs = {}, protocol = 'ht
     // 本机端点必须保持 managed，才能在该服务空闲退出后由下一次调用重新拉起；
     // 只有用户明确切到远程服务器时才改为 external，交给远程部署方管理。
     const nextManagement = mode === 'remote' ? 'external' : 'managed'
+    if (business) config.services[item.name].implementation = 'backend'
     if (config.services[item.name].baseURL !== next ||
       config.services[item.name].management !== nextManagement) {
       config.services[item.name].baseURL = next
@@ -346,6 +371,15 @@ function apply_backend_endpoints(mode, host, results, specs = {}, protocol = 'ht
       delete config.services[item.name].apiKeyRef
       changed = true
     }
+    const nextTransport = mode === 'remote' ? (specs[item.name]?.transport || '') : ''
+    if ((config.services[item.name].transport || '') !== nextTransport) {
+      if (nextTransport) config.services[item.name].transport = nextTransport
+      else delete config.services[item.name].transport
+      changed = true
+    }
+    const capability = nextTransport === 'relay' ? specs[item.name]?.relayCapability : null
+    if (capability) config.services[item.name].relayCapability = capability
+    else delete config.services[item.name].relayCapability
   }
   if (changed) writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`, 'utf8')
   return changed
@@ -354,6 +388,18 @@ function apply_backend_endpoints(mode, host, results, specs = {}, protocol = 'ht
 /** 按固定递推规则探测端口；每个候选端口必须通过健康协议才能认定为 SynLove 服务。 */
 async function probe_backend_service(name, spec, host, radius, protocol = 'http', apiKey = '') {
   const defaultPort = Number(spec.defaultPort)
+  if (spec.transport === 'relay') {
+    const addr = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host
+    const endpoint = `${protocol}://${addr}:${defaultPort}`
+    const probe = new ServiceProbe({ env: {}, secret: () => apiKey })
+    const result = await probe.probe_service(name, {
+      baseURL: `${endpoint}/v1`, management: 'external', transport: 'relay',
+      relayCapability: spec.relayCapability,
+      apiKeyRef: 'backendService',
+    })
+    return { name, label: spec.label || name.toUpperCase(), port: result.available ? defaultPort : null,
+      endpoint: result.available ? endpoint : null, available: result.available, detail: result.detail }
+  }
   const ports = []
   for (let offset = 0; offset <= radius; offset += 1) {
     ports.push(defaultPort + offset)
@@ -2135,6 +2181,10 @@ export const server = createServer((req, res) => {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) server.listen(PORT, '127.0.0.1', () => {
   console.log(`Agent 控制台已启动: http://127.0.0.1:${PORT}`)
   console.log(`项目目录: ${PROJECT}`)
+  const backend_results = new BackendResults(PROJECT,
+    process.env.PYTHON || join(PROJECT, '.venv', 'Scripts', 'python.exe'), DSH_HOME)
+  if (service_proxy.mode !== 'external') backend_results.start_receiving()
+  server.once('close', () => backend_results.stop_receiving())
   // 后端守护：定时探活，掉线到阈值就自动重启（前端页面也会发心跳触发检查）
   if (service_proxy.mode !== 'external') heartbeat.start()
   // 复用控制台进程低频导入；关闭 GUI 标签页后仍保留远端片段，不启动业务消费者。

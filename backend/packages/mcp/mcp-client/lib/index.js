@@ -1,3 +1,4 @@
+// MCP 客户端兼容扩展：registerResources 默认 true；任务专用客户端可关闭自动资源工具注册。
 import z from "@deepseek-ai/schemastery";
 import { scopeOf } from "@deepseek-ai/dsh-scope";
 import { MAX_TIMER_DELAY_MS } from "@deepseek-ai/dsh-timeout";
@@ -728,8 +729,8 @@ function startConnection(ctx, config, policy) {
 * @param server - configured server identity.
 * @param connection - live resource operations and successful instruction snapshot.
 */
-function registerServerContext(ctx, server, connection) {
-	ctx.inject(["mcpResources"], (inner) => {
+function registerServerContext(ctx, server, connection, registerResources = true) {
+	if (registerResources) ctx.inject(["mcpResources"], (inner) => {
 		inner.mcpResources.register(server, connection.resources);
 	});
 	ctx.inject(["systemPrompt"], (inner) => {
@@ -779,6 +780,7 @@ const Reconnect = z.object({
 });
 const Config = z.union([z.object({
 	transport: z.const("stdio"),
+	registerResources: z.boolean().default(true),
 	serverName: z.string().required().pattern(SERVER_NAME_PATTERN),
 	command: z.string().required(),
 	args: z.array(String).default([]),
@@ -790,6 +792,7 @@ const Config = z.union([z.object({
 	reconnect: Reconnect
 }), z.object({
 	transport: z.const("streamable-http"),
+	registerResources: z.boolean().default(true),
 	serverName: z.string().required().pattern(SERVER_NAME_PATTERN),
 	url: z.string().required(),
 	headers: z.dict(String).default({}),
@@ -820,7 +823,7 @@ async function apply(ctx, config) {
 		return () => void names.delete(config.serverName);
 	}, "mcp-client.serverName");
 	const connection = startConnection(ctx, config, reconnect);
-	registerServerContext(ctx, config.serverName, connection);
+	registerServerContext(ctx, config.serverName, connection, config.registerResources !== false);
 	let stopping;
 	const dispose = () => stopping ??= connection.dispose();
 	ctx.on("internal/plugin", (fiber) => {

@@ -431,7 +431,7 @@ export class InboundCoordinator {
     try {
       // `/opencode ...` 直接遥控本机 opencode（输出主动推送）。
       const oc_command = this.options.opencode_bridge?.parse(message.text)
-      if (oc_command !== undefined && this.options.opencode_bridge !== undefined) {
+      if (!this.options.host.tasks && oc_command !== undefined && this.options.opencode_bridge !== undefined) {
         const session_id = (await this.options.store.get_session_id(message.user_id)) ?? `weixin-${message.user_id}`
         await this.options.store.update_delivery(message.delivery_id, 'control_applied', { injected_at: Date.now() })
         probe('inbound', 'opencode.command', { delivery_id: message.delivery_id, action: oc_command.action })
@@ -442,7 +442,7 @@ export class InboundCoordinator {
       }
       // `/codex ...` 直接遥控本机 Codex，不经过大模型（用户明确要求的能力）。
       const codex_command = this.options.codex_bridge?.parse(message.text)
-      if (codex_command !== undefined && this.options.codex_bridge !== undefined) {
+      if (!this.options.host.tasks && codex_command !== undefined && this.options.codex_bridge !== undefined) {
         const session_id = (await this.options.store.get_session_id(message.user_id)) ?? `weixin-${message.user_id}`
         await this.options.store.update_delivery(message.delivery_id, 'control_applied', { injected_at: Date.now() })
         probe('inbound', 'codex.command', { delivery_id: message.delivery_id, action: codex_command.action })
@@ -452,7 +452,7 @@ export class InboundCoordinator {
         )
         return
       }
-      if (control !== undefined) {
+      if (control !== undefined && !(this.options.host.tasks && control.kind === 'cancel_current')) {
         await this.apply_control(message, control)
         return
       }
@@ -763,12 +763,18 @@ export class InboundCoordinator {
     // 却要等一整轮跑完才生效，体验很差。`steer()` 把消息追加到当前对话，
     // 模型在**下一个 step** 就能看到，可以立刻改动作或收手。
     // 空闲时仍然用 followup（正常开新一轮）。
+    const taskOriginId = this.options.host.tasks?.note_input(agent, {
+      channel: 'weixin', messageId: message.delivery_id, userId: message.user_id,
+      owner: (process.env.DSH_SESSION_SHARED ?? '').trim() ? 'shared-household' : `weixin:${message.user_id}`,
+      originalText: text,
+    })
     const incoming = createUserMessage({
       content,
-      source: { kind: 'plugin', plugin: 'dsh-webhook-weixin', form: 'notice', summary: '微信消息' },
+      source: { kind: 'plugin', plugin: 'dsh-webhook-weixin', form: 'notice', summary: '微信消息',
+        ...(taskOriginId ? { taskOriginId } : {}) },
     })
     if (this.disposed) return
-    const steering = agent.status !== 'idle'
+    const steering = !this.options.host.tasks && agent.status !== 'idle'
     if (steering) {
       agent.steer(incoming)
       probe('inbound', 'message.steer', { delivery_id: message.delivery_id, session_id: session_key })

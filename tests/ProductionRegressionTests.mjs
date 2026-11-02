@@ -4,8 +4,8 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { HarnessSessionHost } from '../backend/packages/webhook/webhook-weixin/src/session/weixinSessionHost.ts'
-import { QqGateway } from '../backend/packages/webhook/webhook-qq/src/gateway.ts'
+import { HarnessSessionHost } from '../backend/packages/webhook/webhook-weixin/lib/types/session/weixinSessionHost.js'
+import { QqGateway } from '../backend/packages/webhook/webhook-qq/lib/types/gateway.js'
 
 /** error 为恢复错误；提供与宿主一致的假接口并记录创建次数。 */
 function make_host(error) {

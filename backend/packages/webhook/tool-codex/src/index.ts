@@ -65,8 +65,9 @@ interface CommandResult {
 }
 
 /** 以指定工作目录执行 Codex。 */
-function run_codex(args: string[], cwd: string | undefined): Promise<CommandResult> {
+function run_codex(args: string[], cwd: string | undefined, signal?: AbortSignal): Promise<CommandResult> {
   return new Promise((resolve) => {
+    if (signal?.aborted) { resolve({ ok: false, text: '本次调用已取消，未启动进程。' }); return }
     const bin = resolve_bin()
     const command = bin.toLowerCase().endsWith('.exe') ? bin : 'cmd.exe'
     const command_args = command === 'cmd.exe' ? ['/c', bin, ...args] : args
@@ -79,9 +80,17 @@ function run_codex(args: string[], cwd: string | undefined): Promise<CommandResu
     const chunks: Buffer[] = []
     let bytes = 0
     let timed_out = false
+    /** 无参数；只结束本次创建的进程树，不影响其他编码会话。 */
+    const abort = () => {
+      if (process.platform === 'win32' && child.pid)
+        spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' })
+          .on('error', () => child.kill())
+      else child.kill()
+    }
+    signal?.addEventListener('abort', abort, { once: true })
     const timer = setTimeout(() => {
       timed_out = true
-      child.kill()
+      abort()
     }, RUN_TIMEOUT_MS)
     const collect = (data: Buffer): void => {
       bytes += data.length
@@ -90,15 +99,18 @@ function run_codex(args: string[], cwd: string | undefined): Promise<CommandResu
     child.stdout?.on('data', collect)
     child.stderr?.on('data', collect)
     child.on('error', error => {
+      signal?.removeEventListener('abort', abort)
       clearTimeout(timer)
       resolve({ ok: false, text: 'ERROR: ' + (error.message || 'codex 启动失败') })
     })
     child.on('close', code => {
+      signal?.removeEventListener('abort', abort)
       clearTimeout(timer)
       const combined = strip_ansi(Buffer.concat(chunks).toString('utf8')).trim()
       const text = combined.length > MAX_OUTPUT_CHARS
         ? combined.slice(0, MAX_OUTPUT_CHARS) + `\n…（输出过长，已截断，共 ${combined.length} 字符）`
         : combined
+      if (signal?.aborted) { resolve({ ok: false, text: text + '\n本次调用已取消；已完成的文件或外部操作不会回滚。' }); return }
       if (timed_out) {
         resolve({
           ok: false,
@@ -203,7 +215,7 @@ export function apply(ctx: Context): void {
       },
       render: (_args, value) => [{ type: 'text', text: String(value.text ?? '') }],
     },
-    async execute(args): Promise<{ ok: boolean, text: string }> {
+    async execute(args, exec): Promise<{ ok: boolean, text: string }> {
       const action = typeof args.action === 'string' ? args.action.trim() : ''
       if (!ACTIONS.includes(action as typeof ACTIONS[number])) {
         return { ok: false, text: `未知动作 "${action}"；可用：${ACTIONS.join(' | ')}` }
@@ -212,7 +224,9 @@ export function apply(ctx: Context): void {
         ? args.workspace.trim()
         : DEFAULT_WORKSPACE
       const session = typeof args.session === 'string' && args.session.trim() ? args.session.trim() : undefined
-      const prompt = typeof args.prompt === 'string' ? args.prompt : ''
+      const raw = typeof args.prompt === 'string' ? args.prompt : ''
+      const prompt = raw && String(exec.agent?.id ?? '').startsWith('task-')
+        ? `[SynLoveTask:${exec.agent.id}]\n${raw}` : raw
 
       if (action === 'list_sessions') return list_sessions()
 
@@ -226,10 +240,10 @@ export function apply(ctx: Context): void {
         }
         const target = session === 'last' ? ['--last'] : [session]
         // 注意：`exec resume` 没有 -C，靠 spawn 的 cwd 决定工作目录。
-        return run_codex(['exec', 'resume', ...target, ...common, prompt], workspace)
+        return run_codex(['exec', 'resume', ...target, ...common, prompt], workspace, exec.signal)
       }
 
-      return run_codex(['exec', '-C', workspace, ...common, prompt], workspace)
+      return run_codex(['exec', '-C', workspace, ...common, prompt], workspace, exec.signal)
     },
   }))
 }

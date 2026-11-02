@@ -41,6 +41,7 @@ const Reconnect = z.object({
 export const Config = z.union([
     z.object({
         transport: z.const('stdio'),
+        registerResources: z.boolean().default(true),
         serverName: z.string().required().pattern(SERVER_NAME_PATTERN),
         command: z.string().required(),
         args: z.array(String).default([]),
@@ -53,6 +54,7 @@ export const Config = z.union([
     }),
     z.object({
         transport: z.const('streamable-http'),
+        registerResources: z.boolean().default(true),
         serverName: z.string().required().pattern(SERVER_NAME_PATTERN),
         url: z.string().required(),
         headers: z.dict(String).default({}),
@@ -95,7 +97,7 @@ export async function apply(ctx, config) {
     // loop, and the live tool registrations; disposal stops reconnection,
     // quiesces in-flight work, and unregisters the current generation.
     const connection = startConnection(ctx, config, reconnect);
-    registerServerContext(ctx, config.serverName, connection);
+    registerServerContext(ctx, config.serverName, connection, config.registerResources !== false);
     let stopping;
     const dispose = () => stopping ??= connection.dispose();
     // Cordis announces unload before awaiting an unfinished apply(). Closing

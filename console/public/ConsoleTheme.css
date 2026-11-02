@@ -100,6 +100,9 @@ pre#log-view, pre#hb-log { background: #fdfdfd; border-color: var(--line); font-
 /* 服务状态遵循样板：名称左侧的绿点表示可连接，灰点表示未就绪；文字说明供悬停和读屏使用。 */
 .service-dot { display: inline-block; width: 8px; height: 8px; flex-shrink: 0; border-radius: 50%; background: #bbb; }
 .service-dot.is-up { background: #81c784; }
+.service-dot.is-remote { background: #169b83; }
+.service-legend { display: flex; align-items: center; gap: 14px; margin-top: 10px; color: var(--muted, #888); font-size: 11px; }
+.service-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .service-dot.is-down { background: #bbb; }
 #service-cards .hint { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #service-cards .hint:last-child { text-align: right; }

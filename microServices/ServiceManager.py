@@ -29,7 +29,8 @@ class ServiceManager:
         """name为业务服务名；验证健康协议和服务身份，防止端口被其他程序占用。"""
         cfg = self.registry.get_service(name)
         try:
-            data = json.loads(ServiceTransport({**cfg, "timeoutSeconds": 1}).request("GET", "/health"))
+            timeout = 30 if cfg.get("transport") == "relay" else 1
+            data = json.loads(ServiceTransport({**cfg, "timeoutSeconds": timeout}).request("GET", "/health"))
             return data.get("ok") is True and data.get("service") == name and data.get("protocol") == 1
         except Exception:
             return False
@@ -91,9 +92,16 @@ class ServiceManager:
                 command = ["node", "tools/sessionServiceServer.mjs"]
                 cwd = harness_root
             else:
-                command = [console_python(), str(self.root / "microServices" / "ServiceHost.py"), name,
+                source = self.root
+                if cfg.get("implementation") == "backend" and name in ("reminders", "digest", "video", "crawler"):
+                    source = (self.root / cfg.get("backendRoot", "../SynLove-Backend-Service/businessRuntime")).resolve()
+                    backend_config = source / "config" / "serviceConfig.json"
+                    if not backend_config.is_file():
+                        raise RuntimeError("请先初始化配套Backend仓库，不会回退执行旧业务实现")
+                    env["SYNLOVE_SERVICE_CONFIG"] = str(backend_config)
+                command = [console_python(), str(source / "microServices" / "ServiceHost.py"), name,
                            "--host", urlsplit(cfg["baseURL"]).hostname, "--port", str(cfg["port"])]
-                cwd = self.root
+                cwd = source
             with (state / "service.log").open("ab") as output:
                 child = spawn_hidden(
                     command, cwd=str(cwd), env=env,

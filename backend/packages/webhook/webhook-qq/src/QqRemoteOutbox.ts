@@ -30,7 +30,7 @@ export class QqRemoteOutbox {
   ) {}
 
   /** 将回复原子加入远程队列，返回远程记录 ID。 */
-  async enqueue_reply(reply: { text: string; target: QqSendTarget; msgId?: string }): Promise<string> {
+  async enqueue_reply(reply: { text: string; target: QqSendTarget; msgId?: string; dedupeKey?: string }): Promise<string> {
     const row = await this.client.enqueue(reply as unknown as Record<string, unknown>)
     return String(row.id)
   }

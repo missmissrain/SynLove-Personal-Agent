@@ -11,6 +11,45 @@ import { ServiceProbe } from '../ServiceProbe.mjs'
 const refused = async () => { throw Object.assign(new Error('offline'), { cause: { code: 'ECONNREFUSED' } }) }
 const cfg = { baseURL: 'http://127.0.0.1:1/v1', management: 'managed' }
 
+test('Relay必须鉴权并检查指定能力；节点繁忙仍可用，缺能力或零容量显示灰灯', async () => {
+  let caps = [{ name: 'tts', nodes: 1, capacity: 1, load: 1 }]
+  const paths = []
+  const probe = new ServiceProbe({ env: {}, secret: () => 'test-key',
+    fetcher: async (url, init) => {
+      paths.push(url.pathname)
+      assert.equal(init.headers.Authorization, 'Bearer test-key')
+      return new Response(JSON.stringify(url.pathname === '/v1/tasks'
+        ? { tasks: [] } : { capabilities: caps }))
+    } })
+  const remote = { ...cfg, management: 'external', transport: 'relay', apiKeyRef: 'backendService' }
+  assert.equal((await probe.probe_service('tts', remote)).available, true)
+  assert.equal((await probe.probe_service('asr', remote)).available, false)
+  caps = [{ name: 'chat', nodes: 1, capacity: 2, load: 0 }]
+  assert.equal((await probe.probe_service('llm', remote)).available, true)
+  caps = [{ name: 'chat', nodes: 1, capacity: 0 }]
+  assert.equal((await probe.probe_service('llm', remote)).available, false)
+  caps = []
+  assert.equal((await probe.probe_service('tts', remote)).available, false)
+  assert.ok(paths.every(path => ['/v1/capabilities', '/v1/tasks'].includes(path)))
+  const denied = new ServiceProbe({ env: {},
+    fetcher: async () => new Response('{}', { status: 401 }) })
+  assert.equal((await denied.probe_service('tts', remote)).available, false)
+})
+
+test('Relay注册仍在线时，真实上游超时显示灰灯，后续成功才恢复', async () => {
+  let tasks = [{ capability: 'tts', status: 'failed',
+    error: 'handler_error: upstream_unreachable: timeout' }]
+  const probe = new ServiceProbe({ env: {}, fetcher: async url =>
+    new Response(JSON.stringify(url.pathname === '/v1/tasks' ? { tasks } :
+      { capabilities: [{ name: 'tts', nodes: 1, capacity: 1 }] })) })
+  const remote = { ...cfg, management: 'external', transport: 'relay' }
+  assert.equal((await probe.probe_service('tts', remote)).available, false)
+  tasks.unshift({ capability: 'tts', status: 'running' })
+  assert.equal((await probe.probe_service('tts', remote)).available, false)
+  tasks.unshift({ capability: 'tts', status: 'done' })
+  assert.equal((await probe.probe_service('tts', remote)).available, true)
+})
+
 test('业务服务按API前缀探活，身份正确才亮灯', async t => {
   const paths = []
   const server = createServer((req, res) => {

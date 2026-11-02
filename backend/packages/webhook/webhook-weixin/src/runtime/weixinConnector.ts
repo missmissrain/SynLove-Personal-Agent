@@ -384,6 +384,35 @@ export class WeixinConnector {
       ...options.model === undefined ? {} : { model: options.model },
       ...options.reasoning_effort === undefined ? {} : { reasoning_effort: options.reasoning_effort },
     })
+    if (this.host.tasks) this.host.tasks.worker_setup = (child: any, task: any) => {
+      if (task.kind === 'coding') return
+      if (this.timeline !== undefined) register_timeline_tools(child, this.timeline as TimelineStore)
+      register_graph_tools(child, this.graph)
+      if (task.kind === 'research') return
+      register_notify_tools(child, this.notify)
+      register_bridge_result_tools(child, this.store)
+      register_bridge_session_tools(child)
+    }
+    this.host.tasks?.register_channel('weixin', {
+      resolve: async (origin: any) => {
+        const session = await this.store.get_session_id(origin.userId) ?? origin.sessionId
+        const agent = this.host.get_agent(brandString<SessionId>(session))
+          ?? await this.host.resume_agent(brandString<SessionId>(session))
+        this.bind_agent_stream(agent)
+        return agent
+      },
+      send: async (task: any, text: string) => {
+        if (!await this.lease.is_held()) throw new Error('微信消费者所有权已丢失，结果保留待投递')
+        const session = await this.store.get_session_id(task.origin.userId) ?? task.origin.sessionId
+        const token = await this.turn_context.latest_token_if_fresh_async(session)
+        const row = await this.store.enqueue_outbox({
+          session_id: session, user_id: task.origin.userId, kind: 'assistant', text,
+          client_id: `task-${task.id}`, ...(token ? { context_token: token } : {}),
+        })
+        void this.outbound.drain()
+        return row.outbound_id
+      },
+    })
     this.lease = new ConsumerLease({
       store: this.store,
       // 租约身份**不要用 token 片段**：日志、探针、租约标记文件里都会写它，
@@ -839,12 +868,19 @@ export class WeixinConnector {
     try {
       const agent = await this.host.create_agent(brandString<SessionId>(probe_id))
       // 复现真实的 QQ 先注册、微信后绑定路径；不注入消息、不调用模型、不外发。
-      if (this.timeline !== undefined) {
+      if (this.timeline !== undefined && !this.host.tasks) {
         register_timeline_tools(agent.ctx, this.timeline)
         register_graph_tools(agent.ctx, this.graph)
       }
       this.bind_agent_stream(agent)
       this.bind_agent_stream(agent)
+      if (this.host.tasks) {
+        const tools = agent.ctx.tools.schemas(agent)
+        if (tools.length !== 5 || tools.some(tool => !tool.name.startsWith('mcp__synlove-task__')))
+          throw new Error('主人格五工具隔离检查失败：' + tools.map(tool => tool.name).join(','))
+        const worker_tools = await this.host.tasks.check_worker(this.current_model, this.workspace_path)
+        probe('agent-task', 'roles.checked', { presenter_tools:tools.length, worker_tools })
+      }
     } catch (error) {
       failure = error instanceof Error ? error.message : String(error)
     } finally {
@@ -1139,7 +1175,7 @@ export class WeixinConnector {
     this.stream_disposers.get(session_id)?.()
     // 长期记忆的读取工具装在**这个 agent 自己**的 ctx 上（用 agent.ctx.effect 保证随 agent 卸载清理）。
     // 只装"读"：写入由链路自动完成，不开放给模型，避免它把臆想的事实写进长期记忆。
-    if (this.timeline !== undefined) {
+    if (this.timeline !== undefined && !this.host.tasks) {
       agent.ctx.effect(() => {
         register_timeline_tools(agent.ctx, this.timeline as TimelineStore)
         register_graph_tools(agent.ctx, this.graph)
@@ -1156,6 +1192,7 @@ export class WeixinConnector {
     // 拆成一堆"伪 turn"，并让同一 turn 的回复上下文被后续消息反复覆盖（已由日志证实）。
     const dispose = agent.ctx.on('agent/assistant-stream', ({ agent: subject, frame }: { agent: Agent; frame: AssistantStreamFrame }) => {
       if (subject !== agent) return
+      if (this.host.tasks?.is_presenting(session_id)) return
       if (frame.type === 'chunk') this.handle_chunk(session_id, frame)
     })
 
@@ -1164,6 +1201,7 @@ export class WeixinConnector {
       'agent/pre-step',
       async ({ agent: subject, turn, step }: { agent: Agent; turn: number; step: number }, next: () => Promise<unknown>) => {
         if (subject === agent && (step === 1 || this.current_turn.get(session_id) !== turn)) {
+          if (this.host.tasks?.is_presenting(session_id)) return next() as never
           await this.begin_turn_once(session_id, turn)
         }
         return next() as never
@@ -1173,10 +1211,12 @@ export class WeixinConnector {
       'agent/turn-stopping',
       ({ agent: subject, turn }: { agent: Agent; turn: number }) => {
         if (subject !== agent) return
+        if (this.host.tasks?.is_presenting(session_id)) return
         void this.handle_turn_end(session_id, turn)
       },
     )
     const dispose_error = agent.ctx.on('agent/error', ({ error }: { error: unknown }) => {
+      if (this.host.tasks?.is_presenting(session_id)) return
       const detail = error instanceof Error ? error.message : String(error)
       probe('inbound', 'agent.error', { session_id, error: detail })
       console.error(`[webhook-weixin] agent error session=${session_id}: ${detail}`)

@@ -5,6 +5,8 @@ config/modelConfig.json
 config/modelConfig.json.bak*
 config/weixinProfile.patch.yml
 config/console.env
+config/serviceConfig.json
+config/backendService.json
 config/*Profile.patch.yml
 config/modelOnly.patch.yml
 config/harnessTuning.json

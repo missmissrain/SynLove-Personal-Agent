@@ -13,6 +13,7 @@ export interface QqReply {
   target: QqSendTarget
   text: string
   msgId?: string
+  dedupeKey?: string
   attempt: number
   next_at: number
   status: 'pending' | 'failed_terminal'
@@ -24,6 +25,7 @@ export class QqOutbox {
   private rows: QqReply[] = []
   private draining = false
   private stopped = false
+  private receipts: Record<string, string> = {}
 
   /** path 为队列文件，send 接收消息与分段确认回调，report 只报告脱敏元数据。 */
   constructor(
@@ -41,18 +43,24 @@ export class QqOutbox {
       throw new Error('QQ outbox 文件格式无效，原文件已保留')
     }
     this.rows = data.rows
+    this.receipts = (data as any).receipts ?? {}
   }
 
   /** 无参数；写入临时文件后原子替换，私聊正文只保存在本地状态目录。 */
   private save_rows(): void {
     mkdirSync(dirname(this.path), { recursive: true })
     const temp = `${this.path}.${process.pid}.tmp`
-    writeFileSync(temp, JSON.stringify({ version: 1, rows: this.rows }), { mode: 0o600, flush: true })
+    writeFileSync(temp, JSON.stringify({ version: 1, rows: this.rows, receipts: this.receipts }), { mode: 0o600, flush: true })
     renameSync(temp, this.path)
   }
 
   /** reply 为完整待发回复；持久化失败会抛出，调用方不得删除内存回复。 */
-  enqueue_reply(reply: { text: string; target: QqSendTarget; msgId?: string }): string {
+  enqueue_reply(reply: { text: string; target: QqSendTarget; msgId?: string; dedupeKey?: string }): string {
+    if (reply.dedupeKey) {
+      const prior = this.receipts[reply.dedupeKey]
+        ?? this.rows.find(row => row.dedupeKey === reply.dedupeKey)?.id
+      if (prior) return prior
+    }
     // 同一入站 msg_id 只允许生成一条被动回复；重试/重复回调直接复用原队列项。
     if (reply.msgId !== undefined) {
       const duplicate = this.rows.find(row =>
@@ -91,6 +99,7 @@ export class QqOutbox {
           })
         } catch (error) { result = { ok: false, mode: 'passive', error: String(error).slice(0, 160) } }
         if (result.ok) {
+          if (row.dedupeKey) this.receipts[row.dedupeKey] = row.id
           this.rows.splice(this.rows.indexOf(row), 1)
         } else {
           row.attempt++

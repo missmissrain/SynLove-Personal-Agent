@@ -53,6 +53,8 @@
 
     - id: schedule
       name: '@deepseek-ai/dsh-schedule'
+      # 提醒由独立 reminders 服务负责，不绑定聊天或后台任务会话寿命。
+      disabled: true
 
 - insert:
     - id: webhook-weixin

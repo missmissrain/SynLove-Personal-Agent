@@ -8,6 +8,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 from services.ServiceCredential import ServiceCredential
+from services.ServiceTls import ServiceTls
 
 
 class ServiceTransport:
@@ -22,12 +23,16 @@ class ServiceTransport:
         key = ServiceCredential.resolve_key(self.cfg)
         if self.cfg.get("management") == "disabled":
             raise RuntimeError("服务已禁用")
+        if self.cfg.get("transport") == "relay":
+            from microServices.RelayBusinessClient import RelayBusinessClient
+            return RelayBusinessClient(self.cfg).request(method, path, body, content_type, limit)
         headers = {"Content-Type": content_type}
         if key:
             headers["Authorization"] = "Bearer " + key
         req = urllib.request.Request(self.cfg["baseURL"] + path, data=body,
                                      method=method, headers=headers)
-        opener = urllib.request.build_opener()
+        opener = urllib.request.build_opener(
+            urllib.request.HTTPSHandler(context=ServiceTls.create_context(self.cfg)))
         for handler in opener.handlers:
             if isinstance(handler, urllib.request.HTTPRedirectHandler):
                 handler.redirect_request = lambda *args, **kwargs: None
@@ -53,7 +58,7 @@ class ServiceTransport:
             while result["state"] == "running":
                 if time.monotonic() >= deadline:
                     raise TimeoutError("客户端等待超时，服务端任务可能仍在运行")
-                time.sleep(0.3)
+                time.sleep(2 if self.cfg.get("transport") == "relay" else 0.3)
                 result = json.loads(self.request("GET", "/operations/" + key))
             if result["state"] == "unknown":
                 raise RuntimeError("服务或业务进程中断，任务结果未知；可能已产生副作用，请核查后再决定是否重做")

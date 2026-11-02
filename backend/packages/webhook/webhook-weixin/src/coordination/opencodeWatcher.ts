@@ -120,6 +120,7 @@ export class OpencodeWatcher {
         const text = last.text
         if (text.trim() === '') continue
         const task = this.last_user_text(db_path, session.id) || session.title
+        if (task.startsWith('[SynLoveTask:')) continue
         const name = session.directory.split(/[\\/]/).filter(Boolean).pop() ?? session.directory
         const body = [
           'opencode 任务完成',

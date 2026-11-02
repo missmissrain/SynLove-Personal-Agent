@@ -34,6 +34,7 @@ import { QqRemoteOutbox } from './QqRemoteOutbox.ts'
 import { QqStateRemoteClient } from './QqStateRemoteClient.ts'
 import { QqRemoteLease } from './QqRemoteLease.ts'
 import { QqGatewayLease } from './QqGatewayLease.ts'
+import { BackendNotifications } from './BackendNotifications.ts'
 
 /**
  * 共享会话 id（微信和 QQ 单聊共用同一段上下文）。
@@ -173,6 +174,7 @@ export function apply(ctx: Context, config: Config): void {
     if (bound.has(agent)) return
     bound.add(agent)
     agent.ctx.on('agent/assistant-stream', (payload: unknown) => {
+      if (host.tasks?.is_presenting(session_id)) return
       if ((payload as { agent?: unknown }).agent !== undefined && (payload as { agent?: unknown }).agent !== agent) return
       const frame = (payload as { frame?: { type?: string; chunk?: { type?: string; text?: string } } }).frame
       if (frame?.type !== 'chunk') return
@@ -182,6 +184,7 @@ export function apply(ctx: Context, config: Config): void {
       if (item !== undefined) item.text += chunk.text
     })
     agent.ctx.on('agent/turn-stopping', (payload: unknown) => {
+      if (host.tasks?.is_presenting(session_id)) return
       if ((payload as { agent?: unknown }).agent !== undefined && (payload as { agent?: unknown }).agent !== agent) return
       void flush(session_id).catch(error => probe('outbound', 'qq.flush_failed', { error: String(error).slice(0, 160) }))
     })
@@ -235,10 +238,11 @@ export function apply(ctx: Context, config: Config): void {
     try {
       // 共享会话时微信那边可能已经建好同一个 Agent：先取，取不到再建（否则 create 会"已存在"冲突）。
       const agent = await wait_for_agent(session_id)
-      register_query_tools((agent as unknown as { ctx: unknown }).ctx)
+      if (!host.tasks) register_query_tools((agent as unknown as { ctx: unknown }).ctx)
       // 微信/QQ 共用 Agent scope；每次入站更新当前通道，不能只按 QQ 的会话集合判重。
       const session_key = String(session_id)
       if (msg_id !== undefined) last_msg.set(session_key, msg_id)
+      if (!host.tasks) {
       const media_tool = defineTool({
           name: 'send_file',
           description: '把本地图片/视频/语音/文档真正发到当前 QQ 聊天（不是只给路径）。用户说"发我""发过来""截图给我"时用它。',
@@ -273,17 +277,24 @@ export function apply(ctx: Context, config: Config): void {
         current.parameters = media_tool.parameters
         current.execute = media_tool.execute
       }
+      }
       bind_stream(agent as never, String(session_id))
       pending.set(String(session_id), {
         text: pending.get(String(session_id))?.text ?? '',
         ...msg_id === undefined ? {} : { msgId: msg_id },
         target,
       })
+      const taskOriginId = host.tasks?.note_input(agent, {
+        channel: 'qq', messageId: msg_id ?? `${Date.now()}-${openid}`,
+        owner: shared !== '' ? 'shared-household' : `qq:${group ?? ''}:${openid}`,
+        target, userId: openid, originalText: content,
+      })
       const message = createUserMessage({
         content: [{ type: 'text', text: content }],
-        source: { kind: 'plugin', plugin: 'webhook-qq', form: 'notice', summary: 'QQ 消息' },
+        source: { kind: 'plugin', plugin: 'webhook-qq', form: 'notice', summary: 'QQ 消息',
+          ...(taskOriginId ? { taskOriginId } : {}) },
       })
-      if (agent.status === 'idle') agent.followup(message)
+      if (host.tasks || agent.status === 'idle') agent.followup(message)
       else agent.steer(message)
     } catch (error) {
       probe('inbound', 'qq.handle_failed', { session_id: String(session_id), error: String(error).slice(0, 160) })
@@ -315,6 +326,22 @@ export function apply(ctx: Context, config: Config): void {
     }
     return outbox
   }
+
+  host.tasks?.register_channel('qq', {
+    resolve: async (origin: any) => {
+      const current = origin.target.groupOpenid ? origin.sessionId : shared_session_id() || origin.sessionId
+      const agent = await wait_for_agent(brandString<SessionId>(current))
+      bind_stream(agent as never, current)
+      return agent
+    },
+    send: async (task: any, text: string) => {
+      const id = await get_outbox().enqueue_reply({
+        text, target: task.origin.target, dedupeKey: `task-${task.id}`,
+      })
+      void get_outbox().drain_queue()
+      return id
+    },
+  })
 
   const gateway = new QqGateway({
     token: () => tokens.get(),
@@ -364,8 +391,10 @@ export function apply(ctx: Context, config: Config): void {
     try {
       if (!remote_state) writeFileSync(lock_path, String(process.pid), 'utf8')
       get_outbox()
+      const notifications = new BackendNotifications(home, row => get_outbox().enqueue_reply(row))
       retry = setInterval(() => {
-        void outbox?.drain_queue().catch(error => probe('outbound', 'qq.outbox_failed', { error: String(error).slice(0, 160) }))
+        void notifications.receive_results().then(() => outbox?.drain_queue())
+          .catch(error => probe('outbound', 'qq.outbox_failed', { error: String(error).slice(0, 160) }))
       }, 5_000)
       void get_outbox().drain_queue().catch(error => probe('outbound', 'qq.outbox_failed', { error: String(error).slice(0, 160) }))
       gateway.start()

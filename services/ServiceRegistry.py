@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 from urllib.parse import urlsplit
 from services.ServiceCredential import ServiceCredential
+from services.ServiceTls import ServiceTls
 
 
 class ServiceRegistry:
@@ -92,7 +93,10 @@ class ServiceRegistry:
         env["SYNLOVE_LLM_TIMEOUT_MS"] = str(int(cfg["timeoutSeconds"] * 1000))
         if cfg["management"] == "external":
             env["DSH_GEMMA_MIN_FREE_VRAM_MB"] = "0"
-        for name in self.DEFAULTS:
+        ca = ServiceTls.resolve_ca(cfg, self.path.resolve().parent.parent)
+        if ca:
+            env["NODE_EXTRA_CA_CERTS"] = ca
+        for name in dict.fromkeys([*self.DEFAULTS, "tts", "asr", "llm"]):
             service = self.get_service(name)
             key = ServiceCredential.resolve_key(service, env)
             if key and service.get("apiKeyEnv"):

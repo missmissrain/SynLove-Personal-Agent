@@ -12,6 +12,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from services.ServiceCredential import ServiceCredential
+from services.ServiceTls import ServiceTls
 
 MAX_AUDIO = 32 * 1024 * 1024
 
@@ -36,7 +37,8 @@ class ServiceClient:
             headers["Authorization"] = "Bearer " + key
         req = urllib.request.Request(cfg["baseURL"] + path, data=body, headers=headers)
         # 禁止自动跟随跳转，避免认证跨主机传播。
-        opener = urllib.request.build_opener()
+        opener = urllib.request.build_opener(
+            urllib.request.HTTPSHandler(context=ServiceTls.create_context(cfg)))
         for handler in opener.handlers:
             if isinstance(handler, urllib.request.HTTPRedirectHandler):
                 handler.redirect_request = lambda *args, **kwargs: None

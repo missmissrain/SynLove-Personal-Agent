@@ -59,6 +59,9 @@ class TaskReportWatcher:
 
         handled = 0
         for report in reports:
+            # 后台受管会话由主人格总结并按原通道推送，外部编码会话仍按原设置汇报。
+            if report.title.startswith('[SynLoveTask:'):
+                continue
             try:
                 if self._handle(report):
                     handled += 1

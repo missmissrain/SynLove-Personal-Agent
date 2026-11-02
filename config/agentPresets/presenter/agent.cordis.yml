@@ -1,0 +1,11 @@
+# 主人格预设：只保留独立上下文压缩，任务 MCP 由宿主按会话鉴权挂载。
+# 参数：模型使用现有路由；不加载 Skills、shell、文件和编码连接器。
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: compaction-basic
+      name: '@deepseek-ai/dsh-compaction-basic'

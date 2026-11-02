@@ -7,6 +7,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { openSync, readSync, closeSync, existsSync, statSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { execFile } from 'node:child_process'
+import { BusinessEndpoint } from './BusinessEndpoint.mjs'
 
 export class DashboardStore {
   /** 参数 options：项目根目录、状态目录和可选依赖；初始化仅用于展示的读取游标与缓存。 */
@@ -213,6 +214,30 @@ export class DashboardStore {
     } catch { return { total: null, rows: [], error: '用户提醒数据库暂不可用' } }
   }
 
+  /** name为远端业务；读取真实快照并校验身份，远端不可用时不读旧本机数据库冒充。 */
+  async read_business_snapshot(name) {
+    const cfgFile = process.env.SYNLOVE_SERVICE_CONFIG || join(this.project, 'config', 'serviceConfig.json')
+    const cfg = this.read_json(cfgFile, {}).services?.[name]
+    if (!cfg || cfg.management !== 'external') return null
+    const secrets = this.read_json(join(this.project, 'config', 'secrets.json'), {})
+    const key = process.env[cfg.apiKeyEnv] || (cfg.apiKeyRef === 'backendService' ? secrets.backendService?.apiKey : '')
+    const data = await new BusinessEndpoint(cfg, fetch, key).read_status('/snapshot')
+    if (data.service !== name || data.protocol !== 1) throw Error('业务快照身份不匹配')
+    return data
+  }
+
+  /** 无参数；远端提醒走API，本机提醒保留既有只读展示，不维护第二份调度。 */
+  async reminder_snapshot() {
+    try {
+      const data = await this.read_business_snapshot('reminders')
+      if (!data) return this.reminders()
+      return { total: data.total, rows: data.rows.map(row => ({
+        id: `reminder-${row.id}`, name: row.text, nextAt: row.next_at,
+        rule: row.daily_at ? `每天 ${row.daily_at}` : '一次性', status: 'pending', source: '远程定时任务',
+      })), error: null }
+    } catch { return { total: null, rows: [], error: '远程定时任务暂不可用' } }
+  }
+
   /** 无参数；汇总远控真实探活，仅一分钟内且配置未变化的结果可显示已连接。 */
   remote_channel() {
     const config = this.read_json(join(this.project, 'config', 'remoteControl.json'), {})
@@ -232,13 +257,14 @@ export class DashboardStore {
 
   /** 无参数；优先读取新闻服务快照，本机服务不可达时只读其同一份调度库。 */
   async news_schedule() {
-    const row = { id: 'digest-schedule', name: '新闻摘要推送', source: '新闻服务',
+    const row = { id: 'digest-schedule', name: '每日新闻', source: '爬虫中心',
       rule: '计划待确认', status: 'Unknown', nextAt: null }
     const cfgFile = process.env.SYNLOVE_SERVICE_CONFIG || join(this.project, 'config', 'serviceConfig.json')
     const cfg = this.read_json(cfgFile, {}).services?.digest
     let plan = null
     try {
       if (this.digestSnapshot) plan = (await this.digestSnapshot())?.schedule
+      else if (cfg?.management === 'external') plan = (await this.read_business_snapshot('digest'))?.schedule
       else if (cfg) {
         const base = process.env.SYNLOVE_DIGEST_BASE_URL || cfg.baseURL
         const secrets = this.read_json(join(this.project, 'config', 'secrets.json'), {})
@@ -270,7 +296,7 @@ export class DashboardStore {
   async snapshot() {
     this.read_probe()
     const [system, music, news] = await Promise.all([this.system_tasks(), this.music_channel(), this.news_schedule()])
-    const reminders = this.reminders()
+    const reminders = await this.reminder_snapshot()
     const names = { SynLoveNewsDigest: '新闻摘要推送', SynLoveSkillReview: '技能复盘', SynLoveGuard: '后台健康巡检', SynLoveConsoleWatch: '控制台看护' }
     const tasks = system.rows.filter(row => row.id !== 'SynLoveNewsDigest').map(row => ({
       ...row, name: names[row.id] ?? row.id, source: '系统计划任务',

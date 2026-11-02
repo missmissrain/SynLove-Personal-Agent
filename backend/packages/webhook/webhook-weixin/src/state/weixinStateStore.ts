@@ -555,6 +555,12 @@ export class WeixinStateStore {
     client_id?: string
   }): OutboxRecord {
     return this.transaction(() => {
+      // 后台完成事件的稳定 client_id 在同一事务内去重，崩溃补投不生成第二条消息。
+      if (input.client_id !== undefined) {
+        const prior = this.db.prepare('SELECT * FROM outbox WHERE client_id=?')
+          .get(input.client_id) as OutboxRow | undefined
+        if (prior !== undefined) return to_outbox(prior)
+      }
       const row = this.db.prepare(
         'SELECT COALESCE(MAX(sequence), 0) AS last FROM outbox WHERE session_id = ?',
       ).get(input.session_id) as { last: number } | undefined

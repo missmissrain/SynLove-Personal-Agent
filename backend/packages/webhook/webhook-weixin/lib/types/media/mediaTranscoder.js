@@ -1,5 +1,3 @@
-/** 微信语音转码层：尝试 SILK 转 WAV，解码器不可用时保留原始 SILK。 */
-/** 将 PCM 16-bit 单声道数据封装为 WAV。 */
 function pcm_to_wav(pcm, sample_rate) {
     const result = Buffer.alloc(44 + pcm.byteLength);
     result.write('RIFF', 0);
@@ -18,15 +16,20 @@ function pcm_to_wav(pcm, sample_rate) {
     Buffer.from(pcm).copy(result, 44);
     return result;
 }
-/** 尝试用可选 silk-wasm 解码 SILK；失败时返回原始 SILK 和格式标记。 */
 export async function transcode_silk_to_wav(data, sample_rate = 24_000) {
     try {
         const decoder = await import('silk-wasm');
         const decoded = await decoder.decode(data, sample_rate);
-        return { data: pcm_to_wav(decoded.data, sample_rate), mime_type: 'audio/wav', transcoded: true };
-    }
-    catch {
-        return { data, mime_type: 'audio/silk', transcoded: false };
+        return {
+            data: pcm_to_wav(decoded.data, sample_rate),
+            mime_type: 'audio/wav',
+            transcoded: true
+        };
+    } catch  {
+        return {
+            data,
+            mime_type: 'audio/silk',
+            transcoded: false
+        };
     }
 }
-//# sourceMappingURL=mediaTranscoder.js.map

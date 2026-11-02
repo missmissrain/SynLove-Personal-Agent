@@ -46,7 +46,8 @@ class BootstrapManager:
     def initialize_config(self):
         """无参数；只创建缺失配置，保留用户已经修改的人格、密钥及模型设置。"""
         config = self.root / "config"
-        for name in ("modelConfig", "secrets", "harnessTuning", "remoteControl"):
+        for name in ("modelConfig", "secrets", "harnessTuning", "remoteControl",
+                     "serviceConfig", "backendService"):
             dest = config / (name + ".json")
             source = config / (name + ".example.json")
             if not dest.exists() and source.is_file():
@@ -67,11 +68,12 @@ class BootstrapManager:
         if not env_file.exists():
             env_file.write_text("PYTHON=" + str(self.python) + "\nCONSOLE_NODE=" +
                                 (shutil.which("node") or "node") + "\nDSH_MEMORY_ENGINE=cloud\n", encoding="utf-8")
-        preset = self.root / "runtime" / "dsh" / ".agent-presets" / "weixin-lite"
-        if not (preset / "agent.cordis.yml").exists():
-            preset.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(config / "agentPresets" / "weixin-lite" / "agent.cordis.yml",
-                            preset / "agent.cordis.yml")
+        for name in ("weixin-lite", "presenter", "task-worker"):
+            preset = self.root / "runtime" / "dsh" / ".agent-presets" / name
+            source = config / "agentPresets" / name / "agent.cordis.yml"
+            if source.is_file() and not (preset / "agent.cordis.yml").exists():
+                preset.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, preset / "agent.cordis.yml")
 
     def install_dependencies(self, npm):
         """npm 为已检查的包管理器；安装基础 Python、后端运行依赖与桌面，不编译 Harness。"""

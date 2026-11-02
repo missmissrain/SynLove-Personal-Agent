@@ -100,6 +100,7 @@ export class CodexWatcher {
       const statuses = this.read_statuses()
       if (statuses.length === 0) return
       for (const item of statuses) {
+        if (item.title.startsWith('[SynLoveTask:')) continue
         const key = 'codex_watch:' + item.thread_id
         const signature = `${item.status}|${item.event_at ?? ''}`
         const previous = await this.store.get_meta(key)
