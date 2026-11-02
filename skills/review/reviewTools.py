@@ -25,6 +25,7 @@ class reviewTools:
         self.saved = []
         self.staged = []
         self.finished = False
+        self.persist_error = ""
 
     def definitions(self):
         """OpenAI tools 定义。"""
@@ -130,6 +131,8 @@ class reviewTools:
             reason = str(args.get("reason") or "")
             result = self.store.save(skill_name, content, reason)
             if result.get("action") == "skipped":
+                if result.get("retryable"):
+                    self.persist_error = result.get("error") or "技能持久化失败"
                 return json.dumps({"ok": False, "error": result.get("error")}, ensure_ascii=False), False
             if result.get("action") == "staged":
                 self.staged.append(skill_name)
@@ -145,4 +148,7 @@ class reviewTools:
 
     def result(self):
         """本次复盘的结果汇总。"""
-        return {"saved": list(self.saved), "staged": list(self.staged), "finished": self.finished}
+        result = {"saved": list(self.saved), "staged": list(self.staged), "finished": self.finished}
+        if self.persist_error:
+            result["error"] = self.persist_error
+        return result

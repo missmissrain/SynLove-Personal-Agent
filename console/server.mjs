@@ -32,14 +32,17 @@ import { ServiceReadiness } from './dashboard/ServiceReadiness.mjs'
 import { ServiceProbe } from './dashboard/ServiceProbe.mjs'
 import { ServiceProxy } from './ServiceProxy.mjs'
 import { RemoteConnectionStore } from './remote/RemoteConnectionStore.mjs'
+import { RemoteConnectionHeartbeat } from './remote/RemoteConnectionHeartbeat.mjs'
 import { RemoteConnectionRoutes } from './remote/RemoteConnectionRoutes.mjs'
 import { RelayTrust } from './remote/RelayTrust.mjs'
+import { PersonaStore } from './PersonaStore.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const PROJECT = resolve(HERE, '..')
 const HARNESS = join(PROJECT, 'backend')
 const RUNTIME = join(PROJECT, 'runtime')
 const CONFIG = join(PROJECT, 'config')
+const personas = new PersonaStore(PROJECT, path => backup_file(path))
 const BACKEND_SERVICE_CONFIG = join(CONFIG, 'backendService.json')
 RelayTrust.configure_trust(PROJECT)
 const service_proxy = new ServiceProxy(PROJECT)
@@ -49,6 +52,7 @@ const remote_connections = new RemoteConnectionStore({
   project: PROJECT, python: process.env.PYTHON || join(PROJECT, '.venv', 'Scripts', 'python.exe'),
 })
 const remote_routes = new RemoteConnectionRoutes(remote_connections, PORT)
+const remote_heartbeat = new RemoteConnectionHeartbeat(remote_connections)
 const serviceReadiness = new ServiceReadiness({ project: PROJECT })
 const observations = service_proxy.mode === 'external' ? null : new ObservationStore({
   runtime: RUNTIME,
@@ -979,50 +983,6 @@ function preset_path() {
 }
 
 /**
- * 读取 YAML 里某个"块标量"（`key: |` 后面缩进的那整段文本）。
- *
- * 不引 YAML 库：这里只需要读/写一个块，行处理足够且不引入依赖。
- */
-function read_block_scalar(text, key) {
-  const lines = text.split('\n')
-  const head = new RegExp(`^(\\s*)${key}:\\s*[|>]-?\\s*$`)
-  for (let index = 0; index < lines.length; index += 1) {
-    const match = head.exec(lines[index] ?? '')
-    if (match === null) continue
-    const indent = (match[1] ?? '').length
-    const collected = []
-    for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
-      const line = lines[cursor] ?? ''
-      if (line.trim() !== '' && line.search(/\S/) <= indent) break
-      collected.push(line.slice(Math.min(indent + 2, line.length)))
-    }
-    return collected.join('\n').replace(/\s+$/, '')
-  }
-  return ''
-}
-
-/** 把 `key: |` 的块标量整段替换为新内容；找不到该键时返回 undefined。 */
-function write_block_scalar(text, key, content) {
-  const lines = text.split('\n')
-  const head = new RegExp(`^(\\s*)${key}:\\s*[|>]-?\\s*$`)
-  for (let index = 0; index < lines.length; index += 1) {
-    const match = head.exec(lines[index] ?? '')
-    if (match === null) continue
-    const indent = (match[1] ?? '').length + 2
-    const pad = ' '.repeat(indent)
-    let end = index + 1
-    while (end < lines.length) {
-      const line = lines[end] ?? ''
-      if (line.trim() !== '' && line.search(/\S/) <= indent - 1) break
-      end += 1
-    }
-    const replacement = content.replace(/\s+$/, '').split('\n').map(line => line === '' ? '' : pad + line)
-    return [...lines.slice(0, index + 1), ...replacement, ...lines.slice(end)].join('\n')
-  }
-  return undefined
-}
-
-/**
  * 求值 preset 里的 `!!js` 平台条件。
  *
  * 只认 `process.platform ===/!== 'xxx'` 这一种形态（preset 里实际只用这一种），
@@ -1597,25 +1557,13 @@ const api = {
   },
 
   /** 读人格提示词（在宿主 patch 的 system-prompt.personaPrefix 里）。 */
-  persona() {
-    const path = join(CONFIG, 'weixinDoubaoProfile.patch.yml')
-    const text = existsSync(path) ? readFileSync(path, 'utf8') : ''
-    return { path, text: read_block_scalar(text, 'personaPrefix') }
+  persona(role = 'presenter') {
+    return personas.read_persona(role)
   },
 
   /** 写回人格提示词（写入前自动备份）。 */
   set_persona(body) {
-    const next = String(body.text ?? '')
-    if (next.trim() === '') throw new Error('人格提示词不能为空')
-    const path = join(CONFIG, 'weixinDoubaoProfile.patch.yml')
-    if (!existsSync(path)) throw new Error('找不到 patch 文件：' + path)
-    const original = readFileSync(path, 'utf8')
-    const updated = write_block_scalar(original, 'personaPrefix', next)
-    if (updated === undefined) throw new Error('patch 里没找到 personaPrefix 块，未做修改')
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-    backup_file(path)
-    writeFileSync(path, updated, 'utf8')
-    return { ok: true, note: '已写入人格提示词（含备份），重启后端服务后生效' }
+    return personas.save_persona(body)
   },
 
   /**
@@ -2106,7 +2054,7 @@ export const server = createServer((req, res) => {
         case '/api/qq/qr': return void api.qq_qr().then(send, fail)
         case '/api/weixin/qr/status':
           return void api.weixin_qr_status(url.searchParams.get('qrcode') ?? '').then(send, fail)
-        case '/api/persona': return void send(api.persona())
+        case '/api/persona': return void send(api.persona(url.searchParams.get('role') ?? 'presenter'))
         case '/api/tools': return void send(api.tools())
         case '/api/logs': return void send(api.logs(url.searchParams.get('name') ?? 'probe', Number(url.searchParams.get('lines') ?? 200)))
         case '/api/usage': return void send(api.usage(Number(url.searchParams.get('days') ?? 7)))
@@ -2181,6 +2129,7 @@ export const server = createServer((req, res) => {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) server.listen(PORT, '127.0.0.1', () => {
   console.log(`Agent 控制台已启动: http://127.0.0.1:${PORT}`)
   console.log(`项目目录: ${PROJECT}`)
+  remote_heartbeat.start_heartbeat()
   const backend_results = new BackendResults(PROJECT,
     process.env.PYTHON || join(PROJECT, '.venv', 'Scripts', 'python.exe'), DSH_HOME)
   if (service_proxy.mode !== 'external') backend_results.start_receiving()
@@ -2195,3 +2144,4 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   server.once('close', () => { clearInterval(observation_sync) })
 })
 server.on('close', () => { observations?.close() })
+server.on('close', () => remote_heartbeat.stop_heartbeat())

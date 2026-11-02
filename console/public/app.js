@@ -428,22 +428,32 @@ $('btn-compaction-save').addEventListener('click', async () => {
 
 // ── 人格与工具 ─────────────────────────────────────────────────────────────
 
-async function refresh_persona() {
-  const data = await get('/api/persona')
-  $('persona-path').textContent = data.path
-  $('persona-text').value = data.text
+/** role 为主或执行角色；只刷新指定编辑框，避免覆盖另一个尚未保存的修改。 */
+async function refresh_persona(role) {
+  if (!role) {
+    await Promise.all(['presenter', 'worker'].map(value => refresh_persona(value)))
+    return
+  }
+  const prefix = role === 'worker' ? 'worker-persona' : 'persona'
+  const data = await get(`/api/persona?role=${role}`)
+  if (role === 'presenter') $('persona-path').textContent = data.path
+  $(`${prefix}-text`).value = data.text
 }
 
-$('btn-reload-persona').addEventListener('click', () => { refresh_persona().catch(() => {}) })
-$('btn-save-persona').addEventListener('click', async () => {
-  try {
-    const result = await post('/api/persona', { text: $('persona-text').value })
-    $('persona-hint').textContent = result.note
-    refresh_persona()
-  } catch (error) {
-    $('persona-hint').textContent = `失败：${error.message}`
-  }
-})
+for (const role of ['presenter', 'worker']) {
+  const prefix = role === 'worker' ? 'worker-persona' : 'persona'
+  $(`btn-reload-${prefix}`).addEventListener('click', () => {
+    refresh_persona(role).catch(error => { $(`${prefix}-hint`).textContent = `读取失败：${error.message}` })
+  })
+  $(`btn-save-${prefix}`).addEventListener('click', async () => {
+    try {
+      const result = await post('/api/persona', { role, text: $(`${prefix}-text`).value })
+      $(`${prefix}-hint`).textContent = result.note
+    } catch (error) {
+      $(`${prefix}-hint`).textContent = `失败：${error.message}`
+    }
+  })
+}
 
 /** 参数 text：完整说明；生成自定义浮层的问号按钮，不使用系统原生 title 提示。 */
 function tool_help(text) {

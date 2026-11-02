@@ -104,7 +104,9 @@ export function create_memory_model(options) {
                 prompt_tokens: parsed.usage?.prompt_tokens,
                 completion_tokens: parsed.usage?.completion_tokens
             });
-            return parsed.choices?.[0]?.message?.content ?? '';
+            const text = parsed.choices?.[0]?.message?.content;
+            if (typeof text !== 'string' || !text.trim()) throw new Error('记忆模型未返回有效正文，保留原记忆等待重试');
+            return text;
         } finally{
             clearTimeout(timer);
         }

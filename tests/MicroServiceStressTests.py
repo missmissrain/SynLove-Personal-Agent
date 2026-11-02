@@ -286,6 +286,8 @@ class MicroServiceStressTests(unittest.TestCase):
 
     def test_real_video_pipeline_with_fake_models(self):
         """无参数；真实ffmpeg视频上传→假ASR/VLM→报表ZIP下载，无付费或生产数据访问。"""
+        if importlib.util.find_spec("PIL") is None:
+            self.skipTest("当前解释器没有Pillow；请使用已安装Pillow的现有视频处理环境单独运行本项")
         if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
             self.skipTest("未安装ffmpeg/ffprobe，不能声称视频流水线验证通过")
         sys.path.insert(0, str(ROOT / "tests"))

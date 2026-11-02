@@ -19,7 +19,7 @@ class skillReviewConfig:
         "enabled": True,
         "intervalHours": 6,
         "firstRunLookbackHours": 24,
-        "skillsDir": "~/.dsh/skills",
+        "skillsDir": "runtime/dsh/skills",
         "stateFile": "runtime/skill-review-state.json",
         "logFile": "runtime/skill-review.log",
         "lockFile": "runtime/skill-review.lock",
@@ -62,7 +62,10 @@ class skillReviewConfig:
         if self.path.is_file():
             raw = json.loads(self.path.read_text(encoding="utf-8-sig"))
         merged = _deep_merge(self.DEFAULTS, raw)
-        merged["skillsDir"] = str(Path(os.path.expanduser(merged["skillsDir"])).resolve())
+        folder = Path(os.path.expanduser(merged["skillsDir"]))
+        if raw.get("skillsDir") in (None, "~/.dsh/skills"):
+            folder = Path(os.environ.get("DSH_HOME") or self.root / "runtime/dsh") / "skills"
+        merged["skillsDir"] = str((folder if folder.is_absolute() else self.root / folder).resolve())
         merged["stateFile"] = str((self.root / merged["stateFile"]).resolve())
         merged["logFile"] = str((self.root / merged["logFile"]).resolve())
         merged["lockFile"] = str((self.root / merged["lockFile"]).resolve())

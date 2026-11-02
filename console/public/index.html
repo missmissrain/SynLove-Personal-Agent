@@ -304,13 +304,22 @@
   <!-- 人格与工具 -->
   <section id="tab-agent" class="panel">
     <div class="card">
-      <h3>人格提示词</h3>
+      <h3>欣爱 · 主人格</h3>
       <p class="hint" id="persona-path" hidden></p>
-      <textarea id="persona-text" spellcheck="false"></textarea>
+      <textarea id="persona-text" aria-label="欣爱主人格提示词" spellcheck="false"></textarea>
       <div class="row">
-        <button id="btn-save-persona" class="primary">保存人格提示词</button>
+        <button id="btn-save-persona" class="primary">保存主人格</button>
         <button id="btn-reload-persona">重新读取</button>
         <span class="hint" id="persona-hint">重启后生效</span>
+      </div>
+    </div>
+    <div class="card">
+      <h3>执行 Agent · 任务提示词</h3>
+      <textarea id="worker-persona-text" aria-label="后台执行提示词" spellcheck="false"></textarea>
+      <div class="row">
+        <button id="btn-save-worker-persona" class="primary">保存执行提示词</button>
+        <button id="btn-reload-worker-persona">重新读取</button>
+        <span class="hint" id="worker-persona-hint">新任务生效 · 结果由欣爱整理后回复</span>
       </div>
     </div>
     <div class="card">

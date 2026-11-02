@@ -47,6 +47,21 @@ class llmClient:
 
     def _request(self, target, messages, tools, fallback):
         """真正发 HTTP 请求。"""
+        if target.get("provider") == "gemma":
+            # 使用统一服务配置、鉴权和可信 CA；服务迁到远端后不再回退到固定本机端口。
+            from services.ServiceRegistry import ServiceRegistry
+            from services.ServiceClient import ServiceClient
+            cfg = ServiceRegistry().get_service("llm")
+            # Gemma路径没有注册工具；覆盖工具循环工作方式，仍沿用技能正文的校验规则。
+            single = [*messages, {"role": "user", "content":
+                "当前是无工具的单轮技能提炼模式，不能调用list_skills、save_skill或finish。"
+                "忽略先前要求调用工具的工作步骤。直接输出一份完整SKILL.md，"
+                "从---开始，含name/description/version/metadata.hermes和四段中文正文；"
+                "不要解释、不要工具调用文本。没有可沉淀经验时只输出Nothing to save."}]
+            data = ServiceClient(cfg).chat({"model": cfg["model"], "messages": single,
+                "temperature": 0.3, "max_tokens": 2500, "stream": False})
+            return {"message": ((data.get("choices") or [{}])[0] or {}).get("message") or {},
+                    "model": data.get("model") or cfg["model"], "provider": "gemma", "fallback": fallback}
         base = str(target.get("baseUrl") or "").rstrip("/")
         model = target.get("model") or ""
         timeout = int(target.get("timeoutSeconds") or 180)

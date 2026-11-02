@@ -16,7 +16,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import zstandard
+from .SessionCompression import SessionCompression
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
@@ -56,10 +56,9 @@ class transcriptBuilder:
     def _read_session(self, path, since_ts, until_ts):
         """读一个会话文件，返回 [(ts, kind, body)]。"""
         try:
-            with open(path, "rb") as handle:
-                text = zstandard.ZstdDecompressor().stream_reader(handle).read().decode("utf-8", "replace")
-        except Exception:
-            return []
+            text = SessionCompression.decompress_bytes(path.read_bytes()).decode("utf-8", "replace")
+        except Exception as error:
+            raise RuntimeError("技能素材会话读取失败，保留复盘水位") from error
         out = []
         for line in text.splitlines():
             line = line.strip()
@@ -112,25 +111,31 @@ def _text_of(content):
 
 
 def encode_project_token(path):
-    """把项目目录名编码成 harness 会话目录里使用的那种 token（CJK → ~HEX）。"""
+    """path 为完整项目路径；按 Harness 的 UTF-16 路径协议生成精确目录键。"""
     out = []
-    for ch in str(path):
-        if ch.isascii() and ch.isalnum():
+    separator = False
+    units = str(path).encode("utf-16-le", errors="surrogatepass")
+    for index in range(0, len(units), 2):
+        code = int.from_bytes(units[index:index + 2], "little")
+        ch = chr(code)
+        if ch in "/\\:":
+            if not separator:
+                out.append("-")
+            separator = True
+            continue
+        separator = False
+        if ch.isascii() and (ch.isalnum() or ch in "._-"):
             out.append(ch)
-        elif ord(ch) > 127:
-            out.append("~" + format(ord(ch), "X"))
-    return "".join(out)
+        else:
+            out.append("~" + format(code, "04X"))
+    slug = "".join(out).lstrip("-") or "root"
+    return "--" + slug[:251] + "--"
 
 
 def find_session_root(sessions_home, project_dir):
-    """在 ~/.dsh/sessions 下找到本项目对应的会话目录。"""
+    """sessions_home 为会话库，project_dir 为完整项目路径；只匹配本项目，避免串读同名工程。"""
     home = Path(sessions_home)
     if not home.is_dir():
         return None
-    token = encode_project_token(Path(project_dir).name)
-    if not token:
-        return None
-    for path in home.iterdir():
-        if path.is_dir() and token in path.name:
-            return path
-    return None
+    path = home / encode_project_token(Path(project_dir).resolve())
+    return path if path.is_dir() else None

@@ -52,11 +52,18 @@ export class RemoteConnectionStore {
   list_targets() {
     const data = this.read_json('remoteControl.json', { targets: {} })
     const secrets = this.read_json('secrets.json', {})
+    let status = {}
+    try { status = JSON.parse(readFileSync(join(this.project, 'runtime', 'remoteControl', 'channelStatus.json'), 'utf8')) } catch {}
+    const version = this.config_version()
     return { ok: true, targets: Object.entries(data.targets ?? {}).map(([id, item]) => ({
       id, description: item.description ?? '', host: item.host ?? '', port: item.port ?? 22,
       user: item.user ?? '', hostKeySha256: item.hostKeySha256 ?? '', enabled: item.enabled === true,
       hasCredential: Boolean(secrets.remoteControl?.targets?.[id]?.password ||
         secrets.remoteControl?.targets?.[id]?.privateKeyPath),
+      available: item.enabled === true && status[id]?.available === true &&
+        status[id].version === version && Date.now() - status[id].checkedAt >= 0 &&
+        Date.now() - status[id].checkedAt < 60000,
+      checkedAt: status[id]?.version === version ? status[id].checkedAt : 0,
     })) }
   }
 

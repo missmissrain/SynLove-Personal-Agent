@@ -4,6 +4,7 @@ import json
 import time
 import uuid
 import urllib.request
+import urllib.error
 from services.ServiceCredential import ServiceCredential
 from services.ServiceTls import ServiceTls
 
@@ -28,11 +29,20 @@ class RelayBusinessClient:
         for handler in opener.handlers:
             if isinstance(handler, urllib.request.HTTPRedirectHandler):
                 handler.redirect_request = lambda *args, **kwargs: None
-        with opener.open(req, timeout=min(float(self.cfg["timeoutSeconds"]), 60)) as res:
-            out = res.read(limit + 1)
-            if len(out) > limit:
-                raise ValueError("中转响应超过限制")
-            return out
+        for attempt in range(3 if method == "GET" else 1):
+            try:
+                with opener.open(req, timeout=min(float(self.cfg["timeoutSeconds"]), 60)) as res:
+                    out = res.read(limit + 1)
+                    if len(out) > limit:
+                        raise ValueError("中转响应超过限制")
+                    return out
+            except urllib.error.HTTPError:
+                raise
+            except (urllib.error.URLError, TimeoutError, ConnectionError):
+                # 查询可安全重连，写操作绝不重提；服务端任务仍按原ID继续。
+                if method != "GET" or attempt == 2:
+                    raise
+                time.sleep(attempt + 1)
 
     def request(self, method, path, body=None, content_type="application/json", limit=8*1024*1024):
         """method/path为业务白名单接口；文件通过Hub附件传输，返回原业务响应字节。"""
@@ -45,15 +55,16 @@ class RelayBusinessClient:
                        row.get("capacity", 0) > 0 for row in catalog.get("capabilities", [])):
                 raise RuntimeError("家庭节点尚未注册此后台能力")
         args = {"method": method, "path": "/v1" + path if path != "/health" else path}
-        payload = {"capability": capability, "input": args,
-                   "timeoutMs": min(120000, int(float(self.cfg["timeoutSeconds"]) * 1000))}
+        timeout = max(1000, min(3600000, int(float(self.cfg["timeoutSeconds"]) * 1000)))
+        payload = {"capability": capability, "input": args, "timeoutMs": timeout}
         kind = "application/json"
         if body is not None and content_type == "application/octet-stream":
             if len(body) > 30 * 1024 * 1024:
                 raise ValueError("VPS附件上传限制30MiB；更大视频请传公开视频URL或使用直连")
             boundary = "SynLove" + uuid.uuid4().hex
             prefix = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"capability\"\r\n\r\n"
-                      f"{capability}\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"input\"\r\n\r\n"
+                      f"{capability}\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"timeoutMs\"\r\n\r\n"
+                      f"{timeout}\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"input\"\r\n\r\n"
                       f"{json.dumps({'input': args})}\r\n--{boundary}\r\n"
                       "Content-Disposition: form-data; name=\"file\"; filename=\"input.bin\"\r\n"
                       "Content-Type: application/octet-stream\r\n\r\n").encode()
@@ -71,7 +82,7 @@ class RelayBusinessClient:
         while view.get("status") not in ("done", "failed", "expired", "cancelled"):
             if time.monotonic() >= deadline:
                 raise TimeoutError("等待中转超时，任务ID=" + ident)
-            time.sleep(0.25)
+            time.sleep(1)
             view = json.loads(self.request_hub("GET", "/tasks/" + ident))
         if view["status"] != "done":
             raise RuntimeError("远端任务失败；任务ID=" + ident)

@@ -5,6 +5,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { brandString } from '@deepseek-ai/dsh-brand'
+import { WorkerServiceTools } from './WorkerServiceTools.ts'
 
 export class WorkerSessionFactory {
   /** ctx 必须来自连接器宿主而非主人格 Agent；config 不包含模型密钥。 */
@@ -21,6 +22,7 @@ export class WorkerSessionFactory {
       agentOptions: { ...options, ...this.config.workerModel },
       setup: async (child: any, agent: any) => {
         await presets.mount(child, preset.id)
+        await new WorkerServiceTools(this.root).mount_tools(child, task.kind)
         child.tools.presentAs('native')
         this.setup?.(child, task)
         child.systemPrompt.section({
@@ -30,6 +32,10 @@ export class WorkerSessionFactory {
         child.systemPrompt.section({
           name: 'deployment:persona-suffix',
           order: child.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_SUFFIX'), text: '',
+        })
+        child.systemPrompt.section({
+          name: 'synlove:worker-protocol', order: 100000,
+          text: readFileSync(join(this.root, 'prompts', 'WorkerProtocol.md'), 'utf8'),
         })
         const deny = ['subagent', 'fork', 'send_message', 'interrupt_agent', 'send_file',
           'task_submit', ...['task_submit','task_status','task_message','task_cancel','task_result']

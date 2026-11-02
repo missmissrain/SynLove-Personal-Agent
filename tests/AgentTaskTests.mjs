@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, copyFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, copyFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createRequire } from 'node:module'
@@ -15,6 +15,7 @@ import { TaskResultCollector } from '../backend/packages/webhook/webhook-weixin/
 import { QqOutbox } from '../backend/packages/webhook/webhook-qq/lib/types/QqOutbox.js'
 const require = createRequire(join(process.cwd(),'backend/package.json'))
 const { Context } = require('@deepseek-ai/cordis')
+const { assembleContextFor } = require('@deepseek-ai/dsh-agent')
 const { LlmAdapter, createUserMessage } = require('@deepseek-ai/dsh-llm')
 const { Client, StreamableHTTPClientTransport } = require('@modelcontextprotocol/client')
 
@@ -27,7 +28,7 @@ async function wait_for(predicate, ms=4000) {
 function make_root() {
   const root=mkdtempSync(join(tmpdir(),'synlove-agent-task-'))
   mkdirSync(join(root,'prompts'))
-  for (const name of ['PresenterProtocol.md','TaskExecution.md'])
+  for (const name of ['PresenterProtocol.md','TaskExecution.md','WorkerProtocol.md'])
     copyFileSync(join(process.cwd(),'prompts',name),join(root,'prompts',name))
   return root
 }
@@ -234,8 +235,80 @@ test('真实 Harness 主人格只见五工具、独立执行总结由原通道�
     const finished=runtime.store.get_task(reply.taskId,'u')
     assert.equal(finished.state,'succeeded',finished.result)
     assert.ok(sends[0].text.length)
+    assert.equal(sends[0].text, '查好啦，验证结果在这里。')
+    assert.doesNotMatch(sends[0].text, /TASK_OUTCOME/)
     await runtime.bridge.pump_results();assert.equal(sends.length,1)
     assert.equal(runtime.active.size,0)
     assert.equal(runtime.is_presenting(main.agent.id),false)
   } finally {await runtime.close_runtime();await main?.dispose();await ctx.fiber.dispose();rmSync(root,{recursive:true,force:true})}
+})
+
+test('执行提示词独立加载，编辑后仅新任务采用，固定协议仍存在', async () => {
+  const root=make_root(), ctx=await make_native()
+  ctx.provide('agentPresets',{resolve:async()=>({id:'task-worker'}),mount:async()=>{}})
+  const runtime=new TaskRuntime(ctx,root,{workerPreset:'task-worker'})
+  const options={provider:'fixture',model:'fixture'}
+  let first,second
+  try {
+    writeFileSync(join(root,'prompts','TaskExecution.md'),'执行人格甲：精确操作、详细验证。')
+    first=await runtime.factory.create_worker({worker:'task-persona-a',kind:'research',origin:{workspace:root}},options)
+    writeFileSync(join(root,'prompts','TaskExecution.md'),'执行人格乙：按验收条件输出。')
+    second=await runtime.factory.create_worker({worker:'task-persona-b',kind:'research',origin:{workspace:root}},options)
+    const sections=async agent=>(await agent.ctx.systemPrompt.assemble(assembleContextFor(agent))).sections
+    const a=await sections(first.agent), b=await sections(second.agent)
+    assert.equal(a.find(s=>s.name==='deployment:persona-prefix').text,'执行人格甲：精确操作、详细验证。')
+    assert.equal(b.find(s=>s.name==='deployment:persona-prefix').text,'执行人格乙：按验收条件输出。')
+    assert.match(b.find(s=>s.name==='synlove:worker-protocol').text,/TASK_OUTCOME/)
+    assert.doesNotMatch(b.find(s=>s.name==='deployment:persona-prefix').text,/测试人格/)
+  } finally {await first?.dispose();await second?.dispose();await runtime.close_runtime();await ctx.fiber.dispose();rmSync(root,{recursive:true,force:true})}
+})
+
+test('主人格失败不透传原始总结，保留待办，恢复后仅发送润色正文', async () => {
+  const root=make_root(), ctx=await make_native()
+  const runtime=new TaskRuntime(ctx,root,{})
+  let sent=[], attempts=0
+  const agent={id:'fixture-presenter',status:'idle'}
+  try {
+    const task=runtime.store.create_task('u','result-failure',{channel:'qq'},'测试','research')
+    runtime.store.update_task(task.id,{state:'succeeded',result:'TASK_OUTCOME: succeeded\n原始执行总结'})
+    runtime.register_channel('qq',{resolve:async()=>agent,send:async(_task,text)=>{sent.push(text);return 'receipt'}})
+    runtime.bridge.present_result=async()=>{attempts++;throw Error('模型暂时不可用')}
+    await runtime.bridge.pump_results()
+    assert.equal(attempts,1);assert.equal(sent.length,0)
+    assert.equal(runtime.store.get_task(task.id,'u').queued,0)
+    assert.equal(runtime.store.get_task(task.id,'u').notice,null)
+    await runtime.bridge.pump_results();assert.equal(attempts,1)
+    runtime.bridge.retries.clear()
+    runtime.bridge.present_result=async()=>{attempts++;return '检查好啦，结果没有问题。'}
+    await runtime.bridge.pump_results()
+    await runtime.bridge.pump_results()
+    assert.deepEqual(sent,['检查好啦，结果没有问题。'])
+    assert.equal(runtime.store.get_task(task.id,'u').queued,1)
+  } finally {await runtime.close_runtime();await ctx.fiber.dispose();rmSync(root,{recursive:true,force:true})}
+})
+
+test('主人格未正式完成时抛错，超时不返回原始总结或半截回复', async () => {
+  const root=make_root(), runtime=new TaskRuntime({},root,{presentationTimeoutMs:15})
+  let events=[], handler, cancelled=false
+  const agent={id:'timeout-presenter',session:{snapshotEvents:()=>events},
+    ctx:{on:(name,fn)=>{if(name==='session/event')handler=fn;return ()=>{}}},
+    followup:()=>{},cancel:()=>{cancelled=true}}
+  try {
+    await assert.rejects(runtime.bridge.present_result(agent,{id:'one',state:'succeeded',result:'不允许透传的原文'}),/未完成结果整理/)
+    assert.equal(cancelled,true);assert.equal(runtime.bridge.is_presenting(agent.id),false)
+  } finally {await runtime.close_runtime();rmSync(root,{recursive:true,force:true})}
+})
+
+test('超时提出取消后，直到内核真正停稳仍屏蔽结果流', async () => {
+  const root=make_root(), runtime=new TaskRuntime({},root,{presentationTimeoutMs:15})
+  let idle
+  const stopped=new Promise(resolve=>{idle=resolve})
+  const agent={id:'slow-stop-presenter',session:{snapshotEvents:()=>[]},
+    ctx:{on:()=>()=>{}},followup:()=>{},cancel:()=>{},whenIdle:()=>stopped}
+  try {
+    await assert.rejects(runtime.bridge.present_result(agent,{id:'slow',state:'failed',result:'原文'}),/未完成/)
+    assert.equal(runtime.bridge.is_presenting(agent.id),true)
+    idle()
+    await wait_for(()=>!runtime.bridge.is_presenting(agent.id))
+  } finally {idle();await runtime.close_runtime();rmSync(root,{recursive:true,force:true})}
 })

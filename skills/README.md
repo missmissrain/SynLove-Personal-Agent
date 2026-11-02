@@ -1,7 +1,7 @@
 # 技能自动沉淀（skill review）
 
 把"欣爱和用户的真实对话"每隔 N 小时复盘一次，自动沉淀成可复用的技能，
-写入 `~/.dsh/skills/<name>/SKILL.md`，由 harness 的 skill 插件加载给欣爱使用。
+默认写入当前实例的 `runtime/dsh/skills/<name>/SKILL.md`，由执行内核加载。设置 `DSH_HOME` 或自定义技能目录时按配置使用。
 
 ## 设计（照抄 Hermes Agent 的复盘闭环）
 
@@ -9,10 +9,10 @@
 |---|---|
 | 触发 | 每天 03:00 跑一次（计划任务 `SynLoveSkillReview`）；水位存 `runtime/skill-review-state.json` |
 | 素材 | 上次水位 → 现在的对话（用户/欣爱/工具调用摘要），太长时保留最近 14000 字 |
-| 模型 | **qwen3.8-flash（dashscope）**；Gemma 实测写不出可执行步骤，只作降级兜底 |
+| 模型 | 默认 qwen3.8-flash；降级 Gemma 复用统一服务配置，可连接远端 |
 | 循环 | 临时 agent loop：`list_skills → read_skill → save_skill → finish`，最多 8 轮 |
 | 产出 | 类级别技能（不是具体歌名/日期/一次性任务）；单次最多 3 个 |
-| 写入 | 新技能直接落盘；**修改已有技能只暂存待审**（`~/.dsh/skills/.pending/`） |
+| 写入 | 新技能直接落盘；修改已有技能只暂存待审（实例技能目录的 `.pending/`） |
 | 校验 | 固定格式：frontmatter（name/description/version/metadata.hermes.tags/category）+ 四段正文 |
 | 通知 | 有新增/待审时用 QQ 推一条摘要 |
 
@@ -44,7 +44,11 @@ metadata:
 | Gemma 4 E4B（本地） | 51.7s | 格式对，但步骤是空话，漏掉核心教训，沉淀价值低 |
 | qwen3.8-flash（云端） | 35.5s | 给出可跑 PowerShell、VK 码、验证方式与真实坑 |
 
-结论：**Gemma 不胜任**，默认用 qwen；云端失败时降级 Gemma（单轮，最多 1 个）。
+以上为旧提示词下的单次结果，不能代表模型的普遍能力。2026-11-03 版本为无工具降级请求增加明确的纯文本输出约束，已用人工素材验证远程 Gemma 生成并保存完整中文技能。默认仍使用云端模型；格式通过不等于内容质量得到保证。
+
+## v2.0 复盘链路
+
+会话目录按照 Harness 的完整路径协议精确匹配，支持中文、连字符和 UTF-16 编码，避免跨工程读取。素材由多个 Zstandard 帧组成；优先使用现有 Python `zstandard`，缺失时复用 Node 24 与 Harness 自带帧扫描器，不在运行时安装依赖。读取或写入失败保留水位，等待后续复盘。
 
 ## 文件
 

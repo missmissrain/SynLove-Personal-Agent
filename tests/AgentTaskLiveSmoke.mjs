@@ -11,11 +11,13 @@ import { tmpdir } from 'node:os'
 import { setTimeout as delay } from 'node:timers/promises'
 import { TaskRuntime } from '../backend/packages/webhook/webhook-weixin/lib/types/agentTasks/TaskRuntime.js'
 import { TaskResultCollector } from '../backend/packages/webhook/webhook-weixin/lib/types/agentTasks/TaskResultCollector.js'
+import { WorkerSessionFactory } from '../backend/packages/webhook/webhook-weixin/lib/types/agentTasks/WorkerSessionFactory.js'
 
 class AgentTaskLiveSmoke {
   /** 无参数；只使用现有兼容接口，不把密钥注入命令行。 */
   async run_test() {
     if (!process.argv.includes('--live')) throw Error('必须显式传入 --live')
+    const remote = process.argv.includes('--remote-control')
     const require=createRequire(join(process.cwd(),'backend/package.json'))
     const { Context }=require('@deepseek-ai/cordis')
     const {createUserMessage}=require('@deepseek-ai/dsh-llm')
@@ -27,12 +29,12 @@ class AgentTaskLiveSmoke {
     if (!key) throw Error('当前路由缺少本机密钥')
     const root=mkdtempSync(join(tmpdir(),'synlove-live-task-'))
     mkdirSync(join(root,'prompts'))
-    for(const name of ['PresenterProtocol.md','TaskExecution.md'])
+    for(const name of ['PresenterProtocol.md','TaskExecution.md','WorkerProtocol.md'])
       copyFileSync(join(process.cwd(),'prompts',name),join(root,'prompts',name))
     writeFileSync(join(root,'sample.txt'),'烟测编号：SynLoveTask-Nov02。检查项：独立上下文、工具读取、原通道结果。')
     const ctx=new Context()
     let runtime,main,requests=0, input=0,output=0,reserved=0
-    const sent=[], errors=[]
+    const sent=[], errors=[], events=[]
     try {
       for(const name of ['session','session-projection','system-prompt','tools','agent','llm','agent-loop','fs-local']) {
         await ctx.plugin(require('@deepseek-ai/dsh-'+name).default,
@@ -51,11 +53,12 @@ class AgentTaskLiveSmoke {
       })
       ctx.on('llm/stream',(options,next)=>{
         const estimate=Buffer.byteLength(JSON.stringify(options.messages)+JSON.stringify(options.tools))+2048
-        if(reserved+estimate>50000) throw Error('保守字节预算上限，预留上一轮失败烟测额度')
+        if(reserved+estimate>(remote?80000:50000)) throw Error('保守字节预算上限')
         reserved+=estimate
         return next()
       })
       ctx.on('session/event',(_session,event)=>{
+        if(remote) events.push(event)
         const usage=event.data?.usage
         if(usage) {input+=usage.inputTokens??0;output+=usage.outputTokens??0}
       })
@@ -66,7 +69,9 @@ class AgentTaskLiveSmoke {
       ctx.provide('agentPresets',{resolve:async()=>({id:'task-worker'}),
         mount:async child=>{bindScopeParent(scopeOf(child),standing)}})
       const taskConfig=JSON.parse(readFileSync('config/agentTaskConfig.json','utf8'))
-      runtime=new TaskRuntime(ctx,root,{...taskConfig,taskTimeoutMs:90000,presentationTimeoutMs:60000})
+      const runConfig={...taskConfig,taskTimeoutMs:remote?240000:90000,presentationTimeoutMs:60000}
+      const factory=remote?new WorkerSessionFactory(ctx,process.cwd(),runConfig):undefined
+      runtime=new TaskRuntime(ctx,root,runConfig,factory)
       const options={...route,workspace_path:root,maxTokens:1024}
       main=await ctx.agents.create({sessionId:'isolated-live-presenter',agentOptions:options})
       await runtime.attach_presenter(main.agent,options)
@@ -74,7 +79,9 @@ class AgentTaskLiveSmoke {
       runtime.register_channel('qq',{resolve:async()=>main.agent,send:async(task,text)=>{sent.push({taskId:task.id,text});return task.id}})
       const boundary=main.agent.session.snapshotEvents().length
       main.agent.followup(createUserMessage({
-        content:[{type:'text',text:`请交给后台读取 ${join(root,'sample.txt')}，准确告诉我烟测编号。不要修改文件。提交后先自然告诉我接下来了。`}],
+        content:[{type:'text',text:remote
+          ? '请提交一个operations后台任务：使用remote_cmd_list找到已经授权的homeServer，再用remote_cmd_run在这台家庭服务器执行只读CMD命令ver，返回真实Windows版本和退出码。只做这两步，不新增连接、不修改文件，不输出IP或凭据。提交后先自然告诉我已交给后台。'
+          : `请交给后台读取 ${join(root,'sample.txt')}，准确告诉我烟测编号。不要修改文件。提交后先自然告诉我接下来了。`}],
         source:{kind:'user',taskOriginId:'qq:live-one'},
       }))
       await main.agent.whenIdle()
@@ -82,19 +89,25 @@ class AgentTaskLiveSmoke {
       assert.equal(ack.state,'succeeded',JSON.stringify({summary:ack.result,reason:ack.reason,errors}))
       const tasks=runtime.store.list_tasks('isolated')
       assert.equal(tasks.length,1,'真实模型必须实际调用 MCP 派单')
-      const end=Date.now()+120000
+      const end=Date.now()+(remote?300000:120000)
       while(!sent.length && Date.now()<end) {await runtime.pump_tasks();await delay(100)}
       assert.equal(sent.length,1,'完成事件必须实际进入隔离发送队列')
       const task=runtime.store.get_task(tasks[0].id,'isolated')
       assert.equal(task.state,'succeeded',task.result)
-      assert.match(task.result,/SynLoveTask-Nov02/)
-      assert.match(sent[0].text,/SynLoveTask-Nov02/)
+      assert.match(task.result,remote?/10\.0\.19045\.5131/:/SynLoveTask-Nov02/)
+      assert.match(sent[0].text,remote?/19045|Windows 10/:/SynLoveTask-Nov02/)
+      if(remote) {
+        const trace=JSON.stringify(events)
+        assert.match(trace,/mcp__remote-cmd__remote_cmd_run/,'必须真实发起远控工具调用')
+        assert.match(trace,/10\.0\.19045\.5131/,'远端版本必须出现在执行事件中')
+      }
       assert.ok(input+output<100000)
       const report={date:new Date().toISOString(),model:`${route.provider}/${route.model}`,requests,
         reportedInputTokens:input,reportedOutputTokens:output,startReply:ack.text,
-        workerSummary:task.result,finalReply:sent[0].text,queue:'isolated',result:'PASS'}
+        workerSummary:task.result,finalReply:sent[0].text,queue:'isolated',remoteControl:remote,result:'PASS'}
       mkdirSync('runtime/agentTasks',{recursive:true})
-      writeFileSync('runtime/agentTasks/真实模型验证.json',JSON.stringify(report,null,2))
+      if(remote) writeFileSync('runtime/agentTasks/远控工具事件.json',JSON.stringify(events,null,2))
+      writeFileSync(`runtime/agentTasks/${remote?'远控真实模型验证':'真实模型验证'}.json`,JSON.stringify(report,null,2))
       console.log(JSON.stringify(report,null,2))
     } finally {
       mkdirSync('runtime/agentTasks',{recursive:true})

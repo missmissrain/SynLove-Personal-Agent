@@ -49,6 +49,7 @@ export function start_timeline_scheduler(options: TimelineSchedulerOptions): Tim
 
   const run_once = async (now = Date.now()): Promise<string[]> => {
     // 上一轮还没跑完就跳过本轮：摘要可能要花十几秒（含 Gemma 唤醒），不该并发堆叠。
+    if (stopped) return []
     if (busy) {
       probe('timeline', 'check.skipped_busy')
       return []
@@ -61,6 +62,9 @@ export function start_timeline_scheduler(options: TimelineSchedulerOptions): Tim
       const updated = await options.store.summarize_due(options.summarizer, now)
       if (updated.length > 0) options.on_update?.(updated)
       return updated
+    } catch (error) {
+      probe('timeline', 'scheduler.failed', { error: String(error) })
+      return []
     } finally {
       busy = false
     }

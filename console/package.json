@@ -1,7 +1,7 @@
 {
   "name": "xinai-console",
   "productName": "SynLove",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "description": "SynLove：温暖的家庭智能助理工作台",
   "main": "electron-main.js",

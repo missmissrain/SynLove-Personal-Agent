@@ -81,7 +81,7 @@ th, td { border-color: var(--line); padding: 10px 12px; }
 tbody tr:hover { background: #fdfafb; }
 .table-scroll, #model-table, #usage-days-table, #usage-model-table, #tools-list { max-width: 100%; overflow-x: auto; }
 pre#log-view, pre#hb-log { background: #fdfdfd; border-color: var(--line); font-size: 11px; }
-#persona-text { background: #fff; border-color: #eaeaea; }
+#persona-text, #worker-persona-text { background: #fff; border-color: #eaeaea; }
 .dashboard-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .stat-card { padding: 16px; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; min-width: 0; }
 .stat-label { font-size: 11px; color: var(--muted); margin-bottom: 8px; }

@@ -7,6 +7,7 @@ AudioHttp 供 Whisper/Breeze Handler 继承；token_env 由服务启动参数指
 import hmac
 import json
 import os
+import socket
 import tempfile
 from email.parser import BytesParser
 from email.policy import default
@@ -32,7 +33,20 @@ class AudioHttp(BaseHTTPRequestHandler):
         if not valid:
             self._reply(401, {"ok": False, "error": "unauthorized"})
             self.close_connection = True
+            self.discard_rejected_body()
         return valid
+
+    def discard_rejected_body(self):
+        """拒绝后有界排空已发送正文，避免 Windows TCP 关闭将 401 变成连接重置。"""
+        try:
+            self.wfile.flush()
+            self.connection.shutdown(socket.SHUT_WR)
+            self.connection.settimeout(0.2)
+            length = int(self.headers.get("Content-Length", "0"))
+            if 0 < length <= 65536:
+                self.rfile.read(length)
+        except (OSError, ValueError):
+            pass
 
     def is_local(self):
         """返回请求方是否为回环客户端；旧路径接口不能被远程调用。"""

@@ -59,6 +59,8 @@ class skillStore:
 
     def read_skill(self, name):
         """读一个技能全文；不存在返回 None。"""
+        if not NAME_PATTERN.fullmatch(name or ""):
+            return None
         path = self.dir / name / "SKILL.md"
         if not path.is_file():
             return None
@@ -100,17 +102,21 @@ class skillStore:
             return {"action": "skipped", "error": error}
         self.ensure_dirs()
         path = self.dir / name / "SKILL.md"
-        if path.is_file():
+        existed = path.is_file()
+        if existed:
             current = path.read_text(encoding="utf-8", errors="replace")
             if current.strip() == content.strip():
                 return {"action": "skipped", "error": "内容与现有技能完全相同"}
             if self.stage_updates:
                 pending = self._stage(name, content, reason)
+                if pending is None:
+                    return {"action": "skipped", "error": "待审文件未写入，未确认保存成功", "retryable": True}
                 return {"action": "staged", "path": str(path), "pending": str(pending)}
         if not path.is_file() and not self.auto_create:
             return {"action": "skipped", "error": "autoCreate=false，新技能不落盘"}
-        self._write_atomic(path, content)
-        return {"action": "created" if not path.is_file() else "updated", "path": str(path)}
+        if not self._write_atomic(path, content):
+            return {"action": "skipped", "error": "技能文件未写入，原内容未更新", "retryable": True}
+        return {"action": "updated" if existed else "created", "path": str(path)}
 
     def _stage(self, name, content, reason):
         """把"对已有技能的修改"写进待审目录，等人确认后再覆盖。
@@ -122,8 +128,7 @@ class skillStore:
         stamp = time.strftime("%Y%m%d-%H%M%S")
         path = self.pending_dir / f"{name}-{stamp}.json"
         payload = {"name": name, "content": content, "reason": reason, "created_at": stamp}
-        FILE_WRITER.write_text(path, json.dumps(payload, ensure_ascii=False, indent=2))
-        return path
+        return path if FILE_WRITER.write_text(path, json.dumps(payload, ensure_ascii=False, indent=2)) else None
 
     @staticmethod
     def _frontmatter(content):
@@ -154,4 +159,4 @@ class skillStore:
 
         参数 path：目标 SKILL.md；content：全文。
         """
-        FILE_WRITER.write_text(path, content.rstrip("\n") + "\n")
+        return FILE_WRITER.write_text(path, content.rstrip("\n") + "\n")

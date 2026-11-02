@@ -15,6 +15,11 @@ import sys
 import time
 from pathlib import Path
 
+try:
+    from tools.ProcessProbe import ProcessProbe
+except ModuleNotFoundError:
+    from ProcessProbe import ProcessProbe
+
 DSH_HOME = Path(os.environ.get("DSH_HOME") or Path(__file__).resolve().parents[1] / "runtime/dsh")
 STATE_DB = DSH_HOME / "weixin-state.db"
 
@@ -69,12 +74,7 @@ def main() -> int:
     if lease is None:
         print("  （没有租约，说明链路没在跑）")
     else:
-        alive = False
-        try:
-            os.kill(lease["pid"], 0)
-            alive = True
-        except OSError as error:
-            alive = getattr(error, "errno", None) == 13  # EPERM = 存在但没权限
+        alive = ProcessProbe.process_alive(lease["pid"])
         print("  owner=%s pid=%s 存活=%s 心跳=%s" % (
             lease["owner_id"], lease["pid"], alive, human_time(lease["heartbeat_at"])))
     connection.close()

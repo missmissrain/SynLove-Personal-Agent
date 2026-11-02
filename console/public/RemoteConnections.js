@@ -26,7 +26,9 @@ class RemoteConnections {
     $('remote-delete').addEventListener('click', () => this.delete_target())
     this.edit_target(null)
     setInterval(() => {
-      if ($('tab-remote').classList.contains('active')) this.render_targets()
+      if ($('tab-remote').classList.contains('active')) {
+        get('/api/remote/targets').then(data => { this.targets = data.targets; this.render_targets() }).catch(() => {})
+      }
     }, 10000)
   }
 
@@ -54,7 +56,9 @@ class RemoteConnections {
       button.type = 'button'
       button.classList.toggle('is-selected', item.id === this.selected)
       const dot = document.createElement('span')
-      const checked = this.checks.get(item.id)
+      const local = this.checks.get(item.id)
+      const checked = item.checkedAt && (!local || item.checkedAt > local.at)
+        ? { available: item.available, at: item.checkedAt } : local
       dot.className = `service-dot ${checked?.available && Date.now() - checked.at < 60000 ? 'is-up' : 'is-down'}`
       dot.setAttribute('aria-label', checked?.available ? '最近连接检查通过' : '尚未验证可用')
       button.append(dot, document.createTextNode(item.description || item.id))

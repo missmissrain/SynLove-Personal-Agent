@@ -35,6 +35,11 @@ import sys
 import time
 from pathlib import Path
 
+try:
+    from tools.ProcessProbe import ProcessProbe
+except ModuleNotFoundError:
+    from ProcessProbe import ProcessProbe
+
 ROOT_DEFAULT = Path(__file__).resolve().parents[1]
 PRESET_DEFAULT = Path(os.environ.get("DSH_HOME") or ROOT_DEFAULT / "runtime/dsh") / ".agent-presets" / "weixin-lite"
 
@@ -131,8 +136,9 @@ class codeRepair:
         except FileExistsError:
             try:
                 pid = int(self.lock_file.read_text(encoding="ascii").strip())
-                os.kill(pid, 0)
-                return False
+                if ProcessProbe.process_alive(pid):
+                    return False
+                raise ValueError("持锁进程已退出")
             except (OSError, ValueError):
                 try:
                     self.lock_file.unlink()
@@ -340,7 +346,8 @@ class codeRepair:
         try:
             result = subprocess.run(command, cwd=str(cwd), timeout=timeout,
                                     stdin=subprocess.DEVNULL, capture_output=True,
-                                    text=True, encoding="utf-8", errors="replace")
+                                    text=True, encoding="utf-8", errors="replace",
+                                    creationflags=0x08000000 if sys.platform == "win32" else 0)
         except subprocess.TimeoutExpired:
             return False, f"超时（{timeout} 秒）"
         except FileNotFoundError:
@@ -386,7 +393,8 @@ class codeRepair:
             if suffix == ".py":
                 result = subprocess.run([str(python), "-m", "py_compile", str(path)],
                                         capture_output=True, text=True, encoding="utf-8",
-                                        errors="replace", timeout=120)
+                                        errors="replace", timeout=120,
+                                        creationflags=0x08000000 if sys.platform == "win32" else 0)
                 if result.returncode != 0:
                     problems.append(f"{path.name} 语法错误：{(result.stderr or '')[:200]}")
             elif suffix == ".json":
@@ -394,6 +402,16 @@ class codeRepair:
                     json.loads(path.read_text(encoding="utf-8-sig"))
                 except (OSError, ValueError) as error:
                     problems.append(f"{path.name} JSON 解析失败：{error}")
+            elif suffix in (".js", ".mjs", ".cjs", ".ts"):
+                node = os.environ.get("CONSOLE_NODE") or shutil.which("node")
+                if not node:
+                    problems.append(f"{path.name} 缺少 Node，不能确认语法有效")
+                    continue
+                result = subprocess.run([node, "--check", str(path)], capture_output=True,
+                    text=True, encoding="utf-8", errors="replace", timeout=120,
+                    creationflags=0x08000000 if sys.platform == "win32" else 0)
+                if result.returncode:
+                    problems.append(f"{path.name} 语法错误：{(result.stderr or '')[:200]}")
             elif suffix in (".yml", ".yaml"):
                 try:
                     import yaml  # noqa: PLC0415 —— 只有改了 yml 才需要

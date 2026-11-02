@@ -122,7 +122,9 @@ class skillReviewer:
 
             # 没有工具调用（或降级模型）：按"单轮输出"处理
             content = (message.get("content") or "").strip()
-            self._handle_single_shot(tools, content)
+            tools.finished = self._handle_single_shot(tools, content)
+            if not tools.finished:
+                error = "复盘未返回有效技能或明确结束标记，保留处理游标"
             break
 
         result = tools.result()
@@ -130,6 +132,8 @@ class skillReviewer:
         result["summary"] = (result.get("summary") or "") if isinstance(result.get("summary"), str) else ""
         if error:
             result["error"] = error
+        elif not tools.finished and not result.get("error"):
+            result["error"] = "复盘达到迭代上限但未完成，保留处理游标"
         if result["finished"] and not result["summary"]:
             result["summary"] = f"新增 {len(result['saved'])} 个，待审 {len(result['staged'])} 个"
         return result
@@ -137,7 +141,7 @@ class skillReviewer:
     def _handle_single_shot(self, tools, content):
         """降级/单轮输出：若内容是完整 SKILL.md 就尝试保存一个技能。"""
         if not content or content.lower().startswith("nothing to save"):
-            return
+            return bool(content)
         text = content
         if text.startswith("```"):
             lines = text.splitlines()
@@ -147,11 +151,12 @@ class skillReviewer:
                 lines = lines[:-1]
             text = "\n".join(lines).strip()
         if not text.startswith("---"):
-            return
+            return False
         name = _frontmatter_name(text)
         if not name:
-            return
-        tools.call("save_skill", {"name": name, "content": text, "reason": "fallback 单轮提炼"})
+            return False
+        result, _ = tools.call("save_skill", {"name": name, "content": text, "reason": "fallback 单轮提炼"})
+        return json.loads(result).get("ok") is True
 
 
 def _frontmatter_name(content):

@@ -44,6 +44,8 @@ test('Relay注册仍在线时，真实上游超时显示灰灯，后续成功才
       { capabilities: [{ name: 'tts', nodes: 1, capacity: 1 }] })) })
   const remote = { ...cfg, management: 'external', transport: 'relay' }
   assert.equal((await probe.probe_service('tts', remote)).available, false)
+  tasks = [{ capability: 'tts', status: 'failed', error: 'handler_error: upstream_401' }]
+  assert.equal((await probe.probe_service('tts', remote)).available, false)
   tasks.unshift({ capability: 'tts', status: 'running' })
   assert.equal((await probe.probe_service('tts', remote)).available, false)
   tasks.unshift({ capability: 'tts', status: 'done' })

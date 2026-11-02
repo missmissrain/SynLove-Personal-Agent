@@ -63,8 +63,11 @@ class DualChannelConcurrencyTest(unittest.TestCase):
                     return response["result"]["structuredContent"]["outbox"]["id"]
 
                 with concurrent.futures.ThreadPoolExecutor(max_workers=32) as pool:
-                    weixin_ids = list(pool.map(write_weixin, range(64)))
-                    qq_ids = list(pool.map(write_qq, range(64)))
+                    # 交错提交后统一等待，保证两平台写操作实际重叠，不能串行测两批。
+                    pending = [(pool.submit(write_weixin, i), pool.submit(write_qq, i))
+                               for i in range(64)]
+                    weixin_ids = [pair[0].result() for pair in pending]
+                    qq_ids = [pair[1].result() for pair in pending]
 
                 self.assertEqual(set(weixin_ids), {"shared-session:1"})
                 self.assertEqual(len(set(qq_ids)), 1)

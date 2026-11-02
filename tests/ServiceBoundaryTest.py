@@ -106,6 +106,21 @@ class ServiceBoundaryTest(unittest.TestCase):
                     ServiceClient(cfg).synthesize("你好")
             self.assertEqual(calls, [])
 
+    def test_repeated_auth_denial_keeps_http_status_and_service_alive(self):
+        """32次并发错误鉴权保持401，之后正常合成仍可用，不调用未授权模型。"""
+        from concurrent.futures import ThreadPoolExecutor
+        with server_fixture(breeze) as (cfg, calls, _):
+            wrong = {**cfg, "apiKeyEnv": "TEST_WRONG_KEY"}
+            def reject_request(_index):
+                """索引仅用于并发计数；每个写请求只调用一次。"""
+                with self.assertRaisesRegex(RuntimeError, "401"):
+                    ServiceClient(wrong).synthesize("人工鉴权测试")
+            with patch.dict(os.environ, {"TEST_WRONG_KEY": "wrong"}):
+                with ThreadPoolExecutor(max_workers=8) as pool:
+                    list(pool.map(reject_request, range(32)))
+            self.assertEqual(calls, [])
+            self.assertTrue(ServiceClient(cfg).synthesize("正常请求")[0])
+
     def test_external_never_spawn(self):
         """外部服务离线也不能补拉本机进程。"""
         with patch("subprocess.Popen") as spawn:
@@ -182,7 +197,12 @@ class ServiceBoundaryTest(unittest.TestCase):
         cfg = {"providers": {"gemma-local": {
             "apiKey": "old-provider-key", "models": [{"id": "old"}, {"id": "old2"}],
         }}, "defaultModel": {"provider": "gemma-local", "model": "old"}}
-        ServiceRegistry().apply_model_config(cfg, {})
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "serviceConfig.json"
+            path.write_text(json.dumps({"version": 1, "services": {"llm": {
+                "baseURL": "http://127.0.0.1:8080/v1", "management": "external",
+                "model": "test-gemma", "provider": "gemma-local", "apiKeyRef": ""}}}), encoding="utf-8")
+            ServiceRegistry(path).apply_model_config(cfg, {})
         provider = cfg["providers"]["gemma-local"]
         self.assertEqual(provider["apiKey"], "synlove-no-auth")
         self.assertEqual(start_stack.collect_secrets(cfg)[provider["apiKeyEnv"]], "synlove-no-auth")

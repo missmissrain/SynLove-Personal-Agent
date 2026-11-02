@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { brandString } from '@deepseek-ai/dsh-brand';
+import { WorkerServiceTools } from './WorkerServiceTools.js';
 export class WorkerSessionFactory {
     ctx;
     root;
@@ -29,6 +30,7 @@ export class WorkerSessionFactory {
             },
             setup: async (child, agent)=>{
                 await presets.mount(child, preset.id);
+                await new WorkerServiceTools(this.root).mount_tools(child, task.kind);
                 child.tools.presentAs('native');
                 this.setup?.(child, task);
                 child.systemPrompt.section({
@@ -40,6 +42,11 @@ export class WorkerSessionFactory {
                     name: 'deployment:persona-suffix',
                     order: child.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_SUFFIX'),
                     text: ''
+                });
+                child.systemPrompt.section({
+                    name: 'synlove:worker-protocol',
+                    order: 100000,
+                    text: readFileSync(join(this.root, 'prompts', 'WorkerProtocol.md'), 'utf8')
                 });
                 const deny = [
                     'subagent',

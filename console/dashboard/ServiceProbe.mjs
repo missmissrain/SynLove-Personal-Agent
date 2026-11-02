@@ -76,7 +76,7 @@ export class ServiceProbe {
             ['done', 'failed', 'expired'].includes(item.status))
           const infrastructureFailed = settled && (settled.status === 'expired' ||
             (settled.status === 'failed' &&
-              /upstream_unreachable|upstream_5\d\d|upstream_empty|node_lost|timeout/i.test(settled.error || '')))
+              /upstream_unreachable|upstream_(?:401|403|5\d\d)|upstream_empty|node_lost|timeout/i.test(settled.error || '')))
           if (infrastructureFailed) {
             return { ...result, readiness: 'unavailable',
               detail: '远端节点在线，但最近执行超时或上游故障，尚未验证恢复' }

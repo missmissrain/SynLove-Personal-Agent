@@ -2,7 +2,7 @@
   "enabled": true,
   "intervalHours": 24,
   "firstRunLookbackHours": 24,
-  "skillsDir": "~/.dsh/skills",
+  "skillsDir": "runtime/dsh/skills",
   "stateFile": "runtime/skill-review-state.json",
   "logFile": "runtime/skill-review.log",
   "model": {
