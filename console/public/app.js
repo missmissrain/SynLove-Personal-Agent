@@ -51,38 +51,67 @@ for (const button of document.querySelectorAll('#tabs button')) {
 
 /** 参数 service：后端探活项；将技术服务名称映射为适合主页阅读的名称与职责说明。 */
 function service_info(service) {
-  if (service.port === 3080) return { name: 'Harness', role: '运行智能体与长任务' }
-  if (service.port === 3081) return { name: '消息接入', role: '接收消息与任务指令' }
-  if (service.port === 4096) return { name: 'OpenCode', role: '执行编程任务' }
+  if (service.port === 3080) return { name: 'Agent内核', role: '运行智能体与长任务' }
+  if (service.port === 4096) return { name: 'opencode连接器', role: '调用 opencode 执行编程任务' }
   const roles = {
+    CODEX: { name: 'codex连接器', role: '确认 Codex CLI 是否可调用' },
     TTS: { name: 'TTS', role: '将文字合成为语音' },
     ASR: { name: 'ASR', role: '将语音识别为文字' },
-    LLM: { name: 'LLM', role: '对话理解与后台推理' },
+    LLM: { name: '本地大模型', role: '本地推理与后台摘要' },
     CORE: { name: '核心控制', role: '远程管理系统启动、停止与配置' },
     REMINDERS: { name: '定时提醒', role: '保存提醒并在到点时推送' },
     DIGEST: { name: '新闻摘要', role: '采集新闻并生成定时摘要' },
     VIDEO: { name: '视频理解', role: '转写语音、分析画面并生成报告' },
     HISTORY: { name: '历史检索', role: '查找过去的对话与会话记录' },
-    CODING: { name: '编程调度', role: '通过接口派发编程任务' },
     CRAWLER: { name: '网页采集', role: '抓取网页并提取正文' },
     MEMORY: { name: '长期记忆', role: '读写每日时间线与人物关系图谱' },
     STATE: { name: '微信状态', role: '维护微信租约、收件记录与发送队列' },
     QQSTATE: { name: 'QQ 状态', role: '维护 QQ 租约与消息发送进度' },
     OBSERVATION: { name: '运行观测', role: '保存调用链、用量与错误记录' },
     SESSION: { name: '会话存储', role: '保存和读取 Harness 会话事件' },
-    RSSHUB: { name: 'RSSHub', role: '将信息源转换为新闻订阅' },
-    OPENCODE: { name: 'OpenCode', role: '执行编程任务' },
+    RSSHUB: { name: '爬虫中心', role: '把信息源转成订阅与新闻' },
+    OPENCODE: { name: 'opencode连接器', role: '调用 opencode 执行编程任务' },
+    KUGOU: { name: '酷狗音乐', role: '音乐播放与控制' },
   }
   return roles[String(service.name).toUpperCase()] ?? { name: service.name, role: '自定义扩展服务' }
 }
 
-async function refresh_overview() {
-  const data = await get('/api/overview')
-  $('service-cards').innerHTML = data.services.map(service => {
+/** 参数 service：后台探活结果；只保留用户可直接使用的功能插件，隐藏内部调度与存储组件。 */
+function is_visible_service(service) {
+  const name = String(service.name ?? '').toUpperCase()
+  // 3081 是内部调试注入口、CODING 是内部派发器：用户不需要看到，直接不展示。
+  if (service.port === 3080 || service.port === 4096) return true
+  return new Set([
+    'CODEX', 'TTS', 'ASR', 'LLM', 'REMINDERS', 'DIGEST', 'VIDEO',
+    'CRAWLER', 'MEMORY', 'RSSHUB', 'OPENCODE', 'KUGOU',
+  ]).has(name)
+}
+
+/** 参数 service：卡片排序权重；保证每次刷新顺序稳定，翻页不会跳来跳去。 */
+function service_rank(service) {
+  if (service.port === 3080) return 0
+  const order = ['CODEX', 'OPENCODE', 'RSSHUB', 'TTS', 'ASR', 'LLM',
+    'REMINDERS', 'DIGEST', 'VIDEO', 'CRAWLER', 'MEMORY', 'KUGOU']
+  const index = order.indexOf(String(service.name ?? '').toUpperCase())
+  return index < 0 ? 99 : index + 1
+}
+
+// 每页固定 5 个，卡片高度不变；箭头翻页而不是把卡片越撑越长。
+const SERVICE_PAGE_SIZE = 5
+let service_rows = []
+let service_page = 0
+
+/** 无参数；按当前页码渲染 5 行服务卡片并更新箭头状态。 */
+function render_service_page() {
+  const pages = Math.max(1, Math.ceil(service_rows.length / SERVICE_PAGE_SIZE))
+  service_page = Math.min(Math.max(0, service_page), pages - 1)
+  const start = service_page * SERVICE_PAGE_SIZE
+  const slice = service_rows.slice(start, start + SERVICE_PAGE_SIZE)
+  $('service-cards').innerHTML = slice.map(service => {
     const info = service_info(service)
     const available = service.available ?? service.up
     const labels = { standby: '可按需调用', inactive: '本地模式', disabled: '已关闭', pending: '等待调用' }
-    const label = labels[service.readiness] ?? (available ? '可调用' : '未就绪')
+    const label = labels[service.readiness] ?? (available ? '可用' : '未就绪')
     const detail = `${label}：${service.detail || (available ? '服务已就绪' : '后端尚未启动')}`
     return `
     <div class="service">
@@ -90,10 +119,34 @@ async function refresh_overview() {
       <div class="hint">${escape_service(info.role)}</div>
     </div>`
   }).join('')
+  const pager = $('service-pager')
+  if (pager) {
+    pager.hidden = service_rows.length <= SERVICE_PAGE_SIZE
+    $('service-page').textContent = `${service_page + 1}/${pages}`
+    $('service-prev').disabled = service_page === 0
+    $('service-next').disabled = service_page >= pages - 1
+  }
+}
 
-  const up = data.services.filter(service => service.available ?? service.up).length
+// 事件只绑一次：翻页只重绘 5 行，不重新请求后端。
+document.addEventListener('DOMContentLoaded', () => {
+  $('service-prev')?.addEventListener('click', () => {
+    if (service_page > 0) { service_page -= 1; render_service_page() }
+  })
+  $('service-next')?.addEventListener('click', () => {
+    service_page += 1; render_service_page()
+  })
+})
+
+async function refresh_overview() {
+  const data = await get('/api/overview')
+  const services = data.services.filter(is_visible_service).sort((left, right) => service_rank(left) - service_rank(right))
+  service_rows = services
+  render_service_page()
+
+  const up = services.filter(service => service.available ?? service.up).length
   $('status-strip').textContent =
-    `${up}/${data.services.length} 项服务可用`
+    `${up}/${services.length} 项功能可用`
 
   $('outbox').innerHTML = data.outbox.length === 0
     ? '<span class="hint">队列为空</span>'

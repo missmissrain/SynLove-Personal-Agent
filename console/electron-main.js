@@ -51,7 +51,7 @@ let serverProcess = null
 // 用户提供的原创图标同时用于窗口和托盘；运行时只读取导出的轻量 PNG。
 const icon = nativeImage.createFromPath(join(HERE, 'public', 'assets', 'BrandIcon.png'))
 if (icon.isEmpty()) log('品牌图标加载失败：public/assets/BrandIcon.png')
-const desktop = new DesktopWindow({ electron, url: URL, preload: join(HERE, 'DesktopPreload.js'), icon })
+const desktop = new DesktopWindow({ electron, url: URL, preload: join(HERE, 'DesktopPreload.js'), icon, log })
 
 // ── 本地服务 ───────────────────────────────────────────────────────────────
 
@@ -155,6 +155,19 @@ async function ensure_server() {
 
 function create_window() {
   mainWindow = desktop.create_window()
+  // 记录窗口生命周期和渲染器退出原因，区分真正崩溃与被收起到托盘。
+  mainWindow.on('show', () => log('window shown'))
+  mainWindow.on('restore', () => log('window restored'))
+  mainWindow.on('minimize', () => log('window minimized'))
+  mainWindow.on('close', () => log('window close requested | quitting=', quitting))
+  mainWindow.on('closed', () => log('window closed'))
+  mainWindow.webContents.on('did-finish-load', () => log('renderer did-finish-load'))
+  mainWindow.webContents.on('did-fail-load', (_event, code, description, url) => {
+    log('renderer did-fail-load |', code, description, url)
+  })
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    log('renderer process gone |', details.reason, details.exitCode)
+  })
   mainWindow.once('ready-to-show', () => {
     if (!START_HIDDEN) show_window()
   })

@@ -57,6 +57,8 @@
 - 查看发送队列、后台守护、日志和 Token 用量。
 - 在调用链中检查模型、工具及通路片段，在运行趋势中比较耗时、错误率和成本估算。
 
+功能卡片按每页 5 项翻页，顺序固定，不会因为服务数量变化把页面越撑越长。绿灯表示服务当前**可用**，不是“正在被调用”：TTS、ASR 和本地大模型按需启动，空闲时显示“按需待机”，接到请求会自己拉起。卡片会定期发送轻量心跳，协议校验失败或依赖缺失时转为灰灯。
+
 参数与工具名称旁的小问号会显示说明。历史探针也可以补录为运行统计，但缺失的会话关联、工具结果和版本信息会明确标注。
 
 ## 开始使用
@@ -67,7 +69,7 @@
 
 进入桌面后，配置模型密钥并绑定微信，再从“系统”启动后端；也可以额外接入 QQ 官方机器人。需要更换接口与模型时编辑 `config/modelConfig.json`；密钥放在 `config/secrets.json`。
 
-安装完成后可运行 `console\autostart.ps1`，一次性创建桌面、开始菜单和开机自启入口。桌面快捷键是 **Ctrl+Alt+S**；开机自启只保留一个 SynLove 入口并默认驻留托盘，所有入口都会经过同一个启动协调器，不会重复拉起第二个 Harness 消费者。右击托盘图标可选择“重启后端服务（harness）”或“停止系统并退出”。
+安装完成后可运行 `autostart.ps1`，一次性创建桌面、开始菜单和开机自启入口。桌面快捷键是 **Ctrl+Alt+S**；开机自启只保留一个 SynLove 入口并默认驻留托盘，所有入口都会经过同一个启动协调器，不会重复拉起第二个 Harness 消费者。右击托盘图标可选择“重启 Agent 内核”或“停止系统并退出”。
 
 只安装而不打开窗口：`python bootstrap.py --install-only`。检查发行文件：`python bootstrap.py --check`。
 
@@ -83,7 +85,7 @@ GUI 的“系统 → Backend Service”卡片可以选择本机或远程服务�
 
 ## 稳定性验证
 
-发行包在隔离临时目录中完成了 65 项自动化测试，覆盖微信/QQ 双端并发重复发送、多实例租约竞争、服务重启恢复、重复请求幂等、并发上限、Worker 超时与输出上限、跨域关闭防护、爬虫私网地址拦截、远程 ASR/TTS 上传边界、提醒/新闻/视频服务以及 Harness Session 远程持久化。当前结果为全部通过；测试不会连接真实微信、QQ、模型账号或生产数据库。
+发行包在隔离临时目录中完成了 65 项链路测试，覆盖微信/QQ 双端并发重复发送、多实例租约竞争、服务重启恢复、重复请求幂等、并发上限、Worker 超时与输出上限、跨域关闭防护、爬虫私网地址拦截、远程 ASR/TTS 上传边界、提醒/新闻/视频服务以及 Harness Session 远程持久化。控制台另有 24 项前端与探活测试，覆盖服务卡分页、按需服务判定、Codex/OpenCode 连接器和心跳状态。测试不会连接真实微信、QQ、模型账号或生产数据库。
 
 语音、音乐与本地模型均为可选服务，不影响先使用云端模型聊天：
 
@@ -112,11 +114,7 @@ GUI 的“系统 → Backend Service”卡片可以选择本机或远程服务�
 
 配套服务也可以单独使用：
 
-- [synlove-tts](https://github.com/missmissrain/synlove-tts)：本地语音合成。
-- [synlove-asr](https://github.com/missmissrain/synlove-asr)：语音转写。
-- [synlove-gemma](https://github.com/missmissrain/synlove-gemma)：本地模型下载与启动。
-- [synlove-kugou](https://github.com/missmissrain/synlove-kugou)：点歌与播放队列。
-- [synlove-relay](https://github.com/missmissrain/synlove-relay)：消息中转与节点连接。
+- [SynLove-Backend-Service](https://github.com/missmissrain/SynLove-Backend-Service)：TTS、ASR、本地 LLM 和远程部署模板。两个仓库互为补集，合在一起就是完整项目。
 
 ## 数据与凭据
 
@@ -125,6 +123,13 @@ GUI 的“系统 → Backend Service”卡片可以选择本机或远程服务�
 请使用自己的账号和凭据，并遵守接入平台的使用规则。
 
 ## 最近更新
+
+### 服务卡与连接器版
+
+- 后端服务卡固定每页 5 项、左右翻页；只展示用户会直接使用的功能插件，隐藏消息接入、编程调度等内部组件。
+- “Agent 内核”“codex 连接器”“opencode 连接器”“爬虫中心”“本地大模型”等名称统一；新增 Codex CLI 实际探活。
+- 绿灯改为“服务可用”语义：TTS、ASR、本地模型空闲未监听时仍算可用，并标注“按需待机”；心跳失败才转灰。
+- 修复提醒与新闻摘要启动链路、酷狗 API 自动恢复、后台服务控制台窗口隐藏，以及任务完成后通过 QQ 汇报结果。
 
 ### 独立部署版
 

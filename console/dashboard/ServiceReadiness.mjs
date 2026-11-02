@@ -3,7 +3,7 @@
  * 参数 project：链路根目录；env：环境变量（默认 process.env）；checkPython：可注入依赖检查器。
  * 默认检查 Python 模块位置、启动脚本与本机模型文件，不加载权重、不启动服务、不下载模型。
  */
-import { existsSync, statSync, readFileSync } from 'node:fs'
+import { existsSync, statSync, readFileSync, readdirSync } from 'node:fs'
 import { join, isAbsolute, resolve } from 'node:path'
 import { execFile } from 'node:child_process'
 
@@ -66,9 +66,15 @@ export class ServiceReadiness {
     } catch { return false }
   }
 
-  /** 参数 name/cfg：服务名及统一注册配置；只对回环地址的托管 TTS/ASR 检查按需可用性。 */
+  /**
+   * 参数 name/cfg：服务名及统一注册配置；判断"按需服务现在能不能被拉起来"。
+   *
+   * 覆盖 TTS / ASR / 本地大模型三种按需服务：只看本机依赖与模型是否齐备，
+   * 不加载权重、不启动进程。托管与本机回环的外部配置都适用——灯亮的标准是
+   * "能用"，而不是"现在正在跑"。
+   */
   async assess(name, cfg) {
-    if (!['tts', 'asr'].includes(name) || cfg.management !== 'managed') return false
+    if (!['tts', 'asr', 'llm'].includes(name)) return false
     try {
       const url = new URL(cfg.baseURL)
       if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(url.hostname) || url.pathname.replace(/\/$/, '') !== '/v1' || url.username || url.password || url.search || url.hash) return false
@@ -88,6 +94,26 @@ export class ServiceReadiness {
 
   /** 参数 name/cfg：已校验的托管音频配置；使用与 LocalServiceLifecycle 相同的路径规则检查条件。 */
   async inspect_local(name, cfg) {
+    if (name === 'llm') {
+      // 与 start_stack.py 的默认解析保持一致：环境变量 > 同级/上两级 Gemma4 > 项目内 gemma。
+      const sibling = join(this.project, '..', 'Gemma4')
+      const releaseParent = join(this.project, '..', '..', 'Gemma4')
+      const root = this.env.GEMMA_ROOT
+        ? this.local_path(this.env.GEMMA_ROOT)
+        : (existsSync(sibling) ? sibling : (existsSync(releaseParent) ? releaseParent : join(this.project, 'gemma')))
+      const binary = this.local_path(this.env.GEMMA_BINARY || join(root, 'llama.cpp', 'build-ninja', 'bin', 'llama-server.exe'))
+      if (!this.has_file(binary)) return false
+      const wanted = String(cfg.model || '').trim()
+      const dirs = [join(root, 'gemma4E4B', 'model'), join(root, 'model')]
+      for (const dir of dirs) {
+        try {
+          const files = readdirSync(dir).filter(file => file.toLowerCase().endsWith('.gguf'))
+          if (wanted && files.some(file => file.startsWith(wanted))) return true
+          if (!wanted && files.some(file => file.toLowerCase().includes('gemma'))) return true
+        } catch { /* 目录不存在就继续看下一个 */ }
+      }
+      return false
+    }
     if (!this.has_file(join(this.project, 'services', 'LocalServiceLifecycle.py')) ||
       !this.has_file(join(this.project, 'services', 'AudioHttp.py'))) return false
     if (name === 'tts') {

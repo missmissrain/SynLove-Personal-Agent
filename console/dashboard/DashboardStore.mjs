@@ -72,7 +72,7 @@ export class DashboardStore {
         let row
         try { row = JSON.parse(line) } catch { continue }
         if (!Number.isFinite(Date.parse(row.at)) || typeof row.event !== 'string') continue
-        if (!/^(poll\.|qq\.gateway|qq\.send|scheduler\.|summar|update\.|check\.done)/.test(row.event)) continue
+        if (!/^(poll\.|qq\.(gateway|health|send)|scheduler\.|summar|update\.|check\.done)/.test(row.event)) continue
         this.events.set(`${row.scope}:${row.event}`, {
           at: row.at, scope: row.scope, event: row.event,
           message: typeof row.data?.message === 'string' ? row.data.message.slice(0, 160) : '',
@@ -116,7 +116,7 @@ export class DashboardStore {
     else if (!this.process_alive(qqPid)) Object.assign(qq, { status: 'offline', label: '未连接', detail: 'QQ 网关进程不在运行' })
     else if (gateway && live && qqPid === Number(lease.pid) && Date.parse(gateway.at) >= lease.process_started_at) {
       qq.lastEventAt = gateway.at
-      if (gateway.message === 'gateway READY') Object.assign(qq, { status: 'connected', label: '已连接', detail: '现有网关已完成 READY 握手' })
+      if (gateway.message === 'gateway READY' || /心跳已确认|已连接/.test(gateway.message)) Object.assign(qq, { status: 'connected', label: '已连接', detail: gateway.message === 'gateway READY' ? '现有网关已完成 READY 握手' : '现有网关持续收到心跳' })
       else Object.assign(qq, { status: 'reconnecting', label: '连接中', detail: /断开|失败|错误|失效|被踢|重连/.test(gateway.message) ? '网关正在恢复连接，请查看日志' : '等待 QQ 网关 READY' })
     }
     return [wx, qq]
@@ -240,7 +240,8 @@ export class DashboardStore {
       }
     }
     return {
-      at: new Date().toISOString(), activities: activities.sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 12), channels: [...channels, music],
+      at: new Date().toISOString(), activities: activities.sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 12), channels,
+      backendFeatures: [music],
       schedules: [...reminders.rows, ...tasks.filter(row => !['SynLoveGuard', 'SynLoveConsoleWatch'].includes(row.id))],
       systemTasks: tasks.filter(row => ['SynLoveGuard', 'SynLoveConsoleWatch'].includes(row.id)),
       reminderTotal: reminders.total, errors: [reminders.error, system.error].filter(Boolean),

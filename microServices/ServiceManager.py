@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 
 from microServices.ServiceTransport import ServiceTransport
 from services.ServiceRegistry import ServiceRegistry
+from services.ProcessLaunch import console_python, spawn_hidden
 
 
 class ServiceManager:
@@ -72,8 +73,10 @@ class ServiceManager:
             deadline = time.monotonic() + 30
             env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8",
                    "SYNLOVE_SERVICE_CONFIG": str(self.registry.path.resolve())}
-            options = {"start_new_session": True} if os.name != "nt" else {
-                "creationflags": subprocess.CREATE_NO_WINDOW}
+            # 只脱离窗口、不脱离控制台：CREATE_NO_WINDOW 让本进程拥有一个不可见控制台，
+            # 它再拉起的子进程（MCP、git、tasklist 等）会继承这个控制台，因此不会再弹黑框。
+            # 之前用的 DETACHED_PROCESS 会让整棵树失去控制台，子孙进程各自新建可见窗口。
+            options = {"start_new_session": True} if os.name != "nt" else {}
             if name == "session":
                 # 原生 Harness session 必须由 Node 服务端持有，不能让 Python 业务
                 # ServiceHost 伪装成 session 权威存储。
@@ -88,12 +91,12 @@ class ServiceManager:
                 command = ["node", "tools/sessionServiceServer.mjs"]
                 cwd = harness_root
             else:
-                command = [sys.executable, str(self.root / "microServices" / "ServiceHost.py"), name,
+                command = [console_python(), str(self.root / "microServices" / "ServiceHost.py"), name,
                            "--host", urlsplit(cfg["baseURL"]).hostname, "--port", str(cfg["port"])]
                 cwd = self.root
             with (state / "service.log").open("ab") as output:
-                child = subprocess.Popen(
-                    command, cwd=str(cwd), env=env, stdin=subprocess.DEVNULL,
+                child = spawn_hidden(
+                    command, cwd=str(cwd), env=env,
                     stdout=output, stderr=output, **options)
             self.children[name] = child
             # 启动器可先退出；后台等待线程持有进程句柄，最终回收而不是遗失Popen所有权。
@@ -126,6 +129,15 @@ class ServiceManager:
             except OSError:
                 return True
 
+        def wait_port_closed(seconds=8):
+            """seconds为等待上限；服务主动断开连接后等待端口真正释放。"""
+            deadline = time.monotonic() + seconds
+            while time.monotonic() < deadline:
+                if port_closed():
+                    return True
+                time.sleep(0.2)
+            return port_closed()
+
         if not self.is_ready(name):
             if not port_closed():
                 raise RuntimeError(name + "端口仍被占用且身份探活失败，拒绝报告已停止")
@@ -133,18 +145,16 @@ class ServiceManager:
         try:
             ServiceTransport(cfg).request("POST", "/shutdown", b"{}")
         except Exception:
-            # Windows 服务可能先退出再送完 HTTP 响应；不能因连接中断把已释放的端口误报为失败。
-            if port_closed():
+            # Windows 服务可能在送完响应前主动关闭 socket；连接异常不等于
+            # 停止失败，必须以端口最终是否释放作为判断依据。
+            if wait_port_closed():
                 return True
             raise
-        deadline = time.monotonic() + 30
-        while time.monotonic() < deadline:
-            if port_closed():
-                child = self.children.get(name)
-                if child:
-                    child.wait(timeout=30)
-                return True
-            time.sleep(0.2)
+        if wait_port_closed(30):
+            child = self.children.get(name)
+            if child:
+                child.wait(timeout=30)
+            return True
         raise TimeoutError(name + "服务关闭尚未确认")
 
     def stop_managed_services(self):

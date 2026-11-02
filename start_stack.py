@@ -26,6 +26,7 @@ import yaml
 from services.ServiceRegistry import ServiceRegistry
 from services.StartupState import StartupState
 from services.StartupServices import StartupServices
+from services.ProcessLaunch import console_python, creation_flags, run_hidden, spawn_hidden
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -65,8 +66,26 @@ def _resolve_bin(env_name: str, *candidates: str, default: str) -> Path:
 OPENCODE_BIN = _resolve_bin("OPENCODE_BIN", "opencode", "opencode.cmd", default="opencode")
 OPENCODE_SERVER_PORT = int(os.environ.get("OPENCODE_SERVER_PORT") or "4096")
 OPENCODE_SERVER_URL = os.environ.get("OPENCODE_SERVER_URL") or ("http://127.0.0.1:%d" % OPENCODE_SERVER_PORT)
+def _resolve_gemma_root() -> Path:
+    """无参数；解析本地大模型目录：环境变量 > 发布目录同级/上两级 Gemma4 > 项目内 gemma。
+
+    发布包放在 .../智能秘书/发布/SynLove-Personal-Agent，模型实际在 .../智能秘书/Gemma4；
+    只认项目内 gemma/ 会让"本地大模型"永远找不到 llama-server，显示成不可用。
+    """
+    configured = os.environ.get("GEMMA_ROOT")
+    if configured:
+        return Path(configured)
+    sibling = PROJECT_ROOT.parent / "Gemma4"
+    if sibling.is_dir():
+        return sibling
+    release_parent = PROJECT_ROOT.parent.parent / "Gemma4"
+    if release_parent.is_dir():
+        return release_parent
+    return PROJECT_ROOT / "gemma"
+
+
 # 本地 Gemma 默认放在**本项目的同级目录**（.../智能秘书/Gemma4），不再写死盘符。
-GEMMA_ROOT = Path(os.environ.get("GEMMA_ROOT") or (PROJECT_ROOT / "gemma"))
+GEMMA_ROOT = _resolve_gemma_root()
 GEMMA_SERVER_PORT = int(os.environ.get("GEMMA_SERVER_PORT") or "8080")
 
 
@@ -267,13 +286,26 @@ def apply_environment(config: dict, env: dict[str, str]) -> None:
     # 代理：opencode/Codex 这些 Node 工具**不会**自动使用 Windows 系统代理（Clash 的"系统代理"），
     # 必须显式给 HTTP(S)_PROXY，否则访问境外 API 会 ProviderHeaderTimeoutError / Cannot connect。
     # 这里自动探测常见 Clash 端口并注入；已显式设置过则尊重原值；DSH_STACK_PROXY=0 可关闭。
+    #
+    # 但微信/QQ 的平台接口是境内直连：走代理只会被代理隧道拖死（2026-11-02 实测：Clash 的 1080
+    # 还在监听但隧道已断，直连 0.17s 拿到响应，走代理 12s 超时），表现为
+    # "gateway 连接失败：TimeoutError / 连接器启动失败：AbortError"，两条通道全哑。
+    # 所以平台域名一律加进 NO_PROXY（与已有值合并，不覆盖用户显式设置）。
     if os.environ.get("DSH_STACK_PROXY", "").strip() != "0":
         if not env.get("HTTPS_PROXY") and not env.get("https_proxy"):
             proxy = detect_local_proxy()
             if proxy:
                 env["HTTPS_PROXY"] = proxy
                 env["HTTP_PROXY"] = proxy
-                env.setdefault("NO_PROXY", "127.0.0.1,localhost,::1")
+                bypass = [item.strip() for item in
+                          (env.get("NO_PROXY") or env.get("no_proxy") or "127.0.0.1,localhost,::1").split(",")
+                          if item.strip()]
+                for host in ("qq.com", "weixin.qq.com", "api.sgroup.qq.com",
+                             "ilinkai.weixin.qq.com", "novac2c.cdn.weixin.qq.com"):
+                    if host not in bypass:
+                        bypass.append(host)
+                env["NO_PROXY"] = ",".join(bypass)
+                env["no_proxy"] = env["NO_PROXY"]
                 print("proxy_detected=" + proxy)
     # 微信链路诊断日志（compose/agent 轨迹），默认开启便于排查。
     env.setdefault("DSH_WEIXIN_DEBUG_LOG", str(PROJECT_ROOT / "runtime" / "weixin-debug.log"))
@@ -295,6 +327,25 @@ def yaml_string(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+def proxy_port_works(port: int) -> bool:
+    """参数 port：本机端口；用一次真实 CONNECT 判断它是不是可用的 HTTP 代理。
+
+    只测"端口能连上"是不够的：本机 1080 曾由系统服务占用（不是代理），
+    启动器误当成 Clash，结果微信 iLink / QQ 网关的所有出站请求都走死代理、
+    表现为"消息发不出去、连接一直超时"。
+    """
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=1.0) as probe:
+            probe.settimeout(2.0)
+            probe.sendall(b"CONNECT ilinkai.weixin.qq.com:443 HTTP/1.1\r\n"
+                          b"Host: ilinkai.weixin.qq.com:443\r\n\r\n")
+            head = probe.recv(64)
+            first_line = head.split(b"\r\n", 1)[0]
+            return first_line.startswith(b"HTTP/1.") and b" 200" in first_line
+    except OSError:
+        return False
+
+
 def detect_local_proxy() -> str | None:
     """探测本机代理端口（Clash 常见 7897/7890，其次 10809/1080）。
 
@@ -302,10 +353,9 @@ def detect_local_proxy() -> str | None:
     漏配的典型症状就是"浏览器能上、脚本连不上"。
     """
     for port in (7897, 7890, 10809, 1080):
-        with socket.socket() as probe:
-            probe.settimeout(0.4)
-            if probe.connect_ex(("127.0.0.1", port)) == 0:
-                return "http://127.0.0.1:%d" % port
+        # 必须验证"确实是能用的 HTTP 代理"，不能只看端口有没有人监听。
+        if proxy_port_works(port):
+            return "http://127.0.0.1:%d" % port
     return None
 
 
@@ -406,7 +456,7 @@ def gemma_local_reachable() -> bool:
 def gpu_free_mb() -> int | None:
     """读一次显存空闲量（MB）；没有 nvidia-smi 时返回 None。"""
     try:
-        output = subprocess.run(
+        output = run_hidden(
             ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"],
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15)
         used, total = [int(item.strip()) for item in output.stdout.strip().splitlines()[0].split(",")]
@@ -494,7 +544,9 @@ def ensure_gemma_server(env: dict[str, str]) -> str:
     # 不加载它就只能处理纯文本。代价：+946MB 显存，且休眠时同样会被释放。
     if mmproj.is_file():
         args += ["--mmproj", str(mmproj)]
-    flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    # 统一用 CREATE_NO_WINDOW（不可见控制台）：llama-server 及其潜在子进程
+    # 都挂在这个隐藏控制台上，不会出现"父进程无控制台 → 子进程各自弹黑框"。
+    flags = creation_flags()
     # 给 llama-server **自己的日志文件**：以前它的输出直接继承父进程句柄，
     # 结果"Gemma 到底有没有正常起来"只能靠端口探测猜（这次查昨晚状态时就吃了这个亏）。
     gemma_log = PROJECT_ROOT / "runtime" / "gemma-server.log"
@@ -556,15 +608,24 @@ def spawn_silent(command: list[str], cwd: Path, env: dict[str, str], log_name: s
 
     窗口版启动容易被误关（一关就整个服务没了），所以统一走隐藏窗口 + 日志落盘。
     日志可用于排查；窗口只在"需要人工操作"时保留（例如微信扫码登录）。
+
+    参数：
+        command：命令列表，首项为可执行文件（pythonw 会被换成 python，见下方说明）。
+        cwd：子进程工作目录；env：完整环境变量；log_name：runtime 下的日志文件名。
     """
     log_path = PROJECT_ROOT / "runtime" / log_name
     log_path.parent.mkdir(parents=True, exist_ok=True)
     handle = open(log_path, "a", encoding="utf-8", errors="replace")
     handle.write("\n===== %s 启动 =====\n" % time.strftime("%Y-%m-%d %H:%M:%S"))
     handle.flush()
-    flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-    return subprocess.Popen(command, cwd=str(cwd), env=env, creationflags=flags,
-                            stdout=handle, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+    # 关键：这里只能用 CREATE_NO_WINDOW，**不能用 DETACHED_PROCESS**。
+    # DETACHED 会让本进程没有控制台，之后它拉起的 tasklist / git / powershell /
+    # MCP 的 python 等控制台子进程都会各自新建一个可见黑窗（实测复现）。
+    # CREATE_NO_WINDOW 给它一个"存在但不可见"的控制台，子孙进程继承它，全程无窗口。
+    argv = list(command)
+    argv[0] = console_python(argv[0])
+    return spawn_hidden(argv, cwd=str(cwd), env=env,
+                        stdout=handle, stderr=subprocess.STDOUT)
 
 
 # 活跃源码里必须存在的"新架构"目录。历史上有过两份极易混淆的 harness 副本
@@ -597,10 +658,43 @@ def verify_harness_source() -> None:
               + str(HARNESS_ROOT) + "）: " + ", ".join(sorted(stray)))
 
 
+def harness_child_env(env: dict[str, str]) -> dict[str, str]:
+    """参数 env：启动器已合并好的环境；补齐 Harness 子进程必需的非机密默认值。
+
+    这些默认值原本写在 config/startHarnessBackend.ps1 里。生产路径改为直接 spawn Node 后，
+    必须在这里补回来，否则 webhook 的 workspace_path 等必填项为空、微信/QQ 通道直接不加载。
+    一律用 setdefault：调用方显式设置的值优先，绝不覆盖。
+    """
+    child = dict(env)
+    child.setdefault("DSH_WEIXIN_WORKSPACE", str(PROJECT_ROOT))
+    child.setdefault("DSH_WEIXIN_STATE_FILE", str(PROJECT_ROOT / "runtime" / "weixin-route-state.json"))
+    child.setdefault("DSH_WEIXIN_INJECT_PORT", str(HARNESS_INJECT_PORT))
+    child.setdefault("DSH_WEIXIN_DEBUG_LOG", str(PROJECT_ROOT / "runtime" / "weixin-debug.log"))
+    child.setdefault("DSH_WEIXIN_PROBE_LOG", str(PROJECT_ROOT / "runtime" / "weixin-probe.log"))
+    child.setdefault("WEIXIN_ILINK_BASE_URL", "https://ilinkai.weixin.qq.com")
+    child.setdefault("WEIXIN_ILINK_CDN_BASE_URL", "https://novac2c.cdn.weixin.qq.com/c2c")
+    child.setdefault("DSH_DEFAULT_PROVIDER", "volcengine")
+    child.setdefault("DSH_DEFAULT_MODEL", "doubao-seed-2-1-pro-260628")
+    child.setdefault("DSH_WIRE_ZH", "0")
+    return child
+
+
 def start_harness_service(env: dict[str, str]) -> subprocess.Popen:
-    """启动 DeepSeek Harness 微信后台服务（静默、无窗口，日志进 runtime/harness-run.log）。"""
-    command = ["powershell.exe", "-NoLogo", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(HARNESS_SCRIPT)]
-    return spawn_silent(command, HARNESS_ROOT, env, "harness-run.log")
+    """参数 env：已合并的完整环境；启动 DeepSeek Harness（静默无窗口，日志进 runtime/harness-run.log）。"""
+    # 生产路径直接拉起 Node，不再经过 wscript → PowerShell → wscript 三层跳板：
+    # 那三层里任何一层都可能给 Node 留下一个"没有控制台"的父进程，
+    # 于是 Node 再去拉 MCP 的 python 子进程时，每个子进程都新建可见黑窗（已实测）。
+    # 直接 spawn 才能保证整棵进程树共享同一个隐藏控制台。
+    node = os.environ.get("CONSOLE_NODE") or shutil.which("node") or "node"
+    entry = HARNESS_ROOT / "apps" / "cli" / "lib" / "bin.js"
+    command = [
+        node, str(entry),
+        "--patch", str(PROJECT_ROOT / "config" / "weixinDoubaoProfile.patch.yml"),
+        "--patch", str(PROJECT_ROOT / "config" / "disabledTools.patch.yml"),
+        "--profile", "web",
+        "--no-open",
+    ]
+    return spawn_silent(command, HARNESS_ROOT, harness_child_env(env), "harness-run.log")
 
 
 # ── 单实例 / 自愈 ─────────────────────────────────────────────────────────────
@@ -625,7 +719,7 @@ def process_alive(pid: int) -> bool:
     if pid <= 0:
         return False
     try:
-        result = subprocess.run(
+        result = run_hidden(
             ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15,
         )
@@ -774,6 +868,20 @@ def ensure_rsshub(env: dict[str, str]) -> str:
     return "start_failed"
 
 
+def ensure_kugou_api(env: dict[str, str]) -> str:
+    """无参数；读取 kugou.json，确保本机 KuGouMusicApi 在 3001 端口运行。"""
+    from kugou.client.kugouApi import kugouApi
+    path = PROJECT_ROOT / "kugou" / "config" / "kugou.json"
+    try:
+        config = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return "missing_config"
+    if config.get("enabled") is False:
+        return "disabled"
+    api = kugouApi(PROJECT_ROOT, config)
+    return "server_ready" if api.ensure_server() else "start_failed"
+
+
 def ensure_guard_service(env: dict[str, str]) -> str:
     """确保链路兜底巡检常驻（每 60 秒：释放卡住投递、清死租约、检查 QQ 网关、补跑技能复盘）。
 
@@ -794,6 +902,31 @@ def ensure_guard_service(env: dict[str, str]) -> str:
     process = spawn_silent(
         [sys.executable, str(PROJECT_ROOT / "tools" / "guardService.py"), "--loop"],
         PROJECT_ROOT, env, "guard-service.console.log",
+    )
+    pid_file.parent.mkdir(parents=True, exist_ok=True)
+    pid_file.write_text(str(process.pid), encoding="utf-8")
+    return "started"
+
+
+def ensure_task_report(env: dict[str, str]) -> str:
+    """确保「完成汇报」常驻：盯 codex / opencode，任务结束就润色成人话推 QQ。
+
+    开关在控制台（状态库 meta 的 report.codex / report.opencode），改完下一轮扫描就生效。
+    日志同样分两份：结论写 runtime/task-report.log，进程输出写 task-report.console.log。
+
+    参数 env：启动器已合并好的环境（含 NO_PROXY 等，QQ 接口要直连）。
+    """
+    pid_file = PROJECT_ROOT / "runtime" / "task-report.pid"
+    if pid_file.is_file():
+        try:
+            pid = int(pid_file.read_text(encoding="utf-8").strip())
+            if process_alive(pid):
+                return "already_running"
+        except (OSError, ValueError):
+            pass
+    process = spawn_silent(
+        [sys.executable, str(PROJECT_ROOT / "taskReport" / "runTaskReport.py"), "--loop"],
+        PROJECT_ROOT, env, "task-report.console.log",
     )
     pid_file.parent.mkdir(parents=True, exist_ok=True)
     pid_file.write_text(str(process.pid), encoding="utf-8")

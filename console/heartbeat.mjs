@@ -285,7 +285,6 @@ export class Heartbeat {
     try {
       const child = this.spawn(this.resolve_python(), ['start_stack.py'], {
         cwd: this.project_dir,
-        detached: true,
         stdio: 'ignore',
         windowsHide: true,
         env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' },

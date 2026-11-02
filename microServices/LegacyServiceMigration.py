@@ -19,7 +19,11 @@ class LegacyServiceMigration:
         self.roots_path = self.root / "runtime" / "microServices" / "migrationRoots.json"
         if roots is None and self.roots_path.is_file():
             roots = json.loads(self.roots_path.read_text(encoding="utf-8"))
-        self.roots = [Path(path).resolve() for path in (roots or [root])]
+        # 当前生产目录也必须加入白名单：计划任务可能已指向当前目录，
+        # 但它仍是旧调度器，只有允许识别后才能安全停用并迁移到新服务。
+        candidates = [Path(path).resolve() for path in (roots or [root])]
+        current = self.root.resolve()
+        self.roots = [current, *[path for path in candidates if path != current]]
 
     def reminder_processes(self):
         """无参数；只返回指定目录中真实Python解释器执行的reminderService.py --loop。"""
@@ -132,7 +136,9 @@ class LegacyServiceMigration:
             existed = (state / "schedule.sqlite").is_file()
             store = ScheduleStore(self.root, state / "schedule.sqlite")
             with store.connect() as conn:
-                if task["enabled"] or not existed:
+                # 已经存在的 schedule.sqlite 是新服务当前生效的配置，重复迁移
+                # 不能再用旧计划任务的时间覆盖用户后来调整过的时刻。
+                if not existed:
                     conn.execute("UPDATE schedule SET hhmm=?,enabled=? WHERE id=1",
                                  (task["time"], int(task["enabled"])))
                 # 不知道旧任务今天是否已发过，迁移当天不补发新闻；明日起使用新调度。

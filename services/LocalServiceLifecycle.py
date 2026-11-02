@@ -74,15 +74,25 @@ class LocalServiceLifecycle:
                 port = str(self.config["port"])
                 key_env = self.config.get("apiKeyEnv", "")
                 if self.name == "tts":
-                    python = os.environ.get("BREEZE_PYTHON", service_python())
+                    # Breeze-TTS 使用独立的 Python 3.12 环境；项目 .venv 只装
+                    # Whisper 等轻量依赖，不能用它启动 7GB 的 TTS 模型。
+                    breeze_python = Path("D:/breeze-tts/.venv/Scripts/python.exe")
+                    python = os.environ.get("BREEZE_PYTHON") or (
+                        str(breeze_python) if breeze_python.is_file() else service_python())
                     args = [python, str(self.root / "services" / "breezeTtsService.py"),
                             "--ckpt", os.environ.get("BREEZE_CKPT", str(self.root / "models" / "breezeTts2")),
                             "--max-chars", str(max_chars), "--exit-after-request", "0"]
                 else:
-                    args = [service_python(), str(self.root / "services" / "whisperService.py"),
+                    # 概率转写依赖安装在 D:\py39；优先读取显式环境变量。
+                    whisper_python = Path("D:/py39/python.exe")
+                    python = os.environ.get("WHISPER_PYTHON") or os.environ.get("DSH_PYTHON") or (
+                        str(whisper_python) if whisper_python.is_file() else service_python())
+                    args = [python, str(self.root / "services" / "whisperService.py"),
                             "--model", model or self.config["model"]]
                 args += ["--port", port, "--idle-seconds", str(idle_seconds), "--api-key-env", key_env]
-                repo = Path(os.environ.get("BREEZE_REPO", str(self.root / "vendor" / "breeze-tts")))
+                default_repo = Path("D:/breeze-tts")
+                repo = Path(os.environ.get("BREEZE_REPO") or (
+                    str(default_repo) if default_repo.is_dir() else str(self.root / "vendor" / "breeze-tts")))
                 cwd = repo if self.name == "tts" and repo.is_dir() else self.root
                 with (runtime / (self.name + "-service.log")).open("ab") as log:
                     subprocess.Popen(args, cwd=str(cwd), stdout=log, stderr=log,

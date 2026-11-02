@@ -79,8 +79,33 @@ if ($portBusy) {
 }
 
 try {
-  node (Join-Path $harnessRoot 'apps\cli\lib\bin.js') --patch $patchFile --patch $disabledToolsPatchFile --profile web --no-open
-  if ($LASTEXITCODE -ne 0) { throw "Backend exited: $LASTEXITCODE" }
+  # PowerShell 只负责初始化环境；不要在此处前台等待 Node。
+  # 关键：Node 必须拿到一个**存在但不可见**的控制台（CreateNoWindow），
+  # 这样它拉起的 MCP python / git / tasklist 会继承该控制台，不会各自弹黑窗。
+  # 不要用 wscript 跳板：它会让 Node 完全没有控制台，子孙进程就会新建可见窗口。
+  $nodeEntry = Join-Path $harnessRoot 'apps\cli\lib\bin.js'
+  $nodeArgs = @(
+    $nodeEntry,
+    '--patch', $patchFile,
+    '--patch', $disabledToolsPatchFile,
+    '--profile', 'web',
+    '--no-open'
+  )
+  $nodeCommand = $env:CONSOLE_NODE
+  if ([string]::IsNullOrWhiteSpace($nodeCommand)) {
+    $nodeCommand = (Get-Command node.exe -ErrorAction Stop).Source
+  }
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $nodeCommand
+  $psi.WorkingDirectory = $harnessRoot
+  $psi.UseShellExecute = $false      # 必须为 false，CreateNoWindow 才生效
+  $psi.CreateNoWindow = $true        # 给 Node 一个不可见控制台，子孙进程继承
+  $psi.Arguments = (($nodeArgs | ForEach-Object { '"' + $_ + '"' }) -join ' ')
+  [System.Diagnostics.Process]::Start($psi) | Out-Null
+  Write-Host "[harness] detached node started: $nodeCommand"
+} catch {
+  Write-Error ("[harness] detached node start failed: " + $_.Exception.Message)
+  throw
 } finally {
   try { $mutex.ReleaseMutex() } catch { }
 }

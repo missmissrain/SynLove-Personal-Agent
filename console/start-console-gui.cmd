@@ -8,5 +8,7 @@ if not exist "%HERE%node_modules\electron\dist\electron.exe" (
   pause
   exit /b 1
 )
-start "" "%HERE%node_modules\electron\dist\electron.exe" "%HERE%"
+rem 不再用 start 直接拉 Electron：在部分 Windows 环境下，cmd 会一直
+rem 持有 conhost，形成用户看到的黑窗口。交给无控制台的 wscript 入口。
+wscript.exe //B "%HERE%launch-electron-hidden.vbs"
 endlocal

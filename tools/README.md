@@ -12,6 +12,7 @@
 | 脚本 | 用途 |
 |---|---|
 | `stop_stack.py` | 停止欣爱（harness）进程；被 `switch_model.py` 与控制台复用。**会先写"暂停守护"标记**（`--no-pause` 可跳过，给"重启"用） |
+| `RestartStack.py` | 控制台「重启后端服务」的后台执行体：`stop_stack.py` → 等端口释放 → `start_stack.py` → 等 3080/3081 就绪，日志 `runtime/restart-stack.log` |
 | `stop_all.py` / `stop_all.cmd` | **全部停止：先关前端（控制台/守护），再关后端（harness + 本地 Gemma）** |
 | `inject.py` | 向本机调试注入口（默认 3081）发消息，免真手机联调 |
 | `check_state.py` | 只读查看：发送队列、投递、租约、时间线/图谱规模 |

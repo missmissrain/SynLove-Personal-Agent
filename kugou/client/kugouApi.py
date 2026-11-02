@@ -339,6 +339,9 @@ class kugouApi:
 
     def _node(self):
         """找 node 可执行文件。"""
+        configured = os.environ.get("KUGOU_NODE") or os.environ.get("CONSOLE_NODE")
+        if configured and Path(configured).is_file():
+            return configured
         return shutil.which("node") or "node"
 
     @staticmethod

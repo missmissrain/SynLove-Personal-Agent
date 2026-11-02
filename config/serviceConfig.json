@@ -3,7 +3,7 @@
   "services": {
     "tts": {
       "baseURL": "http://127.0.0.1:7862/v1",
-      "management": "external",
+      "management": "managed",
       "model": "breeze",
       "dialect": "breeze",
       "timeoutSeconds": 3600,
@@ -13,7 +13,7 @@
     },
     "asr": {
       "baseURL": "http://127.0.0.1:8081/v1",
-      "management": "external",
+      "management": "managed",
       "model": "small",
       "dialect": "whisper",
       "timeoutSeconds": 1800,

@@ -40,9 +40,12 @@ export class ServiceProbe {
         await response.body?.cancel()
         return { ...result, readiness: 'unavailable', detail: `健康检查返回 HTTP ${response.status}` }
       }
-      if (this.business.has(name)) {
+      if (this.business.has(name) || name === 'tts' || name === 'asr') {
         const body = await response.json()
-        if (body.ok !== true || body.service !== name || body.protocol !== 1) {
+        const identity_ok = this.business.has(name)
+          ? body.ok === true && body.service === name && body.protocol === 1
+          : body.ok === true
+        if (!identity_ok) {
           return { ...result, readiness: 'unavailable', detail: '端点响应与服务身份不匹配' }
         }
       } else if (name === 'opencode') {
@@ -54,12 +57,18 @@ export class ServiceProbe {
       return { ...result, up: true, available: true, readiness: 'running', detail: '服务已就绪' }
     } catch (error) {
       const refused = error?.cause?.code === 'ECONNREFUSED'
+      if (refused) {
+        // 灯亮的标准是"这个服务能不能用"，不是"现在在不在跑"。
+        // 按需服务（TTS/ASR/本地大模型）健康接口没监听，但本机依赖与模型齐备、
+        // 调用时会自动拉起 —— 这种情况仍然算可用，亮绿灯并标注"按需待机"。
+        if (await this.readiness?.assess(name, { ...cfg, baseURL: endpoint, management: mode })) {
+          return { ...result, available: true, readiness: 'standby',
+            detail: '按需启动：本机依赖与模型已就绪，调用时自动拉起' }
+        }
+      }
       if (mode === 'managed' && refused) {
         if (this.optional.has(name) && (this.env[`${prefix}_MODE`] || cfg.mode || 'local') === 'local') {
           return { ...result, readiness: 'inactive', detail: '当前使用本地存储，独立远程接口未启用' }
-        }
-        if (await this.readiness?.assess(name, { ...cfg, baseURL: endpoint, management: mode })) {
-          return { ...result, available: true, readiness: 'standby', detail: '本机依赖与模型检查通过，调用时启动' }
         }
         if (['digest', 'video', 'history', 'coding', 'crawler'].includes(name)) {
           return { ...result, readiness: 'pending', detail: '尚未启动，工具调用时由服务管理器尝试启动' }

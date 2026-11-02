@@ -114,8 +114,22 @@ class BootstrapManager:
             "electron.exe" if os.name == "nt" else "electron")
         if not executable.is_file():
             raise RuntimeError("桌面依赖未安装，请重新运行安装入口")
-        subprocess.Popen([str(executable), str(self.root / "console")],
-                         cwd=str(self.root / "console"), env=env)
+        # Windows 的 Electron 是 GUI 子系统，但从安装器继承控制台时仍可能
+        # 让启动壳保留一个黑框；明确要求后台启动并断开标准句柄。
+        options = {
+            "cwd": str(self.root / "console"),
+            "env": env,
+            "stdin": subprocess.DEVNULL,
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+        }
+        if os.name == "nt":
+            options["creationflags"] = subprocess.CREATE_NO_WINDOW
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+            options["startupinfo"] = startupinfo
+        subprocess.Popen([str(executable), str(self.root / "console")], **options)
 
     def run_cli(self):
         """无参数；解析安装选项并汇报真实结果，不启动模型或发送测试消息。"""

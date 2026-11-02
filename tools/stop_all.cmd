@@ -11,6 +11,10 @@ setlocal
 set PYTHONUTF8=1
 set PYTHONIOENCODING=utf-8
 cd /d "%~dp0.."
-python tools\stop_all.py %*
+if exist ".venv\Scripts\python.exe" (
+  ".venv\Scripts\python.exe" tools\stop_all.py %*
+) else (
+  python tools\stop_all.py %*
+)
 echo.
 pause

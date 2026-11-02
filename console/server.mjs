@@ -15,7 +15,7 @@
  */
 
 import { createServer } from 'node:http'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { execFileSync } from 'node:child_process'
 import {
   closeSync, copyFileSync, existsSync, openSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync,
@@ -103,6 +103,62 @@ async function probe_model_services() {
   }
   const probe = new ServiceProbe({ readiness: serviceReadiness })
   return Promise.all(Object.entries(registry.services).map(([name, cfg]) => probe.probe_service(name, cfg)))
+}
+
+// ── Codex 连接器探活 ─────────────────────────────────────────────────────────
+
+/** codex 探活结果缓存：CLI 版本不会秒变，60 秒内复用，避免每次刷新都拉起进程。 */
+let codex_probe_cache = { at: 0, value: null }
+
+/** 无参数；解析可用的 codex CLI：环境变量 → Codex 桌面版自带二进制 → PATH 上的 codex.cmd。 */
+function resolve_codex_binary() {
+  if (process.env.CODEX_BIN && existsSync(process.env.CODEX_BIN)) return process.env.CODEX_BIN
+  const local = process.env.LOCALAPPDATA
+  if (local) {
+    const base = join(local, 'OpenAI', 'Codex', 'bin')
+    try {
+      const versions = readdirSync(base).map(name => join(base, name, 'codex.exe'))
+        .filter(file => existsSync(file)).sort().reverse()
+      if (versions.length > 0) return versions[0]
+    } catch { /* 没装桌面版就继续找 PATH */ }
+  }
+  for (const name of ['codex.exe', 'codex.cmd', 'codex.bat', 'codex']) {
+    const found = spawnSync('where', [name], { encoding: 'utf8', windowsHide: true, timeout: 5000 })
+    const first = String(found.stdout ?? '').split('\n').map(line => line.trim()).filter(Boolean)[0]
+    if (first && existsSync(first)) return first
+  }
+  return null
+}
+
+/**
+ * 无参数；探测 Codex CLI 是否真的可调用（跑一次 --version）。
+ * 亮灯标准是"能调用成功"，与是否正在执行任务无关；失败时把原因写进 detail。
+ */
+async function probe_codex_connector() {
+  const now = Date.now()
+  if (codex_probe_cache.value && now - codex_probe_cache.at < 60_000) return codex_probe_cache.value
+  const base = { name: 'CODEX', port: null, up: false, available: false }
+  let value
+  try {
+    const binary = resolve_codex_binary()
+    if (!binary) {
+      value = { ...base, readiness: 'unavailable', detail: '未找到 codex CLI；可安装或在 console.env 设置 CODEX_BIN' }
+    } else {
+      const is_script = /\.(cmd|bat)$/i.test(binary)
+      const result = spawnSync(is_script ? 'cmd.exe' : binary,
+        is_script ? ['/d', '/s', '/c', `"${binary}" --version`] : ['--version'],
+        { encoding: 'utf8', windowsHide: true, timeout: 15_000, env: { ...process.env } })
+      const text = String(result.stdout || result.stderr || '').trim()
+      const ok = result.status === 0 && /codex/i.test(text)
+      value = { ...base, up: ok, available: ok, readiness: ok ? 'running' : 'unavailable',
+        detail: ok ? `CLI 可调用：${text.split('\n')[0].slice(0, 60)}`
+          : `调用失败：${String(result.error?.message || text || '未知错误').slice(0, 90)}` }
+    }
+  } catch (error) {
+    value = { ...base, readiness: 'unavailable', detail: `探测失败：${String(error).slice(0, 90)}` }
+  }
+  codex_probe_cache = { at: now, value }
+  return value
 }
 
 /** 可展示的日志。 */
@@ -251,9 +307,13 @@ function apply_backend_endpoints(mode, host, results, specs = {}) {
     const nextPort = item.available ? item.port : Number(specs[item.name]?.defaultPort)
     if (!nextPort) continue
     const next = `http://${mode === 'remote' ? host : '127.0.0.1'}:${nextPort}/v1`
-    if (config.services[item.name].baseURL !== next || config.services[item.name].management !== 'external') {
+    // 本机端点必须保持 managed，才能在该服务空闲退出后由下一次调用重新拉起；
+    // 只有用户明确切到远程服务器时才改为 external，交给远程部署方管理。
+    const nextManagement = mode === 'remote' ? 'external' : 'managed'
+    if (config.services[item.name].baseURL !== next ||
+      config.services[item.name].management !== nextManagement) {
       config.services[item.name].baseURL = next
-      config.services[item.name].management = 'external'
+      config.services[item.name].management = nextManagement
       changed = true
     }
   }
@@ -326,6 +386,20 @@ function write_console_env(values) {
   ]
   for (const key of Object.keys(values).sort()) lines.push(`${key}=${values[key]}`)
   writeFileSync(console_env_path, `${lines.join('\n')}\n`, 'utf8')
+}
+
+/**
+ * 读「完成汇报」开关（codex / opencode 干完活要不要推 QQ）。
+ * 单独放 config/taskReport.json：harness 会整表刷新状态库 meta，不认识的键会被冲掉。
+ */
+function read_task_report_toggles() {
+  const path = join(CONFIG, 'taskReport.json')
+  try {
+    const data = JSON.parse(readFileSync(path, 'utf8').replace(/^\uFEFF/, ''))
+    return { codex: data.codex === true, opencode: data.opencode === true }
+  } catch {
+    return { codex: false, opencode: false }
+  }
 }
 
 /** 端口是否在监听（直接连一下，避免依赖外部命令）。 */
@@ -1210,6 +1284,16 @@ const api = {
       return { port: item.port, name: item.name, up: probe.up, detail: probe.detail }
     }))
     services.push(...await probe_model_services())
+    services.push(await probe_codex_connector())
+    const music = await dashboard.music_channel()
+    services.push({
+      name: 'KUGOU',
+      port: null,
+      up: music.status === 'connected',
+      available: music.status === 'connected',
+      readiness: music.status === 'connected' ? 'running' : 'unavailable',
+      detail: music.detail,
+    })
     const state = open_state_db()
     let outbox = []
     let deliveries = 0
@@ -1712,19 +1796,11 @@ const api = {
 
   toggles() {
     const env = read_console_env()
-    const state = open_state_db()
-    let notify = { codex: true, opencode: true }
-    if (state) {
-      try {
-        const get = key => state.prepare('SELECT value FROM meta WHERE key = ?').get(key)?.value
-        notify = { codex: get('notify.codex') !== '0', opencode: get('notify.opencode') !== '0' }
-      } catch { /* 表可能不存在 */ }
-      state.close()
-    }
+    const notify = read_task_report_toggles()
     return {
       immediate: [
-        { key: 'notify.codex', label: 'codex 完成汇报', kind: 'bool', value: notify.codex, help: '即时生效' },
-        { key: 'notify.opencode', label: 'opencode 完成汇报', kind: 'bool', value: notify.opencode, help: '即时生效' },
+        { key: 'report.codex', label: 'codex 完成汇报', kind: 'bool', value: notify.codex, help: '即时生效 · 推 QQ' },
+        { key: 'report.opencode', label: 'opencode 完成汇报', kind: 'bool', value: notify.opencode, help: '即时生效 · 推 QQ' },
       ],
       restart: ENV_TOGGLES.map(item => ({
         ...item,
@@ -1736,6 +1812,16 @@ const api = {
   set_toggle(body) {
     const key = String(body.key ?? '').trim()
     const value = String(body.value ?? '').trim()
+    if (key.startsWith('report.')) {
+      // 完成汇报开关写在 config/taskReport.json：harness 会整表刷新状态库 meta，
+      // 把不认识的键冲掉，所以不能借它的库当配置。
+      const target = key.slice('report.'.length)
+      if (!['codex', 'opencode'].includes(target)) throw new Error('未知完成汇报开关')
+      const current = read_task_report_toggles()
+      current[target] = value === '1' || value === 'true'
+      writeFileSync(join(CONFIG, 'taskReport.json'), `${JSON.stringify(current, null, 2)}\n`, 'utf8')
+      return { ok: true, note: '已即时生效' }
+    }
     if (key.startsWith('notify.')) {
       const target = key.slice('notify.'.length)
       if (!['codex', 'opencode'].includes(target)) throw new Error('未知通知开关')
@@ -1772,23 +1858,49 @@ const api = {
  * → PATH 上的 python / py。都不写死本机绝对路径。
  */
 function resolve_python() {
-  if (process.env.PYTHON) return process.env.PYTHON
+  if (process.env.PYTHON && existsSync(process.env.PYTHON)) return process.env.PYTHON
   const from_env_file = read_console_env().PYTHON
-  if (from_env_file) return from_env_file
+  if (from_env_file && existsSync(from_env_file)) return from_env_file
   return process.platform === 'win32' ? 'python' : 'python3'
 }
 
+/**
+ * 无参数；为后台启停选择"有隐藏控制台"的 Python。
+ *
+ * 这里刻意**不用 pythonw.exe**：pythonw 是 GUI 子系统程序，永远没有控制台，
+ * 它拉起的 tasklist / powershell / MCP python 等控制台程序会各自新建一个可见窗口。
+ * 改用 python.exe + windowsHide（= CREATE_NO_WINDOW）后，父进程拥有一个不可见控制台，
+ * 整棵进程树继承它，启动与巡检都不会再闪黑框。
+ */
+function resolve_background_python() {
+  const python = resolve_python()
+  if (process.platform !== 'win32') return python
+  if (/pythonw\.exe$/i.test(python)) {
+    const console_python = python.replace(/pythonw\.exe$/i, 'python.exe')
+    if (existsSync(console_python)) return console_python
+  }
+  return python === 'pythonw' ? 'python' : python
+}
+
 /** 启停后端服务：复用项目里已有的启动器与清理脚本。 */
+let last_start_request_at = 0
+
 function run_service(action) {
   if (!['start', 'restart'].includes(action)) throw new Error('未知启动操作')
-  const python = resolve_python()
+  // 启动进行中不要再排一次"先停后起"：重启会写入 guardian.pause，
+  // 正在跑的启动器会把它误判成"用户要停"，于是自我取消，白等一轮（实测 11:14 那次）。
+  if (action === 'restart' && Date.now() - last_start_request_at < 90_000) {
+    return { ok: true, note: '启动仍在进行，已忽略本次重启请求；状态栏以实际连接为准' }
+  }
+  if (action === 'start') last_start_request_at = Date.now()
+  const python = resolve_background_python()
   // 用户手动重启期间不要自动插手
   heartbeat.pause(`你手动执行了${action}`, 5 * 60_000, { persist: action === 'restart' })
   // **必须先停再起**：以前直接 start_stack.py，如果旧进程还活着就会
   // EADDRINUSE(3080) + "已有另一个微信消费者" 启动失败退出，看起来"重启了但没反应"。
   if (action === 'restart') {
     const worker = spawn(python, [join(PROJECT, 'tools', 'RestartStack.py'), '--detach'], {
-      cwd: PROJECT, detached: true, stdio: 'ignore', windowsHide: true,
+      cwd: PROJECT, stdio: 'ignore', windowsHide: true,
       env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' },
     })
     worker.unref()
@@ -1799,7 +1911,6 @@ function run_service(action) {
   try {
   start = spawn(python, ['-u', 'start_stack.py', '--skip-login'], {
     cwd: PROJECT,
-    detached: true,
     stdio: ['ignore', log_fd, log_fd],
     windowsHide: true,
     // PYTHONUTF8=1：这台机器的 site-packages 里可能混进非 GBK 的 .pth（别的项目装的），
@@ -1821,8 +1932,8 @@ function stop_service() {
   // 统一走项目内的 tools/stop_stack.py（停止逻辑只保留一处，避免多处实现漂移）
   const stop_script = join(PROJECT, 'tools', 'stop_stack.py')
   if (existsSync(stop_script)) {
-    const child = spawn(resolve_python(), [stop_script],
-      { cwd: PROJECT, detached: true, stdio: 'ignore', windowsHide: true })
+    const child = spawn(resolve_background_python(), [stop_script],
+      { cwd: PROJECT, stdio: 'ignore', windowsHide: true })
     child.unref()
     return { ok: true, note: '已请求停止后端服务（3080/3081 会随之关闭）' }
   }
@@ -1833,7 +1944,7 @@ function stop_service() {
     "Get-NetTCPConnection -LocalPort 3080 -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }",
   ].join('; ')
   const child = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-Command', script],
-    { detached: true, stdio: 'ignore', windowsHide: true })
+    { stdio: 'ignore', windowsHide: true })
   child.unref()
   return { ok: true, note: '已请求停止后端服务（3080/3081 会随之关闭）' }
 }
@@ -1853,7 +1964,7 @@ const heartbeat = new Heartbeat({
     { port: 3081, name: '注入口', url: 'http://127.0.0.1:3081/' },
   ],
   probe_http,
-  resolve_python,
+  resolve_python: resolve_background_python,
   log_path: join(RUNTIME, 'heartbeat.log'),
   config_path: join(CONFIG, 'heartbeat.json'),
 })

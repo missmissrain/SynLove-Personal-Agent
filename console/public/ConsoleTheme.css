@@ -93,13 +93,24 @@ pre#log-view, pre#hb-log { background: #fdfdfd; border-color: var(--line); font-
 .dashboard-columns > .card > h3 { margin: -2px 0 6px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
 #service-cards .service { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); align-items: center; gap: 12px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 12px 0; }
 #service-cards .service:last-child { border-bottom: 0; }
+/* 固定 5 行高度：卡片不再随服务数量变高，超出的靠左右箭头翻页。 */
+#service-cards { height: 285px; overflow: hidden; }
+#service-cards .service { height: 57px; padding: 0; }
 #service-cards .name { display: flex; align-items: center; gap: 10px; color: var(--text); font-size: 12px; font-weight: 500; }
 /* 服务状态遵循样板：名称左侧的绿点表示可连接，灰点表示未就绪；文字说明供悬停和读屏使用。 */
 .service-dot { display: inline-block; width: 8px; height: 8px; flex-shrink: 0; border-radius: 50%; background: #bbb; }
 .service-dot.is-up { background: #81c784; }
 .service-dot.is-down { background: #bbb; }
-#service-cards .hint { font-size: 11px; overflow-wrap: anywhere; }
+#service-cards .hint { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #service-cards .hint:last-child { text-align: right; }
+/* 服务分页头：标题与箭头同一行，沿用卡片标题的分隔线。 */
+.service-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -2px 0 0; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.service-panel-head h3 { margin: 0; padding: 0; border: 0; }
+.service-pager { display: inline-flex; align-items: center; gap: 6px; }
+.service-pager button { width: 24px; height: 24px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--text); font-size: 14px; line-height: 1; cursor: pointer; }
+.service-pager button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.service-pager button:disabled { color: #d5d5d5; cursor: default; }
+.service-pager span { min-width: 30px; text-align: center; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .backend-config-card .section-heading { margin-bottom: 8px; }
 .backend-config-grid { margin: 12px 0; }
 .backend-services { border-top: 1px solid var(--line); margin-top: 10px; }
@@ -205,12 +216,17 @@ pre#log-view, pre#hb-log { background: #fdfdfd; border-color: var(--line); font-
 /* 开屏覆盖整个自绘窗口，末帧淡出后露出已加载的主界面。 */
 .opening-screen {
   position: absolute; inset: 0; z-index: 100;
-  overflow: hidden; background: #fff9fc; opacity: 1;
+  overflow: hidden; border-radius: 20px; background: #fff9fc; opacity: 1;
+  clip-path: inset(0 round 20px);
   transition: opacity 900ms cubic-bezier(.22, .61, .36, 1);
 }
 .opening-screen[hidden] { display: none; }
 .opening-screen[data-state="fading"] { opacity: 0; }
-.opening-screen video { display: block; width: 100%; height: 100%; object-fit: cover; }
+.opening-screen video {
+  display: block; width: 100%; height: 100%; object-fit: cover;
+  border-radius: 20px;
+  clip-path: inset(0 round 20px);
+}
 .opening-screen .opening-skip {
   position: absolute; bottom: 22px; right: 24px; padding: 6px 15px;
   border: 1px solid rgb(255 255 255 / 60%); border-radius: 18px;

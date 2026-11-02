@@ -127,9 +127,8 @@ class ConsoleDashboard {
       const styles = {
         weixin: { icon: '💬', css: 'channel-weixin', description: 'iLink 协议' },
         qq: { icon: '🐧', css: 'channel-qq', description: '官方 API · 群@+私聊' },
-        kugou: { icon: '🎵', css: 'channel-kugou', description: 'KuGouMusicApi · 音乐播放' },
       }
-      channels.innerHTML = data.channels.map(channel => {
+      channels.innerHTML = data.channels.filter(channel => ['weixin', 'qq'].includes(channel.id)).map(channel => {
         const style = styles[channel.id] ?? { icon: '◇', css: '', description: channel.name }
         return `<button class="channel-button" data-channel="${escape_service(channel.tab)}" title="${escape_service(channel.detail)}"><span class="connection-icon ${style.css}" aria-hidden="true">${style.icon}</span><span class="channel-description"><strong>${escape_service(channel.name)}</strong><span class="hint">${escape_service(style.description)}</span></span><span class="channel-status ${channel.status === 'connected' ? 'state-ok' : 'state-incomplete'}">${escape_service(channel.status === 'connected' ? '在线' : channel.label)}</span></button>`
       }).join('')

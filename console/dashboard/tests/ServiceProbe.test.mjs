@@ -43,10 +43,24 @@ test('工具按需服务未启动时保留灰灯和等待调用说明', async ()
   assert.equal(result.available, false)
 })
 
-test('音频待机必须经过现有依赖检查', async () => {
+test('按需服务依赖齐备即亮灯，缺依赖仍是灰灯', async () => {
   const probe = new ServiceProbe({ env: {}, fetcher: refused, readiness: { assess: async name => name === 'tts' } })
-  assert.equal((await probe.probe_service('tts', cfg)).readiness, 'standby')
+  const tts = await probe.probe_service('tts', { ...cfg, baseURL: 'http://127.0.0.1:7862/v1' })
+  assert.equal(tts.readiness, 'standby')
+  // 可用 ≠ 正在用：依赖与模型齐备、调用时能拉起，就算可用（绿灯）。
+  assert.equal(tts.available, true)
+  // ASR 依赖检查未通过，必须保持灰灯，不能因为"配置了"就报可用。
   assert.equal((await probe.probe_service('asr', cfg)).available, false)
+})
+
+test('TTS和ASR只有健康协议返回 ok=true 才亮绿灯', async () => {
+  const probe = new ServiceProbe({ env: {}, fetcher: async () =>
+    new Response(JSON.stringify({ ok: true }), { status: 200 }) })
+  assert.equal((await probe.probe_service('tts', { ...cfg, baseURL: 'http://127.0.0.1:7862/v1' })).available, true)
+  assert.equal((await probe.probe_service('asr', { ...cfg, baseURL: 'http://127.0.0.1:8081/v1' })).available, true)
+  const bad = new ServiceProbe({ env: {}, fetcher: async () =>
+    new Response(JSON.stringify({ ok: false }), { status: 200 }) })
+  assert.equal((await bad.probe_service('tts', { ...cfg, baseURL: 'http://127.0.0.1:7862/v1' })).available, false)
 })
 
 test('禁用服务不发请求；远程失联不判成本机待机', async () => {

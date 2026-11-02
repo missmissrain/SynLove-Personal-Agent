@@ -90,7 +90,18 @@
       <div class="stat-card"><div class="stat-label">时间线记忆</div><div class="stat-value" id="dashboard-memory">—</div><div class="stat-note" id="dashboard-memory-note">正在读取记忆索引</div></div>
     </div>
     <div class="dashboard-columns">
-      <div class="card service-panel"><h3>后端服务</h3><div id="service-cards"></div><p class="hint" id="dashboard-checked" role="status" hidden></p></div>
+      <div class="card service-panel">
+        <div class="service-panel-head">
+          <h3>后端服务</h3>
+          <div class="service-pager" id="service-pager" hidden>
+            <button id="service-prev" type="button" aria-label="上一页">‹</button>
+            <span id="service-page">1/1</span>
+            <button id="service-next" type="button" aria-label="下一页">›</button>
+          </div>
+        </div>
+        <div id="service-cards"></div>
+        <p class="hint" id="dashboard-checked" role="status" hidden></p>
+      </div>
       <div class="card channel-card"><div class="channel-card-heading"><h3>📡 消息通道</h3><details class="channel-manage"><summary>管理 →</summary><div class="channel-manage-menu"><button data-open-tab="weixin">微信绑定</button><button data-open-tab="qq">QQ 通道</button><button data-open-tab="agent">酷狗工具</button></div></details></div><span id="dashboard-channel-time" hidden></span><div id="dashboard-channels" class="empty-state">正在读取现有连接</div></div>
     </div>
     <div class="dashboard-columns dashboard-lower">

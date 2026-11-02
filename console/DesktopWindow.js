@@ -8,11 +8,12 @@ const { OpeningPlaybackState } = require('./OpeningPlaybackState.js')
 
 class DesktopWindow {
   /** 参数 electron/url/preload/icon：窗口 API 与固定资源；注册只允许主窗口使用的窄 IPC。 */
-  constructor({ electron, url, preload, icon }) {
+  constructor({ electron, url, preload, icon, log = () => {} }) {
     this.electron = electron
     this.url = new URL(url).href
     this.preload = preload
     this.icon = icon
+    this.log = log
     this.window = null
     this.expanded = false
     this.restore = null
@@ -69,6 +70,7 @@ class DesktopWindow {
       throw new Error('拒绝非控制台窗口请求')
     }
     if (!['state', 'opening', 'minimize', 'toggle-size', 'hide'].includes(action)) throw new Error('未知窗口操作')
+    this.log('window ipc action:', action)
     if (action === 'opening') {
       const state = this.opening.decision
       const play = state.play && state.requestId > this.openingConsumed

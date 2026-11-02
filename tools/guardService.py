@@ -38,6 +38,7 @@ from skills.store.durableFile import durableFile  # noqa: E402
 from skills.store.runLock import runLock  # noqa: E402
 from tools.PowerKeepAlive import PowerKeepAlive  # noqa: E402
 from services.RuntimePaths import RuntimePaths
+from services.ProcessLaunch import console_python, spawn_hidden  # noqa: E402
 
 PATHS = RuntimePaths(ROOT)
 STATE_DB = PATHS.state
@@ -57,6 +58,7 @@ SKILL_GUARD = ROOT / "runtime" / "skill-review-guard.json"
 DELIVERY_STUCK_MINUTES = 10
 OUTBOX_SENDING_MINUTES = 5
 OUTBOX_RETRY_MINUTES = 30
+IN_FLIGHT_GRACE_MINUTES = 45
 
 # ── 语义级健康检查（2026-10-30 加）────────────────────────────────────────
 # 事故复盘：harness 进程活着、QQ 网关 READY，但 preset 挂载失败，
@@ -203,9 +205,10 @@ def check_rsshub():
     env = {**os.environ, "PORT": str(RSSHUB_PORT), "NODE_ENV": "production",
            "NODE_OPTIONS": "--max-http-header-size=32768"}
     try:
-        subprocess.Popen([node, str(RSSHUB_ENTRY)], cwd=str(RSSHUB_ENTRY.parent.parent), env=env,
-                         creationflags=0x08000000 | 0x00000008,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # 只用 CREATE_NO_WINDOW：DETACHED 会让 RSSHub 失去控制台，
+        # 它内部调用 git 时每个 git 都会新建一个可见黑窗。
+        spawn_hidden([node, str(RSSHUB_ENTRY)], cwd=str(RSSHUB_ENTRY.parent.parent), env=env,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         log("RSSHub 未在运行，已拉起")
     except OSError as error:
         log(f"RSSHub 拉起失败：{error}")
@@ -230,9 +233,9 @@ def restart_stack(reason):
     _last_stack_restart = time.time()
     log(f"重启栈：{reason}")
     try:
-        subprocess.Popen([sys.executable, str(ROOT / "start_stack.py")],
-                         cwd=str(ROOT), creationflags=0x08000000 | 0x00000008,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        spawn_hidden([console_python(), str(ROOT / "start_stack.py")],
+                     cwd=str(ROOT),
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError as error:
         log(f"重启栈失败：{error}")
 
@@ -485,6 +488,12 @@ def check_outbound_health():
         log(f"读状态库失败（不影响其他巡检）：{error}")
         return
 
+    # 长回合期间，入站已经落库并注入，但模型尚未产生第一条 outbox。
+    # 这种状态是“正在处理”，不能误报成“只进不出”。超过宽限期仍无回合结束，
+    # 才交给下面的收发对账告警处理。
+    if inbound > 0 and outbound == 0 and _has_in_flight_turn(now_ms):
+        return
+
     if inbound > 0 and outbound == 0:
         log(f"疑似「收得到发不出」：30 分钟内入站 {inbound} 条，但零条出站")
         warn_owner("微信这边好像只进不出：最近 30 分钟收到消息但没有发出任何回复。")
@@ -498,6 +507,32 @@ def check_outbound_health():
         log(f"推送被平台拒绝 {count} 次，原因：{reason[:120]}")
         warn_owner(f"微信推送连续失败 {count} 次，平台给的原因是：{reason[:120]}")
         return
+
+
+def _has_in_flight_turn(now_ms):
+    """参数 now_ms：当前毫秒；读取探针中的回合边界，判断是否仍有长回合在执行。"""
+    probe = ROOT / "runtime" / "weixin-probe.log"
+    if not probe.is_file():
+        return False
+    try:
+        lines = probe.read_text(encoding="utf-8", errors="replace").splitlines()[-4000:]
+    except OSError:
+        return False
+    latest_begin = 0
+    latest_done = 0
+    for line in lines:
+        try:
+            record = json.loads(line)
+            event = str(record.get("event") or "")
+            at = str(record.get("at") or "")
+            stamp = int(datetime.datetime.fromisoformat(at.replace("Z", "+00:00")).timestamp() * 1000)
+        except (ValueError, TypeError, json.JSONDecodeError):
+            continue
+        if event in ("turn.begin", "turn.start"):
+            latest_begin = max(latest_begin, stamp)
+        elif event in ("turn.done", "turn.end"):
+            latest_done = max(latest_done, stamp)
+    return latest_begin > latest_done and now_ms - latest_begin <= IN_FLIGHT_GRACE_MINUTES * 60 * 1000
 
 
 def check_inbound_failures():
@@ -639,9 +674,8 @@ def run_skill_review(config, reason):
         with SKILL_CONSOLE.open("a", encoding="utf-8") as handle:
             handle.write(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} 兜底补跑：{reason} =====\n")
             handle.flush()
-            subprocess.Popen([sys.executable, str(SKILL_SCRIPT), "--once"], cwd=str(ROOT),
-                             stdout=handle, stderr=handle,
-                             creationflags=0x08000000 | 0x00000008)
+            spawn_hidden([console_python(), str(SKILL_SCRIPT), "--once"], cwd=str(ROOT),
+                         stdout=handle, stderr=handle)
         FILE_WRITER.write_text(SKILL_GUARD, json.dumps({
             "last_spawn_at": time.time(),
             "last_spawn_text": time.strftime("%Y-%m-%d %H:%M:%S"),

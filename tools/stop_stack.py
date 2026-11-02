@@ -27,6 +27,10 @@ from pathlib import Path
 HARNESS_PATTERN = re.compile(r"apps[/\\]cli[/\\]lib[/\\]bin\.js|startHarnessBackend", re.I)
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PAUSE_MARKER = PROJECT_ROOT / "runtime" / "guardian.pause"
+# tools/ 作为脚本目录时根目录不在 sys.path，显式补上才能复用统一的静默启动工具。
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from services.ProcessLaunch import run_hidden  # noqa: E402
 
 
 def write_pause_marker(reason: str, hours: float = 24.0) -> Path:
@@ -53,7 +57,7 @@ def list_processes() -> list[dict]:
     # 关键：显式让 PowerShell 输出 UTF-8，且 Python 也按 UTF-8 解码。
     # 否则在 PYTHONUTF8=1 / 中文 Windows 下会出现"命令行的中文按 GBK 输出、Python 按 UTF-8 解"
     # 的解码错误，结果**一个进程都没匹配到**（表现为"停不掉 harness"）。
-    out = subprocess.run(
+    out = run_hidden(
         ["powershell.exe", "-NoLogo", "-NoProfile", "-Command",
          "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; "
          "Get-CimInstance Win32_Process | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"],
@@ -74,7 +78,7 @@ def kill_harness() -> list[int]:
                 or str(PROJECT_ROOT).replace("\\", "/").lower() not in cmd.replace("\\", "/").lower()):
             continue
         command = ["taskkill", "/F", "/T", "/PID", str(pid)] if os.name == "nt" else ["kill", "-9", str(pid)]
-        subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        run_hidden(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
         killed.append(pid)
     return killed
 
@@ -102,7 +106,7 @@ def listeners_on(port: int) -> list[int]:
         f"Get-NetTCPConnection -LocalPort {port} -State Listen -ErrorAction SilentlyContinue "
         "| Select-Object -ExpandProperty OwningProcess"
     )
-    out = subprocess.run(
+    out = run_hidden(
         ["powershell.exe", "-NoLogo", "-NoProfile", "-Command", script],
         capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
     ).stdout
@@ -126,7 +130,7 @@ def kill_port_owners(ports: tuple[int, ...] = (3080, 3081)) -> list[int]:
             if pid == me or pid not in owned:
                 continue
             command = ["taskkill", "/F", "/T", "/PID", str(pid)] if os.name == "nt" else ["kill", "-9", str(pid)]
-            subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            run_hidden(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
             killed.append(pid)
     return killed
 

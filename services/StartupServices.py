@@ -11,6 +11,11 @@ import sys
 import time
 from pathlib import Path
 
+if str(Path(__file__).resolve().parents[1]) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from services.ProcessLaunch import console_python, spawn_hidden  # noqa: E402
+
 
 class StartupServices:
     """单实例后台预热；用户停止系统后不再拉起新的服务。"""
@@ -24,11 +29,12 @@ class StartupServices:
         target = self.root / "runtime" / "optional-startup.log"
         target.parent.mkdir(parents=True, exist_ok=True)
         with target.open("ab") as output:
-            child = subprocess.Popen([sys.executable, "-u", str(Path(__file__).resolve())],
-                                     cwd=str(self.root), env=env, stdin=subprocess.DEVNULL,
-                                     stdout=output, stderr=output,
-                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                                     start_new_session=os.name != "nt")
+            # 用 python.exe + CREATE_NO_WINDOW（不是 pythonw/DETACHED）：
+            # 预热进程随后会拉起一堆 MCP/ServiceHost，只有共享同一个隐藏控制台才不会闪黑框。
+            child = spawn_hidden([console_python(), "-u", str(Path(__file__).resolve())],
+                                 cwd=str(self.root), env=env,
+                                 stdout=output, stderr=output,
+                                 start_new_session=os.name != "nt")
         return child.pid
 
     def run_services(self):
@@ -52,7 +58,9 @@ class StartupServices:
                 "digest": lambda: manager.ensure_service("digest"),
                 "opencode": lambda: start_stack.ensure_opencode_server(dict(os.environ)),
                 "rsshub": lambda: start_stack.ensure_rsshub(dict(os.environ)),
+                "kugou": lambda: start_stack.ensure_kugou_api(dict(os.environ)),
                 "guard": lambda: start_stack.ensure_guard_service(dict(os.environ)),
+                "taskreport": lambda: start_stack.ensure_task_report(dict(os.environ)),
             }
             # 这些是轻量 API 宿主；模型权重仍按需加载，远程端点仍只由部署方管理。
             for name in ("history", "memory", "state", "qqstate", "observation", "session", "coding", "crawler"):
@@ -64,7 +72,9 @@ class StartupServices:
                 at = time.monotonic()
                 if (runtime / "guardian.pause").exists():
                     return name, {"state": "cancelled", "seconds": 0}
-                if name != "guard" and registry.get_service(name)["management"] != "managed":
+                # kuGou 不在统一服务注册表内，由 kugou.json 自己声明是否启用。
+                # 同理，完成汇报不是注册表服务，是启动器直接拉起的常驻脚本。
+                if name not in ("guard", "kugou", "taskreport") and registry.get_service(name)["management"] != "managed":
                     return name, {"state": "external_or_disabled", "seconds": 0}
                 try:
                     value = call()

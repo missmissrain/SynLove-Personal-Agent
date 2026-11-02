@@ -2,7 +2,7 @@
  * 桌面完整退出：先持久暂停守护，再等待统一停栈入口验证端口释放。
  * 参数 root 为链路根目录，log 为日志函数；Python 优先环境变量及 console.env，默认 python。
  */
-const { readFileSync, mkdirSync, writeFileSync } = require('node:fs')
+const { readFileSync, mkdirSync, writeFileSync, existsSync } = require('node:fs')
 const { join } = require('node:path')
 const { spawn } = require('node:child_process')
 
@@ -10,13 +10,26 @@ class SystemShutdown {
   /** root 为链路目录，log 接收脱敏状态；不在构造时改变运行状态。 */
   constructor(root, log) { this.root = root; this.log = log; this.running = null }
 
+  /**
+   * 参数 python：解释器路径；把 pythonw.exe 换成 python.exe。
+   * 停栈脚本会拉 PowerShell/taskkill，pythonw 没有控制台会让它们各自弹出黑窗。
+   */
+  console_python(python) {
+    if (process.platform === 'win32' && /pythonw\.exe$/i.test(python)) {
+      const candidate = python.replace(/pythonw\.exe$/i, 'python.exe')
+      if (existsSync(candidate)) return candidate
+    }
+    return python
+  }
+
   /** 无参数；解析启动器记录的 Python 路径，不输出环境文件内容。 */
   resolve_python() {
-    if (process.env.PYTHON) return process.env.PYTHON
+    if (process.env.PYTHON && existsSync(process.env.PYTHON)) return process.env.PYTHON
     try {
       const text = readFileSync(join(this.root, 'config', 'console.env'), 'utf8')
       const match = text.match(/^\s*PYTHON\s*=\s*(.+)\s*$/m)
-      if (match) return match[1].trim().replace(/^["']|["']$/g, '')
+      const configured = match?.[1]?.trim().replace(/^["']|["']$/g, '')
+      if (configured && existsSync(configured)) return configured
     } catch (error) { this.log('退出：使用默认 Python') }
     return process.platform === 'win32' ? 'python' : 'python3'
   }
@@ -37,7 +50,7 @@ class SystemShutdown {
       const args = external
         ? [join(this.root, 'tools', 'CoreControl.py'), 'stop']
         : [join(this.root, 'tools', 'stop_stack.py'), '--pause-seconds', '315360000', '--with-business']
-      const child = spawn(this.resolve_python(), args, {
+      const child = spawn(this.console_python(this.resolve_python()), args, {
           cwd: this.root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
           env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' },
         })
