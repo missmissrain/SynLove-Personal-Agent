@@ -1,8 +1,8 @@
 """任务汇报的配置读取：开关、模型、轮询节奏、状态文件位置。
 
 职责：
-- 开关存在微信状态库的 meta 表（`report.codex` / `report.opencode`，值 `1`/`0`），
-  与控制在控制台上点的那个开关是同一份数据，改完下一轮扫描就生效，不需要重启；
+- 开关存在独立 config/taskReport.json；控制台与轮询器读同一文件，
+  改完下一轮扫描就生效，不写入 Harness 会整表刷新的 meta；
 - 模型取 `config/modelConfig.json` 的默认对话模型（baseURL + model + apiKeyEnv），
   密钥取 `config/secrets.json` 的 `providers.<provider>.apiKey`，不读环境变量里的残留值；
 - 运行参数可用环境变量覆盖：`DSH_TASK_REPORT_POLL_MS`、`DSH_TASK_REPORT_FRESH_MINUTES`。

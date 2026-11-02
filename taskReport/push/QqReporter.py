@@ -35,7 +35,11 @@ class QqReporter:
         parts = split_message(text, MAX_CHARS)
         results = []
         for part in parts:
-            results.append(self.send(part))
+            result = self.send(part)
+            if not isinstance(result, dict) or result.get('ok') is not True:
+                # QQ 通道用 ok=false 表示平台拒绝；未抛异常绝不代表发送成功。
+                raise RuntimeError('QQ 接口未确认发送成功')
+            results.append(result)
         return results
 
 

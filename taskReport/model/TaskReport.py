@@ -10,7 +10,7 @@
     fingerprint 完成指纹（codex 用"状态+事件时间"，opencode 用最后一条助手消息 id）
     project     项目名（工作目录最后一段）
     title       任务标题（用户原话，截断后展示）
-    status      完成状态：已完成 / 已中止
+    status      完成状态：已完成 / 已中止 / 已失败
     result      原始结果文本（助手最后一段回答）
     finished_at 完成时刻（epoch 秒），用于过滤"服务停机期间攒下的旧任务"
 """
@@ -36,6 +36,8 @@ class TaskReport:
     def fallback_body(self, limit: int = 1800):
         """润色不可用时直接发的正文。参数 limit：保留字符数。"""
         body = (self.result or '').strip()
+        if self.status in ('已失败', '已中止'):
+            body = '任务' + self.status + '。' + body
         if len(body) > limit:
             body = body[:limit] + '…'
         return body or '（没有取到结果文本）'

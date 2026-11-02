@@ -18,12 +18,12 @@ markdown 和代码块原样带上。现在改成：先让默认对话模型（qw
 
 ## 开关
 
-控制台「功能开关 → 即时生效」两个开关，存在状态库 meta 里：
+控制台「功能开关 → 即时生效」两个开关，保存在独立 `config/taskReport.json`，不写入 Harness 的 meta：
 
 | 键 | 含义 | 默认 |
 |---|---|---|
-| `report.codex` | codex 完成汇报推 QQ | 关 |
-| `report.opencode` | opencode 完成汇报推 QQ | 关 |
+| `codex` | codex 完成汇报推 QQ | 缺省关闭 |
+| `opencode` | opencode 完成汇报推 QQ | 缺省关闭 |
 
 改完**下一轮扫描（15 秒）就生效**，不需要重启。
 
@@ -36,6 +36,10 @@ markdown 和代码块原样带上。现在改成：先让默认对话模型（qw
 2. **只报新鲜任务**：完成超过 2 小时的（停机期间攒下的）不再打扰；
 3. **失败重试有上限**：推送失败最多重试 3 轮，避免网络不好时无限重发。
 
+新版 OpenCode 使用 `session_v2/session_message`。只有当前回合的 `idle` 事件确认结束，才读取本轮最终回复；工具等待不算完成。成功、失败、中止分别汇报，使用终态事件 ID 去重，浏览会话不触发重发。旧版表结构继续兼容，升级数据源时先建基线，不重放旧任务。
+
+发送接口必须明确返回 `ok=true` 才记为成功；每轮完成事件分别计算重试次数。发送者持有独占锁，防止多开。报告不追加“能收到消息吗”等收件测试问句；这类话术在模型输出与原文兜底中都会清理。
+
 ## 文件
 
 | 文件 | 职责 |
@@ -46,6 +50,7 @@ markdown 和代码块原样带上。现在改成：先让默认对话模型（qw
 | `sources/CodexSource.py` | 读 Codex 会话库与 rollout |
 | `sources/OpencodeSource.py` | 读 opencode 会话库 |
 | `polish/ReportPolisher.py` | 调模型改写成人话，失败退回原文 |
+| `polish/NoticeText.py` | 清理收件测试问句，保留任务结果 |
 | `push/QqReporter.py` | 复用 `tools/qq_notify.py` 推 QQ，超长自动分段 |
 | `runtime/TaskReportWatcher.py` | 轮询、去重、编排 |
 
@@ -55,7 +60,7 @@ markdown 和代码块原样带上。现在改成：先让默认对话模型（qw
 `runtime/task-report.pid`。
 
 ```bat
-:: 手动扫一轮，只打日志不推送
+:: 手动扫一轮，不调用模型、不发送、不改去重状态
 python taskReport\runTaskReport.py --once --dry-run
 
 :: 看它自己写的结论

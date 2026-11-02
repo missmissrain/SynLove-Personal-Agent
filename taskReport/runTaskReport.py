@@ -28,6 +28,7 @@ except AttributeError:
     pass
 
 from taskReport.runtime.TaskReportWatcher import TaskReportWatcher
+from microServices.ServiceLease import ServiceLease
 
 
 def main():
@@ -38,13 +39,26 @@ def main():
     parser.add_argument('--dry-run', action='store_true')
     args = parser.parse_args()
 
-    watcher = TaskReportWatcher(ROOT, dry_run=args.dry_run)
-    if args.once:
-        handled = watcher.poll_once()
-        print(f'本轮处理 {handled} 条', flush=True)
+    # 同一生产目录仅一个实际发送者；dry-run 不发送也不保存去重状态，可并行检查。
+    lease = None
+    try:
+        if not args.dry_run:
+            lease = ServiceLease(ROOT / 'runtime' / 'task-report.lock')
+            try:
+                lease.acquire()
+            except RuntimeError:
+                print('完成汇报已由其他实例持有，不启动第二个发送者', flush=True)
+                return 0
+        watcher = TaskReportWatcher(ROOT, dry_run=args.dry_run)
+        if args.once:
+            handled = watcher.poll_once()
+            print(f'本轮处理 {handled} 条', flush=True)
+            return 0
+        watcher.run_forever()
         return 0
-    watcher.run_forever()
-    return 0
+    finally:
+        if lease:
+            lease.close()
 
 
 if __name__ == '__main__':

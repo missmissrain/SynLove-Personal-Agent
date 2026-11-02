@@ -1,12 +1,9 @@
 """Opencode 来源：读本机 opencode 的会话库，找出"刚跑完的任务"和它的最终回答。
 
-数据来源（只读）：`~/.local/share/opencode/opencode.db`
-    session  会话（directory / title / time_created / time_updated）
-    message  消息（data 里带 role）
-    part     分片（type=text 才是给人看的文本）
-
-完成判定：会话静默超过 idle 秒 + 找到最后一条助手消息；用"最后一条助手消息 id"当去重指纹，
-而不是 time_updated——否则会话每产生一点新输出就会重报一次。
+数据来源（只读）：`~/.local/share/opencode/opencode.db`。
+新版读取 session_v2/session_message，以当前回合末尾的 idle 事件及 outcome 判定完成；
+旧版读取 session/message/part，必须存在最终回复或明确错误，静默本身不代表完成。
+新版会话优先，同一会话不再回读旧表；只使用终态事件/最终消息作为稳定去重指纹。
 
 注册参数（构造）：
     data_dir opencode 数据目录，默认取 OPENCODE_DATA_DIR 或 ~/.local/share/opencode
@@ -33,12 +30,83 @@ class OpencodeSource:
                              or Path.home() / '.local' / 'share' / 'opencode')
         self.limit = limit
         self.idle_ms = idle_ms
+        self.schema_version = None
 
     def poll(self):
-        """返回最近一批会话的完成情况（未到静默期的会被标成运行中）。"""
+        """无参数；在同一只读快照内读取已结束回合，运行中和等待工具的回合不汇报。"""
         db_path = self.data_dir / 'opencode.db'
         if not db_path.is_file():
             return []
+        with sqlite3.connect(db_path.resolve().as_uri() + '?mode=ro', uri=True, timeout=5) as conn:
+            conn.execute('PRAGMA query_only=ON')
+            conn.execute('BEGIN')
+            tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if {'session_v2', 'session_message'} <= tables:
+                self.schema_version = 'v2'
+                return self._poll_v2(conn)
+            self.schema_version = 'v1'
+        return self._poll_v1(db_path)
+
+    def _poll_v2(self, conn):
+        """conn 为只读事务连接；按序列界定本轮，只读取最终回复并尊重失败/中止事件。"""
+        sessions = conn.execute(
+            'SELECT id,directory,title FROM session_v2 WHERE time_archived IS NULL '
+            'AND parent_id IS NULL ORDER BY time_updated DESC LIMIT ?', (self.limit,)
+        ).fetchall()
+        reports = []
+        states = {'succeeded': '已完成', 'failed': '已失败',
+                  'aborted': '已中止', 'cancelled': '已中止',
+                  'canceled': '已中止', 'interrupted': '已中止'}
+        for session_id, directory, title in sessions:
+            tail = conn.execute(
+                "SELECT id,seq,time_created,data,type FROM session_message WHERE session_id=? "
+                "AND type IN ('user','assistant','idle') ORDER BY seq DESC LIMIT 1", (session_id,)
+            ).fetchone()
+            if not tail or tail[4] != 'idle':
+                continue
+            idle_id, seq, created, raw, _kind = tail
+            data = json.loads(raw)
+            status = states.get(data.get('outcome'))
+            if not status or _now_ms() - created < self.idle_ms:
+                continue
+            boundary = conn.execute(
+                "SELECT COALESCE(MAX(seq),-1) FROM session_message WHERE session_id=? "
+                "AND seq<? AND type IN ('user','idle')", (session_id, seq)
+            ).fetchone()[0]
+            answer = conn.execute(
+                "SELECT data FROM session_message WHERE session_id=? AND type='assistant' "
+                'AND seq>? AND seq<? ORDER BY seq DESC LIMIT 1', (session_id, boundary, seq)
+            ).fetchone()
+            text = ''
+            if answer:
+                final = json.loads(answer[0])
+                if final.get('finish') == 'stop' and final.get('time', {}).get('completed'):
+                    text = self._final_text(final.get('content', []))
+            if status == '已完成' and not text:
+                continue
+            if not text:
+                text = ('OpenCode 本轮已中止，未产生最终回复。' if status == '已中止'
+                        else 'OpenCode 本轮执行失败，未产生最终回复，请查看该会话错误记录。')
+            user = conn.execute(
+                "SELECT data FROM session_message WHERE session_id=? AND type='user' "
+                'AND seq<? ORDER BY seq DESC LIMIT 1', (session_id, seq)
+            ).fetchone()
+            request = json.loads(user[0]).get('text', '') if user else ''
+            reports.append(TaskReport(
+                source='opencode', task_id=session_id, fingerprint='v2:' + idle_id,
+                project=Path(str(directory or '')).name, title=_flatten_title(request or title),
+                status=status, result=text, finished_at=created / 1000.0,
+            ))
+        return reports
+
+    @staticmethod
+    def _final_text(parts):
+        """parts 为消息内容数组；只取可见 text，排除推理、工具输出和合成上下文。"""
+        return '\n'.join(str(part.get('text') or '').strip() for part in parts
+                         if part.get('type') == 'text' and not part.get('synthetic')).strip()
+
+    def _poll_v1(self, db_path):
+        """db_path 为旧版会话库；静默只作为延迟，最终消息状态才是完成证据。"""
         sessions = self._recent_sessions(db_path)
         reports = []
         for row in sessions:
@@ -48,7 +116,7 @@ class OpencodeSource:
             last = self._last_answer(db_path, session_id)
             if last is None:
                 continue
-            message_id, text = last
+            message_id, text, status, finished = last
             if not text.strip():
                 continue
             reports.append(TaskReport(
@@ -57,9 +125,9 @@ class OpencodeSource:
                 fingerprint=message_id,
                 project=Path(str(directory or '')).name or str(directory or ''),
                 title=self._last_user_text(db_path, session_id) or str(title or '未命名任务'),
-                status='已完成',
+                status=status,
                 result=text,
-                finished_at=updated / 1000.0,
+                finished_at=finished / 1000.0,
             ))
         return reports
 
@@ -80,17 +148,25 @@ class OpencodeSource:
             conn.close()
 
     def _last_answer(self, db_path, session_id):
-        """取最后一条助手消息的 (id, 文本)。参数 session_id：会话 id。"""
+        """参数 db_path/session_id：旧库及会话；最新消息须为已结束的助手最终回复。"""
         try:
             conn = sqlite3.connect(f'file:{db_path}?mode=ro', uri=True, timeout=5)
         except sqlite3.Error:
             return None
         try:
-            message = conn.execute(
-                "SELECT id FROM message WHERE session_id = ? AND data LIKE '%\"role\":\"assistant\"%' "
-                'ORDER BY rowid DESC LIMIT 1', (session_id,)
-            ).fetchone()
+            message = conn.execute('SELECT id,data FROM message WHERE session_id=? '
+                                   'ORDER BY time_created DESC,rowid DESC LIMIT 1', (session_id,)).fetchone()
             if message is None:
+                return None
+            info = json.loads(message[1])
+            completed = (info.get('time') or {}).get('completed')
+            if info.get('role') != 'assistant' or not completed:
+                return None
+            if info.get('error'):
+                status = '已中止' if info['error'].get('name') == 'MessageAbortedError' else '已失败'
+            elif info.get('finish') == 'stop':
+                status = '已完成'
+            else:
                 return None
             texts = []
             for (data,) in conn.execute('SELECT data FROM part WHERE message_id = ? ORDER BY rowid ASC',
@@ -101,9 +177,10 @@ class OpencodeSource:
                     continue
                 if part.get('type') == 'text' and str(part.get('text') or '').strip():
                     texts.append(str(part['text']).strip())
-            if not texts:
+            if not texts and status == '已完成':
                 return None
-            return str(message[0]), '\n'.join(texts)
+            text = '\n'.join(texts) or ('OpenCode 本轮' + status + '，未产生最终回复。')
+            return str(message[0]), text, status, completed
         except sqlite3.Error:
             return None
         finally:

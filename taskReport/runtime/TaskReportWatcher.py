@@ -22,6 +22,7 @@ from pathlib import Path
 
 from taskReport.config.TaskReportConfig import TaskReportConfig
 from taskReport.polish.ReportPolisher import ReportPolisher
+from taskReport.polish.NoticeText import NoticeText
 from taskReport.push.QqReporter import QqReporter
 from taskReport.sources.CodexSource import CodexSource
 from taskReport.sources.OpencodeSource import OpencodeSource
@@ -84,10 +85,19 @@ class TaskReportWatcher:
             time.sleep(interval)
 
     def _opencode_reports(self):
-        """过滤掉微信桥已经汇报过的 opencode 会话。"""
+        """无参数；新版数据源首次建立基线，过滤微信桥重复汇报，不重放升级前历史。"""
         window = self.config.bridge_window()
         reports = []
-        for report in self.opencode.poll():
+        batch = self.opencode.poll()
+        schema = self.opencode.schema_version
+        schemas = self.state.setdefault('schemas', {})
+        if schema == 'v2' and schemas.get('opencode') != schema:
+            for report in batch:
+                self.state.setdefault('opencode', {})[report.task_id] = report.fingerprint
+            schemas['opencode'] = schema
+            self.state['dirty'] = True
+            self.log('OpenCode v2 数据源基线已建立，不重放升级前的完成记录')
+        for report in batch:
             if window is not None and self._in_window(report.finished_at, window):
                 self.log(f'opencode:{report.task_id} 在微信桥窗口内，跳过（由桥自己汇报）')
                 continue
@@ -111,9 +121,13 @@ class TaskReportWatcher:
 
         bucket[report.task_id] = report.fingerprint
         self.state['dirty'] = True
+        fingerprints = self.state.setdefault('attempt_fingerprints', {})
+        if fingerprints.get(key) != report.fingerprint:
+            attempts.pop(key, None)
+            fingerprints[key] = report.fingerprint
         if not self.state.get('seeded'):
             return False                                # 首轮只建基线
-        if report.status not in ('已完成', '已中止'):
+        if report.status not in ('已完成', '已中止', '已失败'):
             self.log(f'{key} 状态 {report.status}，先不报')
             return False
 
@@ -126,13 +140,18 @@ class TaskReportWatcher:
             self.log(f'{key} 已完成，但「{report.source} 完成汇报」开关是关的')
             return False
 
-        text, used_model, note = self._polish(report)
+        # dry-run 只检查数据链路，不调用付费模型或发送平台消息。
+        text, used_model, note = ('', False, 'dry-run') if self.dry_run else self._polish(report)
         if not used_model:
             self.log(f'{key} 润色未生效（{note}），改发原文')
-        body = text or report.fallback_body()
+        body = NoticeText.clean(text) or NoticeText.clean(report.fallback_body())
+        if not body:
+            self.log(f'{key} 仅含收件确认话术，跳过推送')
+            return False
         message = report.header() + '\n' + body
 
         if self.dry_run:
+            bucket.pop(report.task_id, None)
             self.log(f'{key} [dry-run] 将推送：\n{message}')
             return True
 
@@ -182,6 +201,8 @@ class TaskReportWatcher:
 
     def _save_state(self):
         """落状态文件（先写临时文件再替换，避免半截文件）。"""
+        if self.dry_run:
+            return
         path = self.config.state_file
         path.parent.mkdir(parents=True, exist_ok=True)
         temp = Path(str(path) + '.tmp')
