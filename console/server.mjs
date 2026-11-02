@@ -30,6 +30,8 @@ import { DashboardStore } from './dashboard/DashboardStore.mjs'
 import { ServiceReadiness } from './dashboard/ServiceReadiness.mjs'
 import { ServiceProbe } from './dashboard/ServiceProbe.mjs'
 import { ServiceProxy } from './ServiceProxy.mjs'
+import { RemoteConnectionStore } from './remote/RemoteConnectionStore.mjs'
+import { RemoteConnectionRoutes } from './remote/RemoteConnectionRoutes.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const PROJECT = resolve(HERE, '..')
@@ -40,6 +42,10 @@ const BACKEND_SERVICE_CONFIG = join(CONFIG, 'backendService.json')
 const service_proxy = new ServiceProxy(PROJECT)
 const DSH_HOME = process.env.DSH_HOME ?? join(RUNTIME, 'dsh')
 const PORT = Number(process.argv[2] ?? process.env.CONSOLE_PORT ?? '3082')
+const remote_connections = new RemoteConnectionStore({
+  project: PROJECT, python: process.env.PYTHON || join(PROJECT, '.venv', 'Scripts', 'python.exe'),
+})
+const remote_routes = new RemoteConnectionRoutes(remote_connections, PORT)
 const serviceReadiness = new ServiceReadiness({ project: PROJECT })
 const observations = service_proxy.mode === 'external' ? null : new ObservationStore({
   runtime: RUNTIME,
@@ -101,7 +107,7 @@ async function probe_model_services() {
   if (!registry || registry.version !== 1) {
     return [{ name: '模型服务配置', up: false, detail: 'serviceConfig.json 缺失或无效' }]
   }
-  const probe = new ServiceProbe({ readiness: serviceReadiness })
+  const probe = new ServiceProbe({ readiness: serviceReadiness, secret: () => read_secrets().backendService?.apiKey || '' })
   return Promise.all(Object.entries(registry.services).map(([name, cfg]) => probe.probe_service(name, cfg)))
 }
 
@@ -274,9 +280,25 @@ function save_backend_service_config(body) {
   const host = String(body?.host ?? current.host ?? '127.0.0.1').trim()
   if (!/^[a-zA-Z0-9.:[\]-]+$/.test(host)) throw new Error('后台服务器地址格式不正确')
   const radius = Math.max(1, Math.min(64, Number(body?.scanRadius ?? current.scanRadius ?? 12)))
-  const next = { ...current, mode, host, scanRadius: Number.isFinite(radius) ? Math.floor(radius) : 12 }
+  const protocol = body.protocol ?? current.protocol ?? 'http'
+  if (!['http', 'https'].includes(protocol)) throw new Error('服务协议须为 HTTP 或 HTTPS')
+  const services = { ...current.services }
+  for (const name of ['tts', 'asr', 'llm']) {
+    const port = body.ports?.[name]
+    if (port === undefined) continue
+    if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('服务端口须为 1 至 65535 的整数')
+    services[name] = { ...services[name], defaultPort: port }
+  }
+  if (body.apiKey !== undefined && (typeof body.apiKey !== 'string' || body.apiKey.length > 4096 || /[\r\n]/.test(body.apiKey))) throw new Error('访问密钥格式不正确')
+  if (body.apiKey || body.clearApiKey === true) write_secrets(secrets => {
+    secrets.backendService = { ...secrets.backendService, apiKey: body.clearApiKey === true ? '' : body.apiKey }
+    return secrets
+  })
+  const changed = mode !== current.mode || host !== current.host || protocol !== (current.protocol ?? 'http')
+  const next = { ...current, mode, host, protocol, services,
+    resolved: changed ? {} : current.resolved, scanRadius: Number.isFinite(radius) ? Math.floor(radius) : 12 }
   writeFileSync(BACKEND_SERVICE_CONFIG, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
-  return { ok: true, config: next, restartRequired: mode !== current.mode || host !== current.host }
+  return { ok: true, config: next, hasApiKey: Boolean(read_secrets().backendService?.apiKey), restartRequired: changed }
 }
 
 /** 判断响应是否属于 SynLove 预期的后台服务，避免把普通占用端口误认成在线。 */
@@ -296,7 +318,7 @@ function backend_response_matches(name, body) {
 }
 
 /** 将远程探测到的公共服务端点写入统一注册表；本机模式不改托管生命周期。 */
-function apply_backend_endpoints(mode, host, results, specs = {}) {
+function apply_backend_endpoints(mode, host, results, specs = {}, protocol = 'http') {
   const path = process.env.SYNLOVE_SERVICE_CONFIG ?? join(CONFIG, 'serviceConfig.json')
   const config = read_json(path, null)
   if (!config?.services) return false
@@ -306,7 +328,8 @@ function apply_backend_endpoints(mode, host, results, specs = {}) {
     if (mode === 'remote' && !item.available) continue
     const nextPort = item.available ? item.port : Number(specs[item.name]?.defaultPort)
     if (!nextPort) continue
-    const next = `http://${mode === 'remote' ? host : '127.0.0.1'}:${nextPort}/v1`
+    const addr = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host
+    const next = `${mode === 'remote' ? protocol : 'http'}://${mode === 'remote' ? addr : '127.0.0.1'}:${nextPort}/v1`
     // 本机端点必须保持 managed，才能在该服务空闲退出后由下一次调用重新拉起；
     // 只有用户明确切到远程服务器时才改为 external，交给远程部署方管理。
     const nextManagement = mode === 'remote' ? 'external' : 'managed'
@@ -316,13 +339,20 @@ function apply_backend_endpoints(mode, host, results, specs = {}) {
       config.services[item.name].management = nextManagement
       changed = true
     }
+    if (mode === 'remote' && config.services[item.name].apiKeyRef !== 'backendService') {
+      config.services[item.name].apiKeyRef = 'backendService'
+      changed = true
+    } else if (mode === 'local' && config.services[item.name].apiKeyRef) {
+      delete config.services[item.name].apiKeyRef
+      changed = true
+    }
   }
   if (changed) writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`, 'utf8')
   return changed
 }
 
 /** 按固定递推规则探测端口；每个候选端口必须通过健康协议才能认定为 SynLove 服务。 */
-async function probe_backend_service(name, spec, host, radius) {
+async function probe_backend_service(name, spec, host, radius, protocol = 'http', apiKey = '') {
   const defaultPort = Number(spec.defaultPort)
   const ports = []
   for (let offset = 0; offset <= radius; offset += 1) {
@@ -331,10 +361,12 @@ async function probe_backend_service(name, spec, host, radius) {
   }
   for (const port of ports) {
     if (port < 1 || port > 65535) continue
-    const endpoint = `http://${host}:${port}`
+    const addr = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host
+    const endpoint = `${protocol}://${addr}:${port}`
     try {
       const response = await fetch(new URL(spec.healthPath || '/health', endpoint), {
-        headers: { 'X-SynLove-Probe': 'synlove-backend-v1' },
+        headers: { 'X-SynLove-Probe': 'synlove-backend-v1',
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
         redirect: 'error',
         signal: AbortSignal.timeout(900),
       })
@@ -355,14 +387,18 @@ async function probe_backend_services(body = {}) {
   const mode = body.mode === 'remote' ? 'remote' : (body.mode === 'local' ? 'local' : current.mode)
   const host = String(body.host ?? current.host ?? '127.0.0.1').trim()
   const radius = Math.max(1, Math.min(64, Number(body.scanRadius ?? current.scanRadius ?? 12)))
+  if (!/^[a-zA-Z0-9.:[\]-]+$/.test(host)) throw new Error('后台服务器地址格式不正确')
+  const protocol = mode === 'local' ? 'http' : (current.protocol ?? 'http')
+  const apiKey = mode === 'remote' ? read_secrets().backendService?.apiKey || '' : ''
   const results = await Promise.all(Object.entries(current.services).map(([name, spec]) =>
-    probe_backend_service(name, spec, host, Number.isFinite(radius) ? Math.floor(radius) : 12)))
+    probe_backend_service(name, spec, mode === 'local' ? '127.0.0.1' : host, Number.isFinite(radius) ? Math.floor(radius) : 12, protocol, apiKey)))
   const resolved = Object.fromEntries(results.filter(item => item.available)
     .map(item => [item.name, { port: item.port, endpoint: item.endpoint, checkedAt: new Date().toISOString() }]))
-  const restartRequired = apply_backend_endpoints(mode, host, results, current.services)
+  const restartRequired = apply_backend_endpoints(mode, host, results, current.services, protocol)
   const next = { ...current, mode, host, scanRadius: radius, resolved }
   writeFileSync(BACKEND_SERVICE_CONFIG, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
   return { ok: true, config: next, services: results, restartRequired,
+    hasApiKey: Boolean(read_secrets().backendService?.apiKey),
     protocol: 'synlove-backend-v1' }
 }
 
@@ -1988,6 +2024,10 @@ function json(res, status, payload) {
 
 export const server = createServer((req, res) => {
   const url = new URL(req.url ?? '/', `http://127.0.0.1:${PORT}`)
+  if (remote_routes.handle_request(req, res, url)) return
+  if (url.pathname.startsWith('/api/backend') && !remote_routes.check_request(req)) {
+    return json(res, 403, { error: '只允许从本机控制台配置远程连接' })
+  }
   if (service_proxy.handle(req, res, url)) return
 
   // 静态页面
@@ -2025,7 +2065,7 @@ export const server = createServer((req, res) => {
         case '/api/logs': return void send(api.logs(url.searchParams.get('name') ?? 'probe', Number(url.searchParams.get('lines') ?? 200)))
         case '/api/usage': return void send(api.usage(Number(url.searchParams.get('days') ?? 7)))
         case '/api/heartbeat': return void send(heartbeat.snapshot())
-        case '/api/backend': return void send({ ok: true, config: read_backend_service_config(),
+        case '/api/backend': return void send({ ok: true, config: read_backend_service_config(), hasApiKey: Boolean(read_secrets().backendService?.apiKey),
           protocol: 'synlove-backend-v1' })
         default: return json(res, 404, { error: 'unknown api' })
       }

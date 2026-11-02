@@ -27,6 +27,7 @@ from services.ServiceRegistry import ServiceRegistry
 from services.StartupState import StartupState
 from services.StartupServices import StartupServices
 from services.ProcessLaunch import console_python, creation_flags, run_hidden, spawn_hidden
+from remoteControl.RemoteControlRegistration import RemoteControlRegistration
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -687,10 +688,12 @@ def start_harness_service(env: dict[str, str]) -> subprocess.Popen:
     # 直接 spawn 才能保证整棵进程树共享同一个隐藏控制台。
     node = os.environ.get("CONSOLE_NODE") or shutil.which("node") or "node"
     entry = HARNESS_ROOT / "apps" / "cli" / "lib" / "bin.js"
+    remote_patch = RemoteControlRegistration(PROJECT_ROOT, console_python(sys.executable)).build_patch()
     command = [
         node, str(entry),
         "--patch", str(PROJECT_ROOT / "config" / "weixinDoubaoProfile.patch.yml"),
         "--patch", str(PROJECT_ROOT / "config" / "disabledTools.patch.yml"),
+        "--patch", str(remote_patch),
         "--profile", "web",
         "--no-open",
     ]

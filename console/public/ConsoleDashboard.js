@@ -107,8 +107,8 @@ class ConsoleDashboard {
     const labels = { pending: '待执行', Ready: '已启用', Running: '运行中', Disabled: '已停用', Unknown: '状态未知', running: '后台运行' }
     return rows.length ? rows.map(row => {
       const at = new Date(row.nextAt)
-      const next = row.status === 'Disabled' || row.state === 'Disabled' ? '已停用' : Number.isFinite(at.getTime()) && at.getFullYear() > 2000
-        ? at.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '按后台条件触发'
+      const next = row.status === 'Disabled' || row.state === 'Disabled' ? '已停用' : row.nextLabel || (Number.isFinite(at.getTime()) && at.getFullYear() > 2000
+        ? at.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '按后台条件触发')
       return `<div class="schedule-row"><div><strong>${escape_service(row.name)}</strong><div class="hint">${escape_service(row.rule)} · ${escape_service(row.source)}</div></div><div class="schedule-time">${escape_service(next)}<div class="hint">${escape_service(labels[row.status ?? row.state] || '待确认')}</div></div></div>`
     }).join('') : '<div class="empty-state">暂无已配置的任务</div>'
   }
@@ -127,13 +127,14 @@ class ConsoleDashboard {
       const styles = {
         weixin: { icon: '💬', css: 'channel-weixin', description: 'iLink 协议' },
         qq: { icon: '🐧', css: 'channel-qq', description: '官方 API · 群@+私聊' },
+        remote: { icon: '⇄', css: 'channel-remote', description: '共享服务 · 远控电脑' },
       }
-      channels.innerHTML = data.channels.filter(channel => ['weixin', 'qq'].includes(channel.id)).map(channel => {
+      channels.innerHTML = data.channels.filter(channel => ['weixin', 'qq', 'remote'].includes(channel.id)).map(channel => {
         const style = styles[channel.id] ?? { icon: '◇', css: '', description: channel.name }
         return `<button class="channel-button" data-channel="${escape_service(channel.tab)}" title="${escape_service(channel.detail)}"><span class="connection-icon ${style.css}" aria-hidden="true">${style.icon}</span><span class="channel-description"><strong>${escape_service(channel.name)}</strong><span class="hint">${escape_service(style.description)}</span></span><span class="channel-status ${channel.status === 'connected' ? 'state-ok' : 'state-incomplete'}">${escape_service(channel.status === 'connected' ? '在线' : channel.label)}</span></button>`
       }).join('')
       channels.querySelectorAll('[data-channel]').forEach(button => button.addEventListener('click', () => {
-        if (['weixin', 'qq', 'agent'].includes(button.dataset.channel)) document.querySelector(`#tabs button[data-tab="${button.dataset.channel}"]`).click()
+        if (['weixin', 'qq', 'remote'].includes(button.dataset.channel)) document.querySelector(`#tabs button[data-tab="${button.dataset.channel}"]`).click()
       }))
       document.getElementById('dashboard-channel-time').textContent = `更新于 ${new Date(data.at).toLocaleTimeString('zh-CN')}`
       document.getElementById('dashboard-schedules').classList.remove('empty-state')

@@ -10,12 +10,13 @@ import { execFile } from 'node:child_process'
 
 export class DashboardStore {
   /** 参数 options：项目根目录、状态目录和可选依赖；初始化仅用于展示的读取游标与缓存。 */
-  constructor({ project, home, credentials = () => ({}), tasks, musicProbe } = {}) {
+  constructor({ project, home, credentials = () => ({}), tasks, musicProbe, digestSnapshot } = {}) {
     this.project = project
     this.home = home
     this.credentials = credentials
     this.tasks = tasks ?? (() => this.query_windows_tasks())
     this.musicProbe = musicProbe
+    this.digestSnapshot = digestSnapshot
     this.offset = 0
     this.pending = ''
     this.events = new Map()
@@ -212,17 +213,72 @@ export class DashboardStore {
     } catch { return { total: null, rows: [], error: '用户提醒数据库暂不可用' } }
   }
 
+  /** 无参数；汇总远控真实探活，仅一分钟内且配置未变化的结果可显示已连接。 */
+  remote_channel() {
+    const config = this.read_json(join(this.project, 'config', 'remoteControl.json'), {})
+    const enabled = Object.entries(config.targets ?? {}).filter(([, row]) => row.enabled === true)
+    const status = this.read_json(join(this.project, 'runtime', 'remoteControl', 'channelStatus.json'), {})
+    const version = ['remoteControl.json', 'secrets.json'].map(name => {
+      const file = join(this.project, 'config', name)
+      return existsSync(file) ? statSync(file).mtimeMs : 0
+    }).join(':')
+    const ready = enabled.some(([id]) => status[id]?.available === true && status[id].version === version &&
+      Date.now() - status[id].checkedAt >= 0 && Date.now() - status[id].checkedAt < 60000)
+    return { id: 'remote', tab: 'remote', name: '远程连接',
+      status: ready ? 'connected' : enabled.length ? 'unverified' : 'unconfigured',
+      label: ready ? '已连接' : enabled.length ? '待验证' : '未配置',
+      detail: ready ? '最近一分钟 SSH 与 CMD 协议检查通过' : '配置共享服务与远控电脑，测试后显示连接状态' }
+  }
+
+  /** 无参数；优先读取新闻服务快照，本机服务不可达时只读其同一份调度库。 */
+  async news_schedule() {
+    const row = { id: 'digest-schedule', name: '新闻摘要推送', source: '新闻服务',
+      rule: '计划待确认', status: 'Unknown', nextAt: null }
+    const cfgFile = process.env.SYNLOVE_SERVICE_CONFIG || join(this.project, 'config', 'serviceConfig.json')
+    const cfg = this.read_json(cfgFile, {}).services?.digest
+    let plan = null
+    try {
+      if (this.digestSnapshot) plan = (await this.digestSnapshot())?.schedule
+      else if (cfg) {
+        const base = process.env.SYNLOVE_DIGEST_BASE_URL || cfg.baseURL
+        const secrets = this.read_json(join(this.project, 'config', 'secrets.json'), {})
+        const key = process.env[cfg.apiKeyEnv] || (cfg.apiKeyRef === 'backendService' ? secrets.backendService?.apiKey : '')
+        const response = await fetch(`${String(base).replace(/\/$/, '')}/snapshot`, {
+          headers: key ? { Authorization: `Bearer ${key}` } : {},
+          redirect: 'error', signal: AbortSignal.timeout(2000),
+        })
+        if (!response.ok) throw new Error('新闻快照暂不可用')
+        const body = await response.json()
+        if (body.service !== 'digest' || body.protocol !== 1) throw new Error('新闻服务身份不匹配')
+        plan = body.schedule
+      }
+    } catch { /* 本机只读回退如下，外部服务不回退读取本机旧库 */ }
+    const mode = process.env.SYNLOVE_DIGEST_MANAGEMENT || (process.env.SYNLOVE_DIGEST_BASE_URL ? 'external' : cfg?.management)
+    if (!plan && mode !== 'external' && !this.digestSnapshot) {
+      try {
+        const state = cfg?.dataDir ? join(this.project, cfg.dataDir) : join(this.project, 'runtime', 'microServices', 'digest')
+        plan = this.read_rows(join(state, 'schedule.sqlite'), 'SELECT hhmm,enabled,day FROM schedule WHERE id=1')[0]
+      } catch { /* 无真实计划则保持未知，不沿用旧 Windows 任务状态 */ }
+    }
+    if (!plan || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(plan.hhmm ?? '')) return row
+    const enabled = plan.enabled === 1 || plan.enabled === true
+    return { ...row, rule: `每天 ${plan.hhmm}`, status: enabled ? 'Ready' : 'Disabled',
+      nextLabel: enabled ? plan.hhmm : '已停用' }
+  }
+
   /** 无参数；返回展示快照，所有查询只读，不复制业务调度器或消费者状态。 */
   async snapshot() {
     this.read_probe()
-    const [system, music] = await Promise.all([this.system_tasks(), this.music_channel()])
+    const [system, music, news] = await Promise.all([this.system_tasks(), this.music_channel(), this.news_schedule()])
     const reminders = this.reminders()
     const names = { SynLoveNewsDigest: '新闻摘要推送', SynLoveSkillReview: '技能复盘', SynLoveGuard: '后台健康巡检', SynLoveConsoleWatch: '控制台看护' }
-    const tasks = system.rows.map(row => ({
+    const tasks = system.rows.filter(row => row.id !== 'SynLoveNewsDigest').map(row => ({
       ...row, name: names[row.id] ?? row.id, source: '系统计划任务',
       rule: row.triggers?.[0]?.interval ? `每 ${row.triggers[0].interval.replace(/^PT/, '').replace('M', ' 分钟').replace('H', ' 小时')}` : row.triggers?.[0]?.start ? `每天 ${row.triggers[0].start.slice(11, 16)}` : '按系统触发器',
     }))
     const channels = this.channels()
+    channels.push(this.remote_channel())
+    tasks.push(news)
     const running = channels.some(channel => channel.status === 'connected')
     for (const scope of ['timeline', 'graph']) {
       const event = this.latest([...this.events.values()].filter(row => row.scope === scope && ['scheduler.started', 'scheduler.stopped'].includes(row.event)))

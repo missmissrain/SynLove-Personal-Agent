@@ -1,0 +1,19 @@
+/* 远程连接页：沿用粉白主题与圆角卡片；表单适配窄窗口，无外部依赖或配置参数。 */
+.remote-page-heading { margin-bottom: 22px; }
+.remote-page-heading h2 { margin: 0 0 7px; font-size: 24px; font-weight: 600; }
+.remote-target-list { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0 22px; }
+.remote-target-list button { display: flex; align-items: center; gap: 8px; border-radius: 12px; padding: 10px 16px; }
+.remote-target-list button.is-selected { background: #fff0f6; border-color: #efabc5; color: #c84b7c; }
+.remote-identity { margin: 20px 0; padding: 16px; border: 1px solid #f3e2ea; background: #fffafd; border-radius: 16px; }
+.remote-identity > input { width: 100%; box-sizing: border-box; margin: 10px 0; font-family: monospace; }
+.remote-trust { display: flex; align-items: center; gap: 8px; font-size: 13px; margin: 8px 0; }
+.remote-trust input { width: auto; }
+.remote-result { padding: 12px 16px; border-radius: 12px; background: #faf6f8; color: #82747c; margin-top: 15px; overflow-wrap: anywhere; }
+.remote-result[data-state="ok"] { background: #eff8f1; color: #3a7852; }
+.remote-result[data-state="error"] { background: #fff0f4; color: #b74768; }
+.remote-actions { flex-wrap: wrap; gap: 10px; }
+#remote-delete { margin-left: auto; }
+@media (max-width: 760px) {
+  #tab-remote .form-grid { grid-template-columns: 1fr; }
+  #remote-delete { margin-left: 0; }
+}

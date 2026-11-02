@@ -10,6 +10,27 @@ import { tmpdir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
 import { DashboardStore } from '../DashboardStore.mjs'
 
+test('新闻服务已启用时覆盖旧 Windows 停用状态且只显示一个任务', async t => {
+  const f = fixture(t)
+  f.store.tasks = async () => [{ id: 'SynLoveNewsDigest', state: 'Disabled', triggers: [] }]
+  f.store.digestSnapshot = async () => ({ schedule: { hhmm: '08:55', enabled: 1, day: '2026-11-02' } })
+  const result = await f.store.snapshot()
+  const rows = result.schedules.filter(row => row.name === '新闻摘要推送')
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].status, 'Ready')
+  assert.equal(rows[0].source, '新闻服务')
+  assert.equal(rows[0].nextLabel, '08:55')
+  assert.ok(!result.schedules.some(row => row.id === 'SynLoveNewsDigest'))
+})
+
+test('新闻计划真的关闭时显示停用，查询失败显示未知而不沿用旧任务', async t => {
+  const f = fixture(t)
+  f.store.digestSnapshot = async () => ({ schedule: { hhmm: '08:55', enabled: 0 } })
+  assert.equal((await f.store.news_schedule()).status, 'Disabled')
+  f.store.digestSnapshot = async () => { throw new Error('fake offline') }
+  assert.equal((await f.store.news_schedule()).status, 'Unknown')
+})
+
 /** 参数 t：测试上下文；构造临时状态和真实消费者证据，结束时仅清理此临时目录。 */
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'synloveDashboard-'))

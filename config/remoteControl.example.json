@@ -1,0 +1,15 @@
+{
+  "targets": {
+    "officePc": {
+      "description": "办公室电脑（示例，配置完成前保持关闭）",
+      "enabled": false,
+      "host": "your-vps.example.com",
+      "port": 21119,
+      "user": "remote-windows-user",
+      "hostKeySha256": "",
+      "knownHostsPath": "",
+      "connectTimeoutSec": 10,
+      "encoding": "auto"
+    }
+  }
+}

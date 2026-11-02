@@ -11,6 +11,7 @@
 <link rel="icon" type="image/png" href="/assets/BrandIcon.png" />
 <link rel="stylesheet" href="/style.css" />
 <link rel="stylesheet" href="/ConsoleTheme.css" />
+<link rel="stylesheet" href="/RemoteConnections.css" />
 </head>
 <body>
 <div id="desktop-shell">
@@ -49,6 +50,7 @@
   <div class="nav-label">通道</div>
   <button data-tab="weixin"><span class="nav-icon" aria-hidden="true">☏</span>微信绑定</button>
   <button data-tab="qq"><span class="nav-icon" aria-hidden="true">♧</span>QQ 通道</button>
+  <button data-tab="remote"><span class="nav-icon" aria-hidden="true">⇄</span>远程连接</button>
   <div class="nav-label">系统</div>
   <button data-tab="system"><span class="nav-icon" aria-hidden="true">⚙</span>系统</button>
   <button data-tab="memory"><span class="nav-icon" aria-hidden="true">◷</span>记忆维护</button>
@@ -102,11 +104,43 @@
         <div id="service-cards"></div>
         <p class="hint" id="dashboard-checked" role="status" hidden></p>
       </div>
-      <div class="card channel-card"><div class="channel-card-heading"><h3>📡 消息通道</h3><details class="channel-manage"><summary>管理 →</summary><div class="channel-manage-menu"><button data-open-tab="weixin">微信绑定</button><button data-open-tab="qq">QQ 通道</button><button data-open-tab="agent">酷狗工具</button></div></details></div><span id="dashboard-channel-time" hidden></span><div id="dashboard-channels" class="empty-state">正在读取现有连接</div></div>
+      <div class="card channel-card"><div class="channel-card-heading"><h3>📡 消息通道</h3><details class="channel-manage"><summary>管理 →</summary><div class="channel-manage-menu"><button data-open-tab="weixin">微信绑定</button><button data-open-tab="qq">QQ 通道</button><button data-open-tab="remote">远程连接</button></div></details></div><span id="dashboard-channel-time" hidden></span><div id="dashboard-channels" class="empty-state">正在读取现有连接</div></div>
     </div>
     <div class="dashboard-columns dashboard-lower">
       <div class="card"><h3>最近动态 <button data-open-tab="logs">查看日志 →</button></h3><div id="dashboard-recent" class="empty-state">正在读取后台动态</div></div>
       <div class="card"><h3>定时任务 <span class="hint" id="dashboard-schedule-count"></span></h3><div id="dashboard-schedules" class="empty-state">正在读取用户提醒和系统任务</div><p class="hint" id="dashboard-schedule-note"></p></div>
+    </div>
+  </section>
+
+  <section id="tab-remote" class="panel">
+    <div class="remote-page-heading"><h2>远程连接</h2><p class="hint">连接共享服务，或让欣爱操作你的其他电脑。</p></div>
+    <div id="remote-service-container"></div>
+    <div class="card remote-computer-card">
+      <div class="section-heading"><h3>远控电脑</h3><button id="remote-new">添加电脑</button></div>
+      <div id="remote-target-list" class="remote-target-list" aria-label="已保存电脑"></div>
+      <form id="remote-target-form" autocomplete="off">
+        <div class="form-grid">
+          <label>电脑标识<input id="remote-id" placeholder="officePc" required pattern="[a-zA-Z][a-zA-Z0-9]{0,63}" maxlength="64" /></label>
+          <label>显示名称<input id="remote-description" placeholder="办公室电脑" maxlength="120" /></label>
+          <label>IP / 主机名<input id="remote-host" placeholder="目标 IP 或 VPS 地址" required /></label>
+          <label>SSH / 转发端口<input id="remote-port" type="number" min="1" max="65535" value="22" required /></label>
+          <label>电脑登录账号<input id="remote-user" placeholder="目标电脑的 Windows 账号" autocomplete="off" required /></label>
+          <label>登录密码<input id="remote-password" type="password" autocomplete="new-password" placeholder="输入密码；已保存时留空保留" /></label>
+          <label>连接开关<select id="remote-enabled"><option value="true">开启</option><option value="false">关闭</option></select></label>
+        </div>
+        <div class="remote-identity">
+          <div class="section-heading"><label for="remote-fingerprint">SSH 主机指纹</label><button id="remote-key" type="button">读取指纹</button></div>
+          <input id="remote-fingerprint" placeholder="SHA256:…" aria-label="SSH 主机指纹" />
+          <label class="remote-trust"><input id="remote-trust" type="checkbox" /> 已在目标电脑核对指纹</label>
+          <div class="hint" id="remote-key-hint">首次连接需核对指纹；读取指纹不会登录或运行命令。</div>
+        </div>
+        <div class="row remote-actions">
+          <button id="remote-save" class="primary" type="submit">保存配置</button>
+          <button id="remote-test" type="button">测试连接</button>
+          <button id="remote-delete" type="button" class="danger">删除配置</button>
+        </div>
+      </form>
+      <div id="remote-result" class="remote-result" role="status" aria-live="polite">选择电脑或添加一个连接。密码仅保存在本机。</div>
     </div>
   </section>
 
@@ -135,10 +169,10 @@
     </div>
     <div class="card backend-config-card">
       <div class="section-heading">
-        <h3>Backend Service</h3>
+        <h3>远程服务</h3>
         <button id="backend-probe" class="primary">自动查验</button>
       </div>
-      <p class="hint">配置公共后台服务的位置。每个端口都要通过 SynLove 身份协议，普通占用端口不会显示为在线。</p>
+      <p class="hint">TTS、ASR 和本地大模型；通过服务协议后才显示可用。</p>
       <div class="form-grid backend-config-grid">
         <label>运行位置
           <select id="backend-mode">
@@ -149,6 +183,11 @@
         <label>服务器地址
           <input id="backend-host" placeholder="127.0.0.1" />
         </label>
+        <label>访问协议<select id="backend-protocol"><option value="http">HTTP</option><option value="https">HTTPS</option></select></label>
+        <label>访问密钥<input id="backend-key" type="password" autocomplete="new-password" placeholder="无需鉴权可留空；已保存时留空保留" /></label>
+        <label>TTS 端口<input id="backend-tts-port" type="number" min="1" max="65535" value="7862" /></label>
+        <label>ASR 端口<input id="backend-asr-port" type="number" min="1" max="65535" value="8081" /></label>
+        <label>大模型端口<input id="backend-llm-port" type="number" min="1" max="65535" value="8080" /></label>
         <label>端口递推范围
           <input id="backend-radius" type="number" min="1" max="64" step="1" />
         </label>
@@ -379,5 +418,6 @@
 <script src="/observation.js"></script>
 <script src="/ConsoleDashboard.js"></script>
 <script src="/ConsoleTooltip.js"></script>
+<script src="/RemoteConnections.js"></script>
 </body>
 </html>

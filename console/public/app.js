@@ -924,6 +924,10 @@ function render_backend(data) {
   $('backend-mode').value = config.mode === 'remote' ? 'remote' : 'local'
   $('backend-host').value = config.host ?? '127.0.0.1'
   $('backend-radius').value = config.scanRadius ?? 12
+  $('backend-protocol').value = config.protocol ?? 'http'
+  $('backend-key').value = ''
+  $('backend-key').placeholder = data.hasApiKey ? '已保存；留空保留原密钥' : '无需鉴权可留空'
+  for (const name of ['tts', 'asr', 'llm']) $(`backend-${name}-port`).value = config.services?.[name]?.defaultPort ?? ({ tts: 7862, asr: 8081, llm: 8080 })[name]
   const rows = data.services ?? Object.entries(config.services ?? {}).map(([name, spec]) => ({
     name, label: spec.label ?? name.toUpperCase(), port: config.resolved?.[name]?.port,
     available: Boolean(config.resolved?.[name]), detail: config.resolved?.[name] ? '已记录上次通过协议的端口' : '尚未查验',
@@ -942,17 +946,21 @@ async function refresh_backend_config() {
   render_backend(await get('/api/backend'))
 }
 
+/** 无参数；收集共享服务地址和私密访问密钥；密钥只提交给本机控制台。 */
+function read_backend_form() {
+  return { mode: $('backend-mode').value, host: $('backend-host').value.trim(),
+    scanRadius: Number($('backend-radius').value), protocol: $('backend-protocol').value,
+    apiKey: $('backend-key').value,
+    ports: Object.fromEntries(['tts', 'asr', 'llm'].map(name => [name, Number($(`backend-${name}-port`).value)])) }
+}
+
 $('backend-save').addEventListener('click', async () => {
   const hint = $('backend-hint')
   hint.textContent = '正在保存…'
   try {
-    const result = await post('/api/backend/config', {
-      mode: $('backend-mode').value,
-      host: $('backend-host').value.trim(),
-      scanRadius: Number($('backend-radius').value),
-    })
+    const result = await post('/api/backend/config', read_backend_form())
     render_backend(result)
-    hint.textContent = result.restartRequired ? '已保存；重启后端后新地址才会用于业务调用' : '已保存'
+    hint.textContent = '已保存；点击自动查验，验证后应用服务地址'
   } catch (error) {
     hint.textContent = `保存失败：${error.message}`
   }
@@ -961,16 +969,19 @@ $('backend-save').addEventListener('click', async () => {
 $('backend-probe').addEventListener('click', async () => {
   const hint = $('backend-hint')
   hint.textContent = '正在按递推规则查验端口…'
+  $('backend-probe').disabled = true
   try {
-    render_backend(await post('/api/backend/probe', {
+    await post('/api/backend/config', read_backend_form())
+    const result = await post('/api/backend/probe', {
       mode: $('backend-mode').value,
       host: $('backend-host').value.trim(),
       scanRadius: Number($('backend-radius').value),
-    }))
-    hint.textContent = '查验完成：只有通过 SynLove 身份协议的端口才会亮绿灯'
+    })
+    render_backend(result)
+    hint.textContent = result.restartRequired ? '查验完成，地址已应用；Agent 内核重启后读取新的大模型配置' : '查验完成：通过服务协议的端口显示绿灯'
   } catch (error) {
     hint.textContent = `查验失败：${error.message}`
-  }
+  } finally { $('backend-probe').disabled = false }
 })
 
 /**

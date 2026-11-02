@@ -48,6 +48,9 @@ models/
 /backend/.DS_Store
 newsDigest/config/newsDigest.json
 /runtime/tts/
+/config/remoteControl.json
+/config/remoteControlKnownHosts
+/remoteControl/接入验证报告.md
 /runtime/downloads/
 .last_pushed_sha
 

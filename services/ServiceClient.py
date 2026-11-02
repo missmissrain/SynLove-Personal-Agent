@@ -11,6 +11,7 @@ import uuid
 import urllib.error
 import urllib.request
 from pathlib import Path
+from services.ServiceCredential import ServiceCredential
 
 MAX_AUDIO = 32 * 1024 * 1024
 
@@ -30,7 +31,7 @@ class ServiceClient:
         headers = {}
         if content_type:
             headers["Content-Type"] = content_type
-        key = os.environ.get(cfg.get("apiKeyEnv", ""), "")
+        key = ServiceCredential.resolve_key(cfg)
         if key:
             headers["Authorization"] = "Bearer " + key
         req = urllib.request.Request(cfg["baseURL"] + path, data=body, headers=headers)

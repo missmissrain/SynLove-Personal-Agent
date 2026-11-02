@@ -5,10 +5,11 @@
  */
 export class ServiceProbe {
   /** 参数 env/readiness/fetcher 为可注入依赖；请求默认最多等待2500毫秒。 */
-  constructor({ env = process.env, readiness, fetcher = fetch } = {}) {
+  constructor({ env = process.env, readiness, fetcher = fetch, secret = () => '' } = {}) {
     this.env = env
     this.readiness = readiness
     this.fetcher = fetcher
+    this.secret = secret
     this.business = new Set(['core', 'reminders', 'digest', 'video', 'history', 'coding',
       'crawler', 'memory', 'state', 'qqstate', 'observation', 'session'])
     this.optional = new Set(['memory', 'state', 'qqstate', 'observation', 'session'])
@@ -32,7 +33,8 @@ export class ServiceProbe {
       const path = cfg.healthPath || (this.business.has(name) ? `${url.pathname.replace(/\/$/, '')}/health`
         : name === 'opencode' ? '/global/health' : name === 'rsshub' ? '/healthz' : '/health')
       const headers = {}
-      if (cfg.apiKeyEnv && this.env[cfg.apiKeyEnv]) headers.Authorization = `Bearer ${this.env[cfg.apiKeyEnv]}`
+      const key = this.env[cfg.apiKeyEnv] || (cfg.apiKeyRef === 'backendService' ? this.secret() : '')
+      if (key) headers.Authorization = `Bearer ${key}`
       const response = await this.fetcher(new URL(path, url.origin), {
         headers, redirect: 'error', signal: AbortSignal.timeout(2500),
       })

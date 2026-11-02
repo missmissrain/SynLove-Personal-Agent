@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 from urllib.parse import urlsplit
+from services.ServiceCredential import ServiceCredential
 
 
 class ServiceRegistry:
@@ -93,6 +94,9 @@ class ServiceRegistry:
             env["DSH_GEMMA_MIN_FREE_VRAM_MB"] = "0"
         for name in self.DEFAULTS:
             service = self.get_service(name)
+            key = ServiceCredential.resolve_key(service, env)
+            if key and service.get("apiKeyEnv"):
+                env[service["apiKeyEnv"]] = key
             prefix = "SYNLOVE_" + name.upper()
             env[prefix + "_BASE_URL"] = service["baseURL"]
             env[prefix + "_MANAGEMENT"] = service["management"]
@@ -133,7 +137,7 @@ class ServiceRegistry:
             provider["baseURL"] = cfg["baseURL"]
             key_env = cfg.get("apiKeyEnv") or "SYNLOVE_LLM_API_KEY"
             # Harness/兼容 SDK 要求非空凭据；无鉴权服务使用明确占位值，不复用旧供应商密钥。
-            key = (os.environ if env is None else env).get(key_env) or "synlove-no-auth"
+            key = ServiceCredential.resolve_key(cfg, env) or "synlove-no-auth"
             provider["apiKeyEnv"] = key_env
             provider["apiKey"] = key
             if cfg.get("api"):

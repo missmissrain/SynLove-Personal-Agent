@@ -46,7 +46,7 @@ class BootstrapManager:
     def initialize_config(self):
         """无参数；只创建缺失配置，保留用户已经修改的人格、密钥及模型设置。"""
         config = self.root / "config"
-        for name in ("modelConfig", "secrets", "harnessTuning"):
+        for name in ("modelConfig", "secrets", "harnessTuning", "remoteControl"):
             dest = config / (name + ".json")
             source = config / (name + ".example.json")
             if not dest.exists() and source.is_file():

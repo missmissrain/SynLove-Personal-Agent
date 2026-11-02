@@ -84,10 +84,23 @@ try {
   # 这样它拉起的 MCP python / git / tasklist 会继承该控制台，不会各自弹黑窗。
   # 不要用 wscript 跳板：它会让 Node 完全没有控制台，子孙进程就会新建可见窗口。
   $nodeEntry = Join-Path $harnessRoot 'apps\cli\lib\bin.js'
+  # 与 Python 统一启动器共用远控注册器；不改动现有人格和通道配置。
+  $remotePython = $env:DSH_PYTHON
+  if ([string]::IsNullOrWhiteSpace($remotePython)) {
+    $remotePython = Join-Path $projectRoot '.venv\Scripts\python.exe'
+    if (-not (Test-Path -LiteralPath $remotePython)) { $remotePython = 'python' }
+  }
+  $remoteScript = Join-Path $projectRoot 'remoteControl\RemoteControlRegistration.py'
+  $env:PYTHONUTF8 = '1'
+  $remotePatch = & $remotePython $remoteScript
+  if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $remotePatch)) {
+    throw 'Remote CMD tool registration failed'
+  }
   $nodeArgs = @(
     $nodeEntry,
     '--patch', $patchFile,
     '--patch', $disabledToolsPatchFile,
+    '--patch', $remotePatch,
     '--profile', 'web',
     '--no-open'
   )

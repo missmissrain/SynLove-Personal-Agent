@@ -7,6 +7,7 @@ import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
+from services.ServiceCredential import ServiceCredential
 
 
 class ServiceTransport:
@@ -18,7 +19,7 @@ class ServiceTransport:
 
     def request(self, method, path, body=None, content_type="application/json", limit=8*1024*1024):
         """method/path为固定API，body为字节；响应有界读取，错误不回显服务端私密内容。"""
-        key = os.environ.get(self.cfg.get("apiKeyEnv", ""), "")
+        key = ServiceCredential.resolve_key(self.cfg)
         if self.cfg.get("management") == "disabled":
             raise RuntimeError("服务已禁用")
         headers = {"Content-Type": content_type}
