@@ -12,6 +12,9 @@
 <link rel="stylesheet" href="/style.css" />
 <link rel="stylesheet" href="/ConsoleTheme.css" />
 <link rel="stylesheet" href="/RemoteConnections.css" />
+<link rel="stylesheet" href="/ConsolePolish.css" />
+<link rel="stylesheet" href="/ConsoleLayout.css" />
+<link rel="stylesheet" href="/Avatar/AvatarPanel.css" />
 </head>
 <body>
 <div id="desktop-shell">
@@ -29,38 +32,46 @@
   </div>
 </div>
 <header>
-  <h1 id="page-title">概览</h1>
+  <div class="page-breadcrumb"><span id="page-category">日常</span><span class="breadcrumb-divider" aria-hidden="true">/</span><h1 id="page-title">概览</h1></div>
   <div class="status" id="status-strip">正在读取状态…</div>
   <time id="console-date"></time>
 </header>
+<div id="request-progress" class="request-progress" role="progressbar" aria-label="正在等待操作返回" aria-busy="false" hidden></div>
+<div id="request-feedback" class="request-feedback" role="alert" hidden><span id="request-feedback-text"></span><button id="request-feedback-close" type="button" aria-label="关闭提示">×</button></div>
+<dialog id="action-confirm" class="action-confirm" aria-labelledby="action-confirm-title" aria-describedby="action-confirm-description">
+  <h3 id="action-confirm-title">停止 Agent 内核？</h3>
+  <p id="action-confirm-description"></p>
+  <form method="dialog"><button id="action-confirm-cancel" value="cancel" autofocus>暂不停止</button><button class="danger" value="confirm">确认停止</button></form>
+</dialog>
 
-<nav id="tabs">
+<nav id="tabs" aria-label="主导航">
   <div class="sidebar-brand">
     <img class="brand-mark" src="/assets/BrandIcon.png" alt="" width="34" height="34" />
     <div><img class="brand-title-art" src="/assets/BrandTitle.png" alt="SynLove" width="100" height="36" /><div class="brand-caption">心合万象 爱有回响</div></div>
   </div>
-  <div class="nav-label">运行</div>
-  <button data-tab="overview" class="active"><span class="nav-icon" aria-hidden="true">▦</span>概览</button>
-  <button data-tab="observations"><span class="nav-icon" aria-hidden="true">⌘</span>调用链</button>
-  <button data-tab="quality"><span class="nav-icon" aria-hidden="true">↗</span>运行趋势</button>
-  <div class="nav-label">能力</div>
-  <button data-tab="models"><span class="nav-icon" aria-hidden="true">◇</span>模型选择</button>
-  <button data-tab="toggles"><span class="nav-icon" aria-hidden="true">ϟ</span>功能开关</button>
-  <button data-tab="agent"><span class="nav-icon" aria-hidden="true">✦</span>人格与工具</button>
-  <div class="nav-label">通道</div>
-  <button data-tab="weixin"><span class="nav-icon" aria-hidden="true">☏</span>微信绑定</button>
-  <button data-tab="qq"><span class="nav-icon" aria-hidden="true">♧</span>QQ 通道</button>
-  <button data-tab="remote"><span class="nav-icon" aria-hidden="true">⇄</span>远程连接</button>
-  <div class="nav-label">系统</div>
-  <button data-tab="system"><span class="nav-icon" aria-hidden="true">⚙</span>系统</button>
-  <button data-tab="memory"><span class="nav-icon" aria-hidden="true">◷</span>记忆维护</button>
-  <button data-tab="usage"><span class="nav-icon" aria-hidden="true">⬡</span>Token 用量</button>
-  <button data-tab="logs"><span class="nav-icon" aria-hidden="true">≡</span>日志</button>
-  <div class="sidebar-signature"><span class="companion-dot"></span>SynLove · 心合万象 爱有回响</div>
+  <div class="nav-label">日常</div>
+  <button data-tab="overview" class="active"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>概览</button>
+  <button data-tab="agent"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.7 6.3L21 12l-6.3 2.7L12 21l-2.7-6.3L3 12l6.3-2.7Z"/></svg>人格与工具</button>
+  <button data-tab="memory"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h6a3 3 0 0 1 3 3v13a4 4 0 0 0-4-3H4ZM20 5h-4a3 3 0 0 0-3 3v13a4 4 0 0 1 4-3h3Z"/></svg>记忆维护</button>
+  <div class="nav-label">连接与能力</div>
+  <button data-tab="remote"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="3"/><path d="M8 21h8m-4-5v5M7 9h10m-3-3 3 3-3 3"/></svg>服务与远控</button>
+  <button data-tab="models"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5"/></svg>模型选择</button>
+  <button data-tab="toggles"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="6"/><circle cx="9" cy="12" r="3"/></svg>功能设置</button>
+  <button data-tab="weixin"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18 3 21v-6a8 8 0 0 1-1-4 9 9 0 0 1 18 0 9 9 0 0 1-9 8 10 10 0 0 1-6-1Z"/><path d="M7 10h.01M11 10h.01M15 10h.01"/></svg>微信</button>
+  <button data-tab="qq"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4a3 3 0 0 1 6 0v1a6 6 0 0 1 3 5v5a6 6 0 0 1-12 0v-5a6 6 0 0 1 3-5ZM6 10l-3 6m15-6 3 6M8 21l-3 1m11-1 3 1"/><path d="M9 10h.01M15 10h.01"/></svg>QQ</button>
+  <details class="nav-diagnostics">
+    <summary>运行与诊断 <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 4 4 4-4 4"/></svg></summary>
+    <button data-tab="system"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M3 9h18M9 9v12"/></svg>系统</button>
+    <button data-tab="observations"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="5" r="2"/><circle cx="18" cy="12" r="2"/><circle cx="6" cy="19" r="2"/><path d="M6 7v10m2-12h4a6 6 0 0 1 6 5"/></svg>调用链</button>
+    <button data-tab="quality"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4v16h16M7 15l4-5 4 3 5-7"/></svg>运行趋势</button>
+    <button data-tab="usage"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V9m8 11V4m8 16v-7"/></svg>Token 用量</button>
+    <button data-tab="logs"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6ZM9 10h7m-7 4h7m-7 4h4"/></svg>日志</button>
+  </details>
+  <div class="sidebar-signature"><span class="companion-dot"></span>心合万象 爱有回响</div>
 </nav>
 
 <main>
-  <div class="page-heading"><div><h2 id="page-heading-title">欢迎回来</h2><p id="page-description">查看服务、消息通道和后台动态。</p></div><button id="dashboard-refresh">刷新数据</button></div>
+  <div class="page-heading"><div><h2 id="page-heading-title">欢迎回来</h2><p id="page-description">查看服务、消息通道和后台动态。</p></div><div class="heading-actions"><button id="dashboard-refresh" class="button-secondary"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 11-1l3 6M4 12l3 6a7 7 0 0 0 11-1"/></svg>刷新</button></div></div>
   <section id="tab-observations" class="panel">
     <div class="card">
       <div class="section-heading"><h3>调用记录</h3><button id="obs-refresh" class="primary">刷新记录</button></div>
@@ -86,20 +97,21 @@
   <!-- 服务状态 -->
   <section id="tab-overview" class="panel active">
     <div class="dashboard-stats" aria-label="运行统计">
-      <div class="stat-card"><div class="stat-label">Token 用量 · 近 24 小时</div><div class="stat-value" id="dashboard-tokens">—</div><div class="stat-note" id="dashboard-token-note">正在读取调用记录</div></div>
-      <div class="stat-card"><div class="stat-label">工具调用 · 近 24 小时</div><div class="stat-value" id="dashboard-tools">—</div><div class="stat-note" id="dashboard-tool-note">来自调用链记录</div></div>
-      <div class="stat-card"><div class="stat-label">累计消息投递</div><div class="stat-value" id="dashboard-deliveries">—</div><div class="stat-note">来自消息投递账本</div></div>
-      <div class="stat-card"><div class="stat-label">时间线记忆</div><div class="stat-value" id="dashboard-memory">—</div><div class="stat-note" id="dashboard-memory-note">正在读取记忆索引</div></div>
+      <button class="stat-card" data-open-tab="usage" aria-label="查看 Token 用量"><span class="stat-label">Token · 近 24 小时</span><strong class="stat-value" id="dashboard-tokens">—</strong><span class="stat-note" id="dashboard-token-note">正在读取调用记录</span></button>
+      <button class="stat-card" data-open-tab="observations" aria-label="查看工具调用记录"><span class="stat-label">工具调用 · 近 24 小时</span><strong class="stat-value" id="dashboard-tools">—</strong><span class="stat-note" id="dashboard-tool-note">来自调用链记录</span></button>
+      <button class="stat-card" data-open-tab="system" aria-label="查看消息投递与系统状态"><span class="stat-label">累计消息投递</span><strong class="stat-value" id="dashboard-deliveries">—</strong><span class="stat-note">消息投递账本</span></button>
+      <button class="stat-card" data-open-tab="memory" aria-label="查看时间线记忆"><span class="stat-label">时间线记忆</span><strong class="stat-value" id="dashboard-memory">—</strong><span class="stat-note" id="dashboard-memory-note">正在读取记忆索引</span></button>
     </div>
-    <div class="dashboard-columns">
+    <div class="card channel-card overview-connections"><div class="channel-card-heading"><h3>消息与连接</h3><details class="channel-manage"><summary>管理连接 <span aria-hidden="true">↗</span></summary><div class="channel-manage-menu"><button data-open-tab="weixin">微信绑定</button><button data-open-tab="qq">QQ 通道</button><button data-open-tab="remote">服务与远控</button></div></details></div><span id="dashboard-channel-time" hidden></span><div id="dashboard-channels" class="empty-state">正在读取现有连接</div></div>
+    <div class="overview-workspace">
       <div class="card service-panel">
         <div class="service-panel-head">
-          <h3>后端服务</h3>
-          <div class="service-pager" id="service-pager" hidden>
+          <h3>能力与服务</h3>
+          <div class="service-panel-actions"><button class="button-link" data-open-tab="remote">配置 <span aria-hidden="true">↗</span></button><div class="service-pager" id="service-pager" hidden>
             <button id="service-prev" type="button" aria-label="上一页">‹</button>
             <span id="service-page">1/1</span>
             <button id="service-next" type="button" aria-label="下一页">›</button>
-          </div>
+          </div></div>
         </div>
         <div id="service-cards"></div>
         <div class="service-legend" aria-label="服务灯色图例">
@@ -109,18 +121,20 @@
         </div>
         <p class="hint" id="dashboard-checked" role="status" hidden></p>
       </div>
-      <div class="card channel-card"><div class="channel-card-heading"><h3>📡 消息通道</h3><details class="channel-manage"><summary>管理 →</summary><div class="channel-manage-menu"><button data-open-tab="weixin">微信绑定</button><button data-open-tab="qq">QQ 通道</button><button data-open-tab="remote">远程连接</button></div></details></div><span id="dashboard-channel-time" hidden></span><div id="dashboard-channels" class="empty-state">正在读取现有连接</div></div>
-    </div>
-    <div class="dashboard-columns dashboard-lower">
-      <div class="card"><h3>最近动态 <button data-open-tab="logs">查看日志 →</button></h3><div id="dashboard-recent" class="empty-state">正在读取后台动态</div></div>
-      <div class="card"><h3>定时任务 <span class="hint" id="dashboard-schedule-count"></span></h3><div id="dashboard-schedules" class="empty-state">正在读取用户提醒和系统任务</div><p class="hint" id="dashboard-schedule-note"></p></div>
+      <div class="overview-side">
+        <div class="card overview-schedules"><div class="section-heading"><h3>定时任务 <span class="hint" id="dashboard-schedule-count"></span></h3><span class="hint">下次执行</span></div><div id="dashboard-schedules" class="empty-state">正在读取用户提醒和系统任务</div><p class="hint" id="dashboard-schedule-note"></p></div>
+        <div class="card overview-activity"><div class="section-heading"><h3>最近动态</h3><button class="button-link" data-open-tab="logs">全部 <span aria-hidden="true">↗</span></button></div><div id="dashboard-recent" class="empty-state">正在读取后台动态</div></div>
+      </div>
     </div>
   </section>
 
   <section id="tab-remote" class="panel">
-    <div class="remote-page-heading"><h2>远程连接</h2><p class="hint">连接共享服务，或让欣爱操作你的其他电脑。</p></div>
-    <div id="remote-service-container"></div>
-    <div class="card remote-computer-card">
+    <div class="workspace-tabs" role="tablist" aria-label="连接分类">
+      <button type="button" id="remote-services-tab" role="tab" aria-selected="true" aria-controls="remote-service-container" data-remote-view="services" class="active">后台服务</button>
+      <button type="button" id="remote-computer-tab" role="tab" aria-selected="false" aria-controls="remote-computer-view" data-remote-view="computer" tabindex="-1">远控电脑</button>
+    </div>
+    <div id="remote-service-container" role="tabpanel" aria-labelledby="remote-services-tab"></div>
+    <div class="card remote-computer-card" id="remote-computer-view" role="tabpanel" aria-labelledby="remote-computer-tab" hidden>
       <div class="section-heading"><h3>远控电脑</h3><button id="remote-new">添加电脑</button></div>
       <div id="remote-target-list" class="remote-target-list" aria-label="已保存电脑"></div>
       <form id="remote-target-form" autocomplete="off">
@@ -234,7 +248,11 @@
       <div id="failover-status" role="status">读取中…</div>
     </div>
     <div class="card">
-      <h3>添加模型</h3>
+      <h3>全部可用模型</h3>
+      <div id="model-table"></div>
+    </div>
+    <details class="card advanced-card">
+      <summary>添加模型 <span>自定义服务商与接口</span></summary>
       <div class="form-grid">
         <label>服务商<input id="add-provider" placeholder="例如 myrelay" /></label>
         <label>接口地址<input id="add-baseurl" placeholder="https://your-endpoint/v1" /></label>
@@ -247,12 +265,7 @@
         <button id="btn-add-model" class="primary">添加</button>
         <span class="hint" id="add-hint">重启后生效</span>
       </div>
-    </div>
-
-    <div class="card">
-      <h3>全部可用模型</h3>
-      <div id="model-table"></div>
-    </div>
+    </details>
   </section>
 
   <!-- 功能开关 -->
@@ -303,26 +316,21 @@
 
   <!-- 人格与工具 -->
   <section id="tab-agent" class="panel">
-    <div class="card">
-      <h3>欣爱 · 主人格</h3>
+    <div class="workspace-tabs" role="tablist" aria-label="人格与工具分类">
+      <button type="button" id="agent-main-tab" role="tab" aria-selected="true" aria-controls="agent-main-view" data-agent-view="main" class="active">欣爱主人格</button>
+      <button type="button" id="agent-worker-tab" role="tab" aria-selected="false" aria-controls="agent-worker-view" data-agent-view="worker" tabindex="-1">执行内核</button>
+      <button type="button" id="agent-tools-tab" role="tab" aria-selected="false" aria-controls="agent-tools-view" data-agent-view="tools" tabindex="-1">工具与能力</button>
+    </div>
+    <div class="card editor-pane" id="agent-main-view" role="tabpanel" aria-labelledby="agent-main-tab">
+      <div class="editor-heading"><div><h3>欣爱 · 主人格</h3><p class="hint" id="persona-hint">重启后生效</p></div><div class="editor-actions"><button id="btn-reload-persona" class="button-secondary">重新读取</button><button id="btn-save-persona" class="primary">保存主人格</button></div></div>
       <p class="hint" id="persona-path" hidden></p>
       <textarea id="persona-text" aria-label="欣爱主人格提示词" spellcheck="false"></textarea>
-      <div class="row">
-        <button id="btn-save-persona" class="primary">保存主人格</button>
-        <button id="btn-reload-persona">重新读取</button>
-        <span class="hint" id="persona-hint">重启后生效</span>
-      </div>
     </div>
-    <div class="card">
-      <h3>执行 Agent · 任务提示词</h3>
+    <div class="card editor-pane" id="agent-worker-view" role="tabpanel" aria-labelledby="agent-worker-tab" hidden>
+      <div class="editor-heading"><div><h3>执行内核 · 任务提示词</h3><p class="hint" id="worker-persona-hint">新任务生效 · 结果由欣爱整理后回复</p></div><div class="editor-actions"><button id="btn-reload-worker-persona" class="button-secondary">重新读取</button><button id="btn-save-worker-persona" class="primary">保存执行提示词</button></div></div>
       <textarea id="worker-persona-text" aria-label="后台执行提示词" spellcheck="false"></textarea>
-      <div class="row">
-        <button id="btn-save-worker-persona" class="primary">保存执行提示词</button>
-        <button id="btn-reload-worker-persona">重新读取</button>
-        <span class="hint" id="worker-persona-hint">新任务生效 · 结果由欣爱整理后回复</span>
-      </div>
     </div>
-    <div class="card">
+    <div class="card editor-pane" id="agent-tools-view" role="tabpanel" aria-labelledby="agent-tools-tab" hidden>
       <h3>挂载的工具</h3>
       <p class="hint" id="tools-path" hidden></p>
       <div id="tools-list"></div>
@@ -428,10 +436,13 @@
 <script src="/DesktopChrome.js"></script>
 <script src="/OpeningScreen.js"></script>
 <script src="/OpeningPlayback.js"></script>
+<script src="/ConsoleInteractions.js"></script>
 <script src="/app.js"></script>
 <script src="/observation.js"></script>
 <script src="/ConsoleDashboard.js"></script>
+<script src="/ConsoleWorkspace.js"></script>
 <script src="/ConsoleTooltip.js"></script>
 <script src="/RemoteConnections.js"></script>
+<script type="module" src="/Avatar/AvatarPanel.js"></script>
 </body>
 </html>

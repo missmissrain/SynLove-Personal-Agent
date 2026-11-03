@@ -19,7 +19,7 @@ class ConsoleDashboard {
         button.closest('details')?.removeAttribute('open')
       })
     })
-    document.getElementById('dashboard-refresh').addEventListener('click', async () => {
+    document.getElementById('dashboard-refresh').addEventListener('click', () => window.consoleInteractions.run_request(async () => {
       const button = document.getElementById('dashboard-refresh')
       button.disabled = true
       try {
@@ -27,7 +27,7 @@ class ConsoleDashboard {
       } catch (error) {
         document.getElementById('status-strip').textContent = `刷新失败：${error.message}`
       } finally { button.disabled = false }
-    })
+    }))
     document.querySelectorAll('#tabs button').forEach(button => {
       button.addEventListener('click', () => {
         if (['overview', 'system'].includes(button.dataset.tab)) this.refresh_stats()
