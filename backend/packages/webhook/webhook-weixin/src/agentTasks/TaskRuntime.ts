@@ -144,6 +144,9 @@ export class TaskRuntime {
       if (events[i].type !== 'user/message') continue
       const source = events[i].data?.source
       if (source?.kind === 'synlove-task-result') throw new Error('结果处理轮次不能启动或修改任务')
+      // time-context / system-prompt 等插件会在每轮注入 form=snapshot 的上下文快照，
+      // 它们不是真实用户输入，没有 taskOriginId，必须跳过（否则任务工具永远被拒）。
+      if (source?.form === 'snapshot') continue
       const key = source?.taskOriginId
       if (!key) throw new Error('当前消息没有可信通道来源，拒绝后台操作')
       const origin = this.store.get_origin(key, owner.session)
@@ -166,9 +169,15 @@ export class TaskRuntime {
     this.assert_owner()
     const definition = this.mcp.list_tools().find(tool => tool.name === name)
     if (!definition) throw new Error('未知任务工具')
-    if (!args || typeof args !== 'object' || Array.isArray(args)
-      || Object.keys(args).some(key => !Object.hasOwn(definition.inputSchema.properties, key)))
-      throw new Error('不允许的任务参数')
+    if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('不允许的任务参数')
+    const unexpected = Object.keys(args).filter(key => !Object.hasOwn(definition.inputSchema.properties, key))
+    if (unexpected.length) {
+      // 常见混淆：把补充要求（task_message 的 message/taskId）塞进 task_submit。
+      const hint = name === 'task_submit' && (args.taskId || args.message)
+        ? '；给进行中的任务补充要求请改用 task_message（参数 taskId + message），task_submit 只用于新建任务（必填 request）'
+        : `；本工具（${name}）只接受参数：${Object.keys(definition.inputSchema.properties).join(', ')}`
+      throw new Error(`不允许的任务参数：${unexpected.join(', ')}${hint}`)
+    }
     const presentation = this.is_presenting(owner.session)
     if (presentation && name !== 'task_result') throw new Error('自动结果轮次只允许读取总结')
     if (args.originId !== undefined && (typeof args.originId !== 'string' || args.originId.length > 512))

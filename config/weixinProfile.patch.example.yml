@@ -77,7 +77,7 @@
 - insert:
     - id: webhook-qq
       name: '@deepseek-ai/dsh-webhook-qq'
-      disabled: !!js !process.env.QQ_BOT_APP_ID
+      disabled: !!js '!process.env.QQ_BOT_APP_ID'
       config:
         app_id: !!js process.env.QQ_BOT_APP_ID
         client_secret: !!js process.env.QQ_BOT_CLIENT_SECRET

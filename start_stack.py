@@ -375,6 +375,10 @@ def render_settings(config: dict) -> str:
         # 模型容量：GUI 里改的"上下文窗口"落到这里（harness 用它算压缩阈值）
         if provider.get("defaultContextWindow"):
             lines.append("      defaultContextWindow: " + str(int(provider["defaultContextWindow"])))
+        # 供应商默认思考档位（off/minimal/low/medium/high…）：不写则由网关自定。
+        # 例：qwen 配 "low" 表示默认开低档思考，请求没显式指定 effort 时生效。
+        if provider.get("reasoning"):
+            lines.append("      reasoning: " + yaml_string(str(provider["reasoning"])))
         models = provider.get("models") or []
         if models:
             lines.append("      models:")
