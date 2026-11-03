@@ -1,0 +1,120 @@
+/* 人物主页：无边框大幅人物与紧凑信息区；参数沿用原dashboard容器，默认桌面双栏、窄屏单栏。 */
+main:has(#tab-overview.active) > .page-heading { display: none; }
+main:has(#tab-overview.active) { max-width: none; }
+#tab-overview.companion-overview { max-width: none; width: 100%; margin: 0; }
+#tab-overview.companion-overview.active { display: grid; grid-template-columns: minmax(300px,.92fr) minmax(460px,1.08fr); gap: 22px; align-items: start; }
+.companion-card { position: sticky; top: 0; min-width: 0; height: clamp(590px,calc(100vh - 100px),850px); overflow: hidden; border: 0; border-radius: 28px; background: radial-gradient(ellipse at 47% 47%,#f5e1eb 0%,#fcf2f7 44%,#fcf9fc00 74%); }
+.companion-heading { position: absolute; top: 24px; left: 22px; right: 18px; display: flex; justify-content: space-between; align-items: flex-start; z-index: 1; pointer-events: none; }
+.companion-eyebrow { color: #b18b9c; font-size: 9px; letter-spacing: .28em; }
+.companion-heading h2 { font-size: 29px; letter-spacing: .16em; margin: 8px 0 0; color: #80596d; font-weight: 500; }
+.companion-label { color: #b995a8; font-size: 10px; letter-spacing: .12em; padding-top: 4px; }
+.companion-stage { position: absolute; inset: 0; overflow: hidden; isolation: isolate; }
+.companion-halo { position: absolute; width: 90%; aspect-ratio: 1; left: 5%; top: 20%; border: 1px solid #eed9e580; border-radius: 50%; background: radial-gradient(ellipse,#f4dce74d,transparent 65%); }
+.companion-canvas { position: absolute; inset: 0; }
+.companion-canvas canvas { display: block; width: 100%; height: 100%; }
+.companion-fallback { background: url('/Avatar/assets/AvatarFallback.png') center center / contain no-repeat; }
+.companion-fallback .companion-canvas { visibility: hidden; }
+.companion-fallback .companion-load { top: auto; bottom: 85px; padding: 8px; background: #fff6f9e8; border-radius: 10px; }
+.companion-load { position: absolute; left: 16px; right: 16px; top: 40%; text-align: center; font-size: 11px; color: #9c7c8c; }
+.companion-load[hidden] { display: none; }
+.companion-footer { position: absolute; bottom: 0; left: 0; right: 0; z-index: 1; padding: 40px 12px 5px; display: grid; justify-items: center; gap: 0; pointer-events: none; background: linear-gradient(transparent,#fcf8fbdd 72%,#fcf8fb); }
+.companion-brand { display: block; width: clamp(122px,11vw,172px); height: auto; object-fit: contain; }
+.companion-motto { font-size: 10px; color: #ac879a; letter-spacing: .2em; }
+.companion-information { min-width: 0; display: flex; flex-direction: column; gap: 12px; padding-top: 8px; }
+.companion-information-heading { display: flex; align-items: center; justify-content: space-between; order: 0; min-height: 30px; }
+.companion-information-heading h2 { margin: 0; font-size: 17px; font-weight: 600; color: #654d5a; }
+.companion-information-heading #dashboard-refresh { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; min-height: 29px; padding: 5px 11px; font-size: 10px; border-radius: 11px; white-space: nowrap; }
+.companion-information-heading #dashboard-refresh svg { width: 13px; height: 13px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.5; }
+#tab-overview .companion-information .dashboard-stats { order: 1; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 0; margin: 0; border-radius: 16px; }
+#tab-overview .companion-information .stat-card { min-height: 79px; padding: 12px 11px; }
+#tab-overview .companion-information .stat-value { font-size: 19px; margin: 7px 0 0; }
+#tab-overview .companion-information .stat-label { font-size: 9px; white-space: nowrap; }
+#tab-overview .companion-information .stat-note { display: none; }
+#tab-overview .companion-information .overview-connections { order: 2; margin: 0; padding: 12px 14px; grid-template-columns: 78px minmax(0,1fr); gap: 8px; }
+.companion-information .overview-connections h3 { font-size: 11px; }
+.companion-information .overview-connections #dashboard-channels { gap: 5px; }
+.companion-information .overview-connections #dashboard-channels.empty-state { padding: 12px 8px; align-items: center; }
+.companion-information .overview-connections .channel-button { gap: 5px; padding: 7px; }
+.companion-information .overview-connections .connection-icon { width: 23px; height: 23px; font-size: 12px; flex-shrink: 0; }
+.companion-information .overview-connections .channel-description strong { font-size: 10px; }
+.companion-information .overview-connections .channel-description .hint { display: none; }
+.companion-information .overview-connections .channel-status { font-size: 9px; padding: 2px; }
+.companion-information .overview-workspace { display: contents; }
+.companion-information .overview-side { order: 3; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 136px; gap: 12px; }
+.companion-information .overview-side > .card { margin: 0; padding: 14px; border-radius: 17px; }
+.companion-information .overview-side h3 { font-size: 12px; }
+.companion-information .overview-workspace .service-panel { order: 4; margin: 0; min-height: 0; padding: 14px 16px; border-radius: 17px; }
+.companion-information .overview-workspace #service-cards { height: 180px; }
+.companion-information .overview-workspace #service-cards .service { height: 36px; grid-template-columns: minmax(130px,.9fr) minmax(0,1.1fr); }
+.companion-information .overview-workspace #service-cards .hint { font-size: 10px; }
+.companion-information .overview-workspace #service-cards .name { font-size: 11px; }
+.companion-information .overview-workspace .service-panel-head { padding-bottom: 7px; min-height: 28px; }
+.companion-information .overview-workspace .service-legend { padding-top: 8px; margin-top: 3px; }
+@media (max-width: 1100px) {
+  #tab-overview.companion-overview.active { grid-template-columns: minmax(250px,.85fr) minmax(400px,1.15fr); gap: 12px; }
+  .companion-heading { left: 12px; right: 10px; }
+  #tab-overview .companion-information .stat-card { padding: 12px 8px; }
+  #tab-overview .companion-information .stat-value { font-size: 16px; }
+}
+@media (max-width: 850px) {
+  #tab-overview.companion-overview.active { display: flex; flex-direction: column; }
+  .companion-card { position: relative; width: 100%; height: 560px; min-height: 560px; }
+  .companion-information { width: 100%; padding-top: 0; }
+}
+@media (max-width: 520px) {
+  .companion-information .overview-side { grid-template-columns: 1fr; grid-template-rows: 150px 150px; }
+  #tab-overview .companion-information .dashboard-stats { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  #tab-overview .companion-information .overview-connections { grid-template-columns: 1fr; }
+}
+/* 宽屏展开信息区和字号，人物保持半身构图；按窗口宽高分配空间，不固定居中1180px。 */
+@media (min-width: 1440px) {
+  #tab-overview.companion-overview.active { grid-template-columns: minmax(420px,.85fr) minmax(620px,1.15fr); gap: clamp(24px,3vw,64px); }
+  .companion-card { height: calc(100vh - 100px); max-height: 1080px; }
+  .desktop-mode .companion-card { height: calc(100vh - 138px); }
+  .companion-information { gap: clamp(16px,1.5vh,24px); padding-top: 14px; }
+  .companion-information-heading h2 { font-size: 22px; }
+  #tab-overview .companion-information .stat-card { min-height: 100px; padding: 18px; }
+  #tab-overview .companion-information .stat-label { font-size: 12px; }
+  #tab-overview .companion-information .stat-value { font-size: clamp(24px,1.6vw,34px); }
+  #tab-overview .companion-information .stat-note { display: block; margin-top: 8px; font-size: 11px; }
+  #tab-overview .companion-information .overview-connections { padding: 18px 20px; grid-template-columns: 108px minmax(0,1fr); }
+  .companion-information .overview-connections h3 { font-size: 14px; }
+  .companion-information .overview-connections .channel-button { min-height: 64px; padding: 11px; gap: 8px; }
+  .companion-information .overview-connections .channel-description strong { font-size: 13px; }
+  .companion-information .overview-connections .connection-icon { width: 30px; height: 30px; font-size: 16px; }
+  .companion-information .overview-connections .channel-status { font-size: 11px; }
+  .companion-information .overview-side { grid-template-rows: clamp(180px,23vh,300px); gap: 18px; }
+  .companion-information .overview-side > .card { padding: 20px; }
+  .companion-information .overview-side h3 { font-size: 15px; }
+  .companion-information .overview-side .schedule-row,
+  .companion-information .overview-side .activity-row { font-size: 13px; padding: 12px 0; }
+  .companion-information .overview-side .schedule-row .hint { font-size: 12px; }
+  .companion-information .overview-workspace .service-panel { padding: 20px 24px; }
+  .companion-information .overview-workspace .service-panel h3 { font-size: 15px; }
+  .companion-information .overview-workspace #service-cards { height: 240px; }
+  .companion-information .overview-workspace #service-cards .service { height: 48px; }
+  .companion-information .overview-workspace #service-cards .name { font-size: 14px; }
+  .companion-information .overview-workspace #service-cards .hint { font-size: 12px; }
+  .companion-information .overview-workspace .service-legend { font-size: 11px; padding-top: 14px; }
+}
+/* 较矮的宽屏优先让五项服务留在首屏，避免只按宽度放大后把内容挤出窗口。 */
+@media (min-width: 1440px) and (max-height: 1000px) {
+  .companion-information { gap: 12px; padding-top: 5px; }
+  #tab-overview .companion-information .stat-card { min-height: 88px; padding: 12px 15px; }
+  #tab-overview .companion-information .stat-note { margin-top: 4px; }
+  #tab-overview .companion-information .overview-connections { padding: 12px 16px; }
+  .companion-information .overview-side { grid-template-rows: 160px; }
+  .companion-information .overview-side > .card { padding: 15px; }
+  .companion-information .overview-workspace .service-panel { padding: 14px 18px; }
+  .companion-information .overview-workspace #service-cards { height: 200px; }
+  .companion-information .overview-workspace #service-cards .service { height: 40px; }
+  .companion-information .overview-workspace .service-legend { padding-top: 8px; }
+}
+/* 桌面人物占据固定可视区域；仅信息栏滚动，页面滚动不再改变人物和落款位置。 */
+@media (min-width: 851px) {
+  main:has(#tab-overview.active) { overflow: hidden; }
+  #tab-overview.companion-overview.active { height: 100%; min-height: 0; align-items: stretch; }
+  #tab-overview.companion-overview .companion-card { position: relative; top: auto; height: 100%; min-height: 0; max-height: none; }
+  .companion-information { min-height: 0; max-height: 100%; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding-right: 5px; padding-bottom: 6px; }
+  .companion-information > *, .companion-information .overview-workspace > * { flex-shrink: 0; }
+}

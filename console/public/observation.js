@@ -23,20 +23,22 @@
     observations: ['调用链', '沿着一次请求，找到慢在哪里、错在哪里。'],
     quality: ['运行趋势', '查看调用耗时、错误率、用量与提示词版本表现。'],
     models: ['模型选择', '为不同的工作，选择合适的能力。'],
-    toggles: ['功能开关', '按需要开启，让系统保持简单。'],
+    toggles: ['功能设置', '按需要开启，让系统保持简单。'],
     agent: ['人格与工具', '她的表达习惯，以及能帮你做的事。'],
     weixin: ['微信绑定', '保持消息通路连接。'], qq: ['QQ 通道', '查看账号与通道状态。'],
-    remote: ['远程连接', '配置共享服务与远控电脑。'],
+    remote: ['服务与远控', '连接后台服务，或控制其他电脑。'],
     memory: ['记忆维护', '管理长期记忆、人物关系与当前上下文。'],
     usage: ['Token 用量', '看清每一次调用的资源消耗。'], logs: ['日志', '需要更细的线索时，从这里查起。'],
   }
 
   /** 参数 path/options：本机 API 请求；失败时使用服务端错误信息。 */
   async function request(path, options) {
-    const response = await fetch(path, { cache: 'no-store', ...options })
-    const data = await response.json()
-    if (!response.ok || data.error) throw new Error(data.error || `HTTP ${response.status}`)
-    return data
+    return window.consoleInteractions.run_request(async () => {
+      const response = await fetch(path, { cache: 'no-store', ...options })
+      const data = await response.json()
+      if (!response.ok || data.error) throw new Error(data.error || `HTTP ${response.status}`)
+      return data
+    })
   }
 
   /** 参数 health：采集健康信息；显示数据缺口而不是伪装完整观测。 */

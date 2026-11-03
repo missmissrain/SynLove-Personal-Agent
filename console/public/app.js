@@ -3,21 +3,25 @@
 const $ = id => document.getElementById(id)
 
 async function get(path) {
-  const response = await fetch(path, { cache: 'no-store' })
-  const data = await response.json()
-  if (!response.ok || data.error) throw new Error(data.error || `HTTP ${response.status}`)
-  return data
+  return window.consoleInteractions.run_request(async () => {
+    const response = await fetch(path, { cache: 'no-store' })
+    const data = await response.json()
+    if (!response.ok || data.error) throw new Error(data.error || `HTTP ${response.status}`)
+    return data
+  })
 }
 
 async function post(path, body) {
-  const response = await fetch(path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body ?? {}),
+  return window.consoleInteractions.run_request(async () => {
+    const response = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body ?? {}),
+    })
+    const data = await response.json()
+    if (!response.ok || data.error) throw new Error(data.error || `HTTP ${response.status}`)
+    return data
   })
-  const data = await response.json()
-  if (!response.ok || data.error) throw new Error(data.error || `HTTP ${response.status}`)
-  return data
 }
 
 const num = value => (value ?? 0).toLocaleString('zh-CN')
@@ -190,7 +194,7 @@ async function wait_until_up(timeout_ms = 240_000) {
   }
 }
 
-$('btn-restart').addEventListener('click', async () => {
+$('btn-restart').addEventListener('click', () => window.consoleInteractions.run_request(async () => {
   $('service-hint').textContent = '正在重启…'
   try {
     await post('/api/service', { action: 'restart' })
@@ -200,12 +204,14 @@ $('btn-restart').addEventListener('click', async () => {
   }
   await wait_until_up()
   await refresh_overview()
-})
+}).catch(error => { $('service-hint').textContent = `重启检查失败：${error.message}` }))
 $('btn-stop').addEventListener('click', async () => {
-  if (!confirm('确定停止后端服务？微信将不再回复。')) return
-  await post('/api/service', { action: 'stop' })
-  $('service-hint').textContent = '已请求停止'
-  setTimeout(refresh_overview, 6000)
+  if (!await window.consoleInteractions.confirm_action('停止后，微信和 QQ 将暂时无法回复。需要恢复时，可在这里重新启动内核。')) return
+  try {
+    await post('/api/service', { action: 'stop' })
+    $('service-hint').textContent = '已请求停止'
+    setTimeout(() => refresh_overview().catch(() => {}), 6000)
+  } catch (error) { $('service-hint').textContent = `停止请求失败：${error.message}` }
 })
 
 // ── 模型 ───────────────────────────────────────────────────────────────────
@@ -976,7 +982,7 @@ $('backend-save').addEventListener('click', async () => {
   }
 })
 
-$('backend-probe').addEventListener('click', async () => {
+$('backend-probe').addEventListener('click', () => window.consoleInteractions.run_request(async () => {
   const hint = $('backend-hint')
   hint.textContent = '正在按递推规则查验端口…'
   $('backend-probe').disabled = true
@@ -992,7 +998,7 @@ $('backend-probe').addEventListener('click', async () => {
   } catch (error) {
     hint.textContent = `查验失败：${error.message}`
   } finally { $('backend-probe').disabled = false }
-})
+}))
 
 /**
  * 前端心跳：页面开着时每 30 秒给控制台发一次。
