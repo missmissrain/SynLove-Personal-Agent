@@ -10,6 +10,17 @@ import { WorkerSessionFactory } from './WorkerSessionFactory.js';
 import { TaskResultCollector } from './TaskResultCollector.js';
 import { PresenterEventBridge } from './PresenterEventBridge.js';
 import { delete_session_artifacts, sessions_root } from '../session/sessionFiles.js';
+/** 状态的中文口语说法：模型只有英文枚举时容易直接翻译成英文句子，这里直接给可念的中文。 */
+const STATE_SAY = {
+    queued: '还在排队，马上就开跑',
+    running: '正在跑着呢',
+    cancelling: '正在停下来',
+    succeeded: '已经跑完啦',
+    partial: '跑完了，但有些部分没做成',
+    failed: '没跑成，出错了',
+    cancelled: '已经取消了',
+    interrupted: '中途被打断了'
+};
 export class TaskRuntime {
     ctx;
     root;
@@ -251,7 +262,8 @@ export class TaskRuntime {
                 taskId: task.id,
                 state: task.state,
                 accepted: true,
-                replyInstruction: '请现在用自己的自然语气告知用户任务已交给后台；不要等待或轮询，结束后会主动通知。不得把已接收说成已经完成。'
+                say: '已经交给后台啦，正在排队等开工，弄好了我马上告诉你～',
+                replyInstruction: '只用中文、用自己的自然口语说一句告诉用户任务已交给后台（可参考 say 的意思）。严禁念出 taskId、英文字段名或 JSON，严禁把 state 直译成英文句子；不要等待或轮询，结束后会主动通知。不得把已接收说成已经完成。'
             };
         }
         if (args.taskId !== undefined && (typeof args.taskId !== 'string' || !args.taskId || args.taskId.length > 80)) throw new Error('任务ID无效');
@@ -271,6 +283,8 @@ export class TaskRuntime {
         if (name === 'task_status') return {
             taskId: id,
             state: task.state,
+            stateLabel: STATE_SAY[task.state] ?? task.state,
+            say: `那个任务${STATE_SAY[task.state] ?? task.state}；只用中文口语告诉用户，别念任务ID或JSON。`,
             workerSessionId: task.worker,
             updatedAt: task.updated
         };
