@@ -379,6 +379,15 @@ def render_settings(config: dict) -> str:
         # 例：qwen 配 "low" 表示默认开低档思考，请求没显式指定 effort 时生效。
         if provider.get("reasoning"):
             lines.append("      reasoning: " + yaml_string(str(provider["reasoning"])))
+        # 供应商级 compat 开关（如百炼不支持 developer 角色：supportsDeveloperRole: false）。
+        compat = provider.get("compat")
+        if isinstance(compat, dict) and compat:
+            lines.append("      compat:")
+            for key, value in compat.items():
+                if isinstance(value, bool):
+                    lines.append("        " + str(key) + ": " + ("true" if value else "false"))
+                else:
+                    lines.append("        " + str(key) + ": " + yaml_string(str(value)))
         models = provider.get("models") or []
         if models:
             lines.append("      models:")
