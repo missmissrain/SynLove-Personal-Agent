@@ -390,6 +390,15 @@ def render_settings(config: dict) -> str:
                     lines.append("          input: [" + ", ".join(yaml_string(str(item)) for item in inputs) + "]")
                 if model.get("contextWindow"):
                     lines.append("          contextWindow: " + str(int(model["contextWindow"])))
+                # 思考档位声明：让 pi-ai 认得 low/medium/high（否则默认档位会被当成不支持）。
+                # off 留空 = 支持、不发参数（交给网关默认）；其余必须给线上值。
+                efforts = model.get("reasoningEfforts")
+                if isinstance(efforts, dict) and efforts:
+                    lines.append("          reasoningEfforts:")
+                    for level in ("off", "minimal", "low", "medium", "high", "xhigh", "max"):
+                        if level in efforts:
+                            wire = efforts[level]
+                            lines.append("            " + level + ": " + (yaml_string(str(wire)) if wire else ""))
                 # 关思考链：小模型在"聊天/干活"场景里思考经常是空转，关掉后首字更快、输出更少
                 if tuning.get("reasoningOff"):
                     lines.append("          reasoning: " + yaml_string("off"))
