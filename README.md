@@ -12,10 +12,8 @@ SynLove 支持微信、QQ 对话与桌面控制台，提供独立的接待人格
 
 欣爱是 SynLove 的默认人格，也是桌面控制台里那个会陪着说话的人。
 
-![欣爱 · 人物概念图](docs/art/character.png)
-
 <p align="center">
-  <img src="docs/art/chibi.png" alt="欣爱 · Q 版三视图" width="480">
+  <img src="docs/art/character.png" alt="欣爱 · 人物概念图" width="720">
 </p>
 
 ## v2.0 双内核架构
