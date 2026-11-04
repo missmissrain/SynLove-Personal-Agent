@@ -10,7 +10,7 @@ SynLove 支持微信、QQ 对话与桌面控制台，提供独立的接待人格
 
 ## 欣爱
 
-欣爱是 SynLove 的默认人格，也是桌面控制台里那个会陪着说话的人。
+根据人设，欣爱是一位20岁的少女，作为SynLove的看板娘，系统内已经包含了其3D建模美术素材。
 
 <p align="center">
   <img src="docs/art/character.png" alt="欣爱 · 人物概念图" width="720">
