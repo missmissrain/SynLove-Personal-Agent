@@ -1,8 +1,22 @@
+<p align="center">
+  <img src="docs/art/icon.png" alt="SynLove" width="128">
+</p>
+
 # SynLove-Personal-Agent v2.0
 
 **心合万象 爱有回响**
 
 SynLove 支持微信、QQ 对话与桌面控制台，提供独立的接待人格、后台任务、长期记忆和可配置服务连接。主程序在个人电脑运行，语音、模型推理及后台功能可部署在本机或独立服务器。
+
+## 欣爱
+
+欣爱是 SynLove 的默认人格，也是桌面控制台里那个会陪着说话的人。
+
+![欣爱 · 人物概念图](docs/art/character.png)
+
+<p align="center">
+  <img src="docs/art/chibi.png" alt="欣爱 · Q 版三视图" width="480">
+</p>
 
 ## v2.0 双内核架构
 
