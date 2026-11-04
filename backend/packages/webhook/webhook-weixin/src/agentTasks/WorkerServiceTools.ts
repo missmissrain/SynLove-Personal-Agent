@@ -1,5 +1,5 @@
 /**
- * 后台业务工具装配：仅为operations任务挂载固定远控与业务MCP，主人格和研究任务不增加操作权限。
+ * 后台业务工具装配：为全部执行任务挂载固定远控与业务MCP，不按任务类别裁剪。
  * 参数root为生产根目录；解释器默认本项目.venv，SYNLOVE_WORKER_PYTHON可显式覆盖。
  */
 import { existsSync } from 'node:fs'
@@ -10,9 +10,8 @@ export class WorkerServiceTools {
   /** root为所属个人实例目录；不使用模型或任务文本指定连接端点。 */
   constructor(private root: string) {}
 
-  /** child为独立执行上下文、kind为宿主校验的任务类别；返回本轮成功挂载的MCP数量。 */
-  async mount_tools(child: any, kind: string): Promise<number> {
-    if (kind !== 'operations') return 0
+  /** child为独立执行上下文；返回本轮成功挂载的MCP数量，服务离线仍如实说明。 */
+  async mount_tools(child: any): Promise<number> {
     // 仅正式安装有桥接入口；隔离测试可以仅提供任务运行器，不要求整套生产目录。
     if (!existsSync(join(this.root, 'remoteControl', 'RemoteCmdMcp.py'))) return 0
     const python = process.env.SYNLOVE_WORKER_PYTHON ||

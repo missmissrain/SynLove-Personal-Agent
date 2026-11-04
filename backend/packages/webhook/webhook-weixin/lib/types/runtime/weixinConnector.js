@@ -228,10 +228,8 @@ export class WeixinConnector {
             }
         });
         if (this.host.tasks) this.host.tasks.worker_setup = (child, task)=>{
-            if (task.kind === 'coding') return;
             if (this.timeline !== undefined) register_timeline_tools(child, this.timeline);
             register_graph_tools(child, this.graph);
-            if (task.kind === 'research') return;
             register_notify_tools(child, this.notify);
             register_bridge_result_tools(child, this.store);
             register_bridge_session_tools(child);
@@ -679,7 +677,7 @@ export class WeixinConnector {
         let failure = '';
         try {
             const agent = await this.host.create_agent(brandString(probe_id));
-            if (this.timeline !== undefined && !this.host.tasks) {
+            if (this.timeline !== undefined) {
                 register_timeline_tools(agent.ctx, this.timeline);
                 register_graph_tools(agent.ctx, this.graph);
             }
@@ -687,7 +685,8 @@ export class WeixinConnector {
             this.bind_agent_stream(agent);
             if (this.host.tasks) {
                 const tools = agent.ctx.tools.schemas(agent);
-                if (tools.length !== 5 || tools.some((tool)=>!tool.name.startsWith('mcp__synlove-task__'))) throw new Error('主人格五工具隔离检查失败：' + tools.map((tool)=>tool.name).join(','));
+                const allowed = this.host.tasks.presenter_tool_names();
+                if (tools.some((tool)=>!allowed.includes(tool.name)) || !allowed.every((name)=>tools.some((tool)=>tool.name === name))) throw new Error('主人格任务与记忆查询工具检查失败：' + tools.map((tool)=>tool.name).join(','));
                 const worker_tools = await this.host.tasks.check_worker(this.current_model, this.workspace_path);
                 probe('agent-task', 'roles.checked', {
                     presenter_tools: tools.length,
@@ -995,13 +994,15 @@ export class WeixinConnector {
         const session_id = String(agent.id);
         if (this.stream_agents.get(session_id) === agent) return;
         this.stream_disposers.get(session_id)?.();
-        if (this.timeline !== undefined && !this.host.tasks) {
+        if (this.timeline !== undefined) {
             agent.ctx.effect(()=>{
                 register_timeline_tools(agent.ctx, this.timeline);
                 register_graph_tools(agent.ctx, this.graph);
-                register_notify_tools(agent.ctx, this.notify);
-                register_bridge_result_tools(agent.ctx, this.store);
-                register_bridge_session_tools(agent.ctx);
+                if (!this.host.tasks) {
+                    register_notify_tools(agent.ctx, this.notify);
+                    register_bridge_result_tools(agent.ctx, this.store);
+                    register_bridge_session_tools(agent.ctx);
+                }
                 return ()=>{};
             }, 'webhook-weixin.memory-tools()');
         }

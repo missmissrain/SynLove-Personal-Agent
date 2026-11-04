@@ -147,7 +147,7 @@ export class DashboardStore {
   /** 无参数；通过只读系统命令查询与本项目有关的 Windows 任务，不执行任务动作。 */
   query_windows_tasks() {
     if (process.platform !== 'win32') return Promise.reject(new Error('当前系统没有 Windows 计划任务服务'))
-    const script = `[Console]::OutputEncoding=[Text.UTF8Encoding]::new(); $ErrorActionPreference='Stop'; @(Get-ScheduledTask | Where-Object {$_.TaskName -in @('SynLoveNewsDigest','SynLoveSkillReview','SynLoveGuard','SynLoveConsoleWatch')} | ForEach-Object {$i=Get-ScheduledTaskInfo -InputObject $_; [pscustomobject]@{id=$_.TaskName;state=[string]$_.State;nextAt=$i.NextRunTime.ToString('o');lastAt=$i.LastRunTime.ToString('o');result=$i.LastTaskResult;triggers=@($_.Triggers | ForEach-Object {[pscustomobject]@{start=$_.StartBoundary;interval=[string]$_.Repetition.Interval}})}}) | ConvertTo-Json -Depth 5 -Compress`
+    const script = `[Console]::OutputEncoding=[Text.UTF8Encoding]::new(); $ErrorActionPreference='Stop'; @(Get-ScheduledTask | Where-Object {($_.TaskName -replace '^SynLove-','SynLove') -in @('SynLoveNewsDigest','SynLoveSkillReview','SynLoveGuard','SynLoveConsoleWatch')} | ForEach-Object {$i=Get-ScheduledTaskInfo -InputObject $_; [pscustomobject]@{id=$_.TaskName;state=[string]$_.State;nextAt=$i.NextRunTime.ToString('o');lastAt=$i.LastRunTime.ToString('o');result=$i.LastTaskResult;triggers=@($_.Triggers | ForEach-Object {[pscustomobject]@{start=$_.StartBoundary;interval=[string]$_.Repetition.Interval}})}}) | ConvertTo-Json -Depth 5 -Compress`
     return new Promise((resolve, reject) => {
       execFile('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script],
         { windowsHide: true, timeout: 12_000, encoding: 'utf8', maxBuffer: 256 * 1024 }, (error, stdout) => {
@@ -165,7 +165,7 @@ export class DashboardStore {
     if (this.taskCache && Date.now() - this.taskAt < 60_000) return this.taskCache
     if (this.taskPending) return this.taskPending
     this.taskPending = Promise.resolve().then(() => this.tasks()).then(
-      rows => ({ rows, error: null }),
+      rows => ({ rows: rows.map(row => ({ ...row, id: row.id.replace(/^SynLove-/, 'SynLove') })), error: null }),
       () => ({ rows: [], error: '系统计划任务暂不可用' }),
     ).then(result => { this.taskCache = result; this.taskAt = Date.now(); return result })
       .finally(() => { this.taskPending = null })
@@ -297,7 +297,7 @@ export class DashboardStore {
     this.read_probe()
     const [system, music, news] = await Promise.all([this.system_tasks(), this.music_channel(), this.news_schedule()])
     const reminders = await this.reminder_snapshot()
-    const names = { SynLoveNewsDigest: '新闻摘要推送', SynLoveSkillReview: '技能复盘', SynLoveGuard: '后台健康巡检', SynLoveConsoleWatch: '控制台看护' }
+    const names = { SynLoveNewsDigest: '新闻摘要推送', SynLoveSkillReview: '自动沉淀 Skill', SynLoveGuard: '后台健康巡检', SynLoveConsoleWatch: '控制台看护' }
     const tasks = system.rows.filter(row => row.id !== 'SynLoveNewsDigest').map(row => ({
       ...row, name: names[row.id] ?? row.id, source: '系统计划任务',
       rule: row.triggers?.[0]?.interval ? `每 ${row.triggers[0].interval.replace(/^PT/, '').replace('M', ' 分钟').replace('H', ' 小时')}` : row.triggers?.[0]?.start ? `每天 ${row.triggers[0].start.slice(11, 16)}` : '按系统触发器',

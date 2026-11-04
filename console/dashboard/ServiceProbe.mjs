@@ -6,7 +6,7 @@
 import { BusinessEndpoint } from './BusinessEndpoint.mjs'
 
 export class ServiceProbe {
-  /** 参数 env/readiness/fetcher 为可注入依赖；请求默认最多等待2500毫秒。 */
+  /** 参数 env/readiness/fetcher 为可注入依赖；普通探活2500毫秒，功能依赖探活最多12000毫秒。 */
   constructor({ env = process.env, readiness, fetcher = fetch, secret = () => '' } = {}) {
     this.env = env
     this.readiness = readiness
@@ -46,7 +46,9 @@ export class ServiceProbe {
           detail: ready ? '远端功能协议检查通过' : '远端功能或依赖未就绪' }
       }
       const response = await this.fetcher(new URL(path, url.origin), {
-        headers, redirect: 'error', signal: AbortSignal.timeout(2500),
+        // 功能端会串行核验模型、浏览器或ASR；预算必须覆盖依赖检查，避免冷检查被GUI提前截断。
+        headers, redirect: 'error', signal: AbortSignal.timeout(
+          ['digest', 'crawler', 'video'].includes(name) ? 12000 : 2500),
       })
       if (!response.ok) {
         await response.body?.cancel()

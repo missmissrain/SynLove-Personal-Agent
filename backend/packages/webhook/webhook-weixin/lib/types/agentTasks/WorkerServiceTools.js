@@ -6,8 +6,7 @@ export class WorkerServiceTools {
     constructor(root){
         this.root = root;
     }
-    async mount_tools(child, kind) {
-        if (kind !== 'operations') return 0;
+    async mount_tools(child) {
         if (!existsSync(join(this.root, 'remoteControl', 'RemoteCmdMcp.py'))) return 0;
         const python = process.env.SYNLOVE_WORKER_PYTHON || join(this.root, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
         if (!existsSync(python)) throw Error('后台MCP解释器不存在，请配置SYNLOVE_WORKER_PYTHON');

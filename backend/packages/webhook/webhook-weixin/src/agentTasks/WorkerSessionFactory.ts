@@ -22,7 +22,7 @@ export class WorkerSessionFactory {
       agentOptions: { ...options, ...this.config.workerModel },
       setup: async (child: any, agent: any) => {
         await presets.mount(child, preset.id)
-        await new WorkerServiceTools(this.root).mount_tools(child, task.kind)
+        await new WorkerServiceTools(this.root).mount_tools(child)
         child.tools.presentAs('native')
         this.setup?.(child, task)
         child.systemPrompt.section({
@@ -41,11 +41,9 @@ export class WorkerSessionFactory {
           'task_submit', ...['task_submit','task_status','task_message','task_cancel','task_result']
             .map(name => `mcp__synlove-task__${name}`)]
         const known = child.tools.view(agent).restrictableNames
-        const allow = this.config.toolAllow?.[task.kind]
-        child.tools.restrict({ deny: deny.filter(name => known.has(name)),
-          ...(allow ? { allow: allow.filter((name: string) => known.has(name)) } : {}) })
-        child.tools.guard((exec: any) => deny.includes(exec.name) || (allow && !allow.includes(exec.name))
-          ? '该工具不在本次后台任务权限内' : undefined)
+        child.tools.restrict({ deny: deny.filter(name => known.has(name)) })
+        child.tools.guard((exec: any) => deny.includes(exec.name)
+          ? '任务执行者的结果由主人格统一回传，不直接发送消息或派生执行者' : undefined)
       },
     })
   }

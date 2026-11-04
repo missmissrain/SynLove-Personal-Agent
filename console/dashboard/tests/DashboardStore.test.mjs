@@ -10,6 +10,20 @@ import { tmpdir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
 import { DashboardStore } from '../DashboardStore.mjs'
 
+test('兼容服务器带横线的技能复盘任务名称，展示真实启用状态和下次执行时间', async t => {
+  const f = fixture(t)
+  f.store.tasks = async () => [{
+    id: 'SynLove-SkillReview', state: 'Ready', nextAt: '2026-11-04T03:00:00+08:00',
+    triggers: [{ start: '2026-11-03T03:00:00+08:00' }],
+  }]
+  const result = await f.store.snapshot()
+  const row = result.schedules.find(item => item.id === 'SynLoveSkillReview')
+  assert.equal(row.name, '自动沉淀 Skill')
+  assert.equal(row.state, 'Ready')
+  assert.equal(row.rule, '每天 03:00')
+  assert.equal(row.nextAt, '2026-11-04T03:00:00+08:00')
+})
+
 test('新闻服务已启用时覆盖旧 Windows 停用状态且只显示一个任务', async t => {
   const f = fixture(t)
   f.store.tasks = async () => [{ id: 'SynLoveNewsDigest', state: 'Disabled', triggers: [] }]

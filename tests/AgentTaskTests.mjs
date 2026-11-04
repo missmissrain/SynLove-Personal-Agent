@@ -151,7 +151,7 @@ test('双端60任务并发有界，主人格仍可对话，定向取消不影响
     await main.agent.whenIdle()
     const tasks=[]
     for(let i=0;i<60;i++) tasks.push(runtime.store.create_task('u','task-'+i,
-      {channel:i%2?'qq':'weixin',workspace:root,options},'隔离并发检查','research'))
+      {channel:i%2?'qq':'weixin',workspace:join(root,'task-'+i),options},'隔离并发检查','research'))
     await runtime.pump_tasks()
     await wait_for(()=>started.length===2)
     assert.equal(runtime.active.size,2)

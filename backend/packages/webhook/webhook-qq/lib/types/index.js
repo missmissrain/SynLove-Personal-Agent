@@ -171,7 +171,7 @@ export function apply(ctx, config) {
         if (msg_id !== undefined) await record_memory(String(session_id), 'user', content, `qq-${msg_id}`);
         try {
             const agent = await wait_for_agent(session_id);
-            if (!host.tasks) register_query_tools(agent.ctx);
+            register_query_tools(agent.ctx);
             const session_key = String(session_id);
             if (msg_id !== undefined) last_msg.set(session_key, msg_id);
             if (!host.tasks) {

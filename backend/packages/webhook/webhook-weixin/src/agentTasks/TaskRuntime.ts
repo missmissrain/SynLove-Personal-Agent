@@ -1,6 +1,6 @@
 /**
  * 任务调度唯一所有者：创建独立执行会话、限制并发、真实取消、恢复中断任务与结果待办。
- * 参数来自 config/agentTaskConfig.json；默认两个后台任务，主人格仅可使用五个任务 MCP 工具。
+ * 参数来自 config/agentTaskConfig.json；默认两个后台任务，主人格使用任务MCP和四个只读记忆工具。
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -102,13 +102,19 @@ export class TaskRuntime {
     try {
       handle = await this.factory.create_worker({ worker:id, kind:'research', origin:{workspace} }, options)
       const names = handle.agent.ctx.tools.schemas(handle.agent).map((tool: any) => tool.name)
-      if (!names.includes('read') || names.some((name: string) => ['write','edit','pwsh','bash','codex','opencode'].includes(name)))
-        throw new Error('只读执行预设工具边界不符合配置')
+      const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
+      if (!['read','write','edit',shell,'opencode','codex'].every(name => names.includes(name)))
+        throw new Error('统一执行预设缺少文件、命令行或编码连接器工具')
       return names.length
     } finally {
       await handle?.dispose()
       delete_session_artifacts({ root:sessions_root(), cwd:workspace, id })
     }
+  }
+  /** 无参数；返回主人格获准的任务管理与只读记忆工具名，不包含控制和记忆写入。 */
+  presenter_tool_names(): string[] {
+    return [...this.mcp.list_tools().map(tool => `mcp__synlove-task__${tool.name}`),
+      'timeline_days', 'timeline_search', 'timeline_read', 'relation_query']
   }
   /** agent 为主会话，origin 为宿主构造的不可变发送目标；返回注入消息的来源ID。 */
   note_input(agent: any, origin: any): string {
@@ -129,9 +135,10 @@ export class TaskRuntime {
         headers: { Authorization: `Bearer ${token}` }, failOnStartupError: true, toolCallTimeoutMs: 15000,
         registerResources: false,
       } as any)
-      const allow = this.mcp.list_tools().map(tool => `mcp__synlove-task__${tool.name}`)
-      agent.ctx.tools.restrict({ allow: [] })
-      agent.ctx.tools.guard((exec: any) => allow.includes(exec.name) ? undefined : '主人格只能使用任务 MCP')
+      const allow = this.presenter_tool_names()
+      const known = agent.ctx.tools.view(agent).restrictableNames
+      agent.ctx.tools.restrict({ allow: allow.filter(name => known.has(name)) })
+      agent.ctx.tools.guard((exec: any) => allow.includes(exec.name) ? undefined : '主人格仅使用任务管理和记忆只读查询')
       agent.ctx.on('system-prompt/assemble', async (_assembly: any, _context: any, next: any) => {
         const assembly = await next()
         return { ...assembly, sections: assembly.sections.filter((section: any) =>
@@ -158,7 +165,8 @@ export class TaskRuntime {
       if (source?.kind === 'synlove-task-result') throw new Error('结果处理轮次不能启动或修改任务')
       // time-context / system-prompt 等插件会在每轮注入 form=snapshot 的上下文快照，
       // 它们不是真实用户输入，没有 taskOriginId，必须跳过（否则任务工具永远被拒）。
-      if (source?.form === 'snapshot') continue
+      if (source?.kind === 'plugin' && source.form === 'snapshot'
+        && ['time-context','system-prompt'].includes(source.plugin)) continue
       const key = source?.taskOriginId
       if (!key) throw new Error('当前消息没有可信通道来源，拒绝后台操作')
       const origin = this.store.get_origin(key, owner.session)
@@ -182,7 +190,9 @@ export class TaskRuntime {
     const definition = this.mcp.list_tools().find(tool => tool.name === name)
     if (!definition) throw new Error('未知任务工具')
     if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('不允许的任务参数')
-    const unexpected = Object.keys(args).filter(key => !Object.hasOwn(definition.inputSchema.properties, key))
+    // 旧会话可能继续传kind；兼容接收但不再用它改变工具或执行能力。
+    const unexpected = Object.keys(args).filter(key => !Object.hasOwn(definition.inputSchema.properties, key)
+      && !(name === 'task_submit' && key === 'kind'))
     if (unexpected.length) {
       // 常见混淆：把补充要求（task_message 的 message/taskId）塞进 task_submit。
       const hint = name === 'task_submit' && (args.taskId || args.message)
@@ -198,16 +208,14 @@ export class TaskRuntime {
     const scope = origin?.owner ?? owner.session
     if (name === 'task_submit') {
       if (typeof args.request !== 'string' || !args.request.trim() || args.request.length > 12000) throw new Error('任务要求必须为1至12000字符')
-      const kind = args.kind ?? 'operations'
-      if (!['research','coding','operations'].includes(kind)) throw new Error('未知任务类别')
+      const kind = 'execution'
       const key = createHash('sha256').update(`${scope}\n${origin.key}\n${args.request.trim()}`).digest('hex')
       const task = this.store.create_task(scope, key,
         { ...origin, options: owner.options, workspace: origin.workspace ?? owner.options.workspace_path },
         args.request.trim(), kind)
       setImmediate(() => { void this.pump_tasks().catch(error => this.log_event('start.failed', { error: String(error) })) })
       return { taskId: task.id, state: task.state, accepted: true,
-        say: '已经交给后台啦，正在排队等开工，弄好了我马上告诉你～',
-        replyInstruction: '只用中文、用自己的自然口语说一句告诉用户任务已交给后台（可参考 say 的意思）。严禁念出 taskId、英文字段名或 JSON，严禁把 state 直译成英文句子；不要等待或轮询，结束后会主动通知。不得把已接收说成已经完成。' }
+        replyInstruction: '用自己的自然语气告诉用户后台已接下；不能说已完成。结束会主动通知，不必轮询。' }
     }
     if (args.taskId !== undefined && (typeof args.taskId !== 'string' || !args.taskId || args.taskId.length > 80))
       throw new Error('任务ID无效')
@@ -221,7 +229,6 @@ export class TaskRuntime {
       task = this.store.get_task(id, this.bridge.active.get(owner.session).owner)
     } else task = this.store.get_task(id, scope)
     if (name === 'task_status') return { taskId: id, state: task.state, stateLabel: STATE_SAY[task.state] ?? task.state,
-      say: `那个任务${STATE_SAY[task.state] ?? task.state}；只用中文口语告诉用户，别念任务ID或JSON。`,
       workerSessionId: task.worker, updatedAt: task.updated }
     if (name === 'task_result') {
       const offset = args.offset ?? 0
@@ -259,8 +266,7 @@ export class TaskRuntime {
       this.assert_owner()
       for (const task of this.store.pending_tasks('work')) {
         if (task.state !== 'queued' || this.active.size >= this.config.maxConcurrent) continue
-        if ([...this.active.values()].some(run => run.task.origin.workspace === task.origin.workspace
-          && (run.task.kind !== 'research' || task.kind !== 'research'))) continue
+        if ([...this.active.values()].some(run => run.task.origin.workspace === task.origin.workspace)) continue
         const entry: any = { task, handle: undefined, cancelled: false, abort: new AbortController() }
         this.active.set(task.id, entry)
         this.store.update_task(task.id, { state: 'running' })
@@ -287,7 +293,7 @@ export class TaskRuntime {
       else {
         entry.handle.agent.followup(createUserMessage({
           content: [{ type: 'text', text: [
-            `任务ID：${task.id}；类别：${task.kind}；获准工作区：${task.origin.workspace}。`,
+            `任务ID：${task.id}；获准工作区：${task.origin.workspace}。所有任务使用统一执行工具集。`,
             `用户本次原文（约束不能丢失）：${task.origin.originalText ?? ''}`,
             `具体任务：${task.request}`,
             '不要向用户直接发消息；执行完给出完整最终总结，包含实际完成、验证、产物、风险与未完成项。',

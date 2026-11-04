@@ -119,7 +119,7 @@ export class AvatarRenderer {
     const dt = this.last ? Math.min(.05,(time-this.last)/1000) : 0
     this.last = time
     const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (time >= this.nextBlink && !this.blinkStart && !reduced) {
+    if (time >= this.nextBlink && !this.blinkStart) {
       this.blinkStart = time
       this.nextBlink = time + 3200 + Math.random() * 3400
     }
@@ -131,7 +131,7 @@ export class AvatarRenderer {
     const mouth = time < this.speakUntil ? Math.max(0,Math.sin(time*.018))*.72 : 0
     if (this.manual) this.controls.value.set(...this.manual)
     else this.controls.value.set(blink,blink,mouth)
-    this.motion.update_motion(dt,reduced || Boolean(this.manual))
+    this.motion.update_motion(dt,Boolean(this.manual),reduced)
     this.renderer.render(this.scene,this.camera)
     this.frameCount++
   }

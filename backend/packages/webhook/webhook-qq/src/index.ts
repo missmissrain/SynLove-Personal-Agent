@@ -238,7 +238,7 @@ export function apply(ctx: Context, config: Config): void {
     try {
       // 共享会话时微信那边可能已经建好同一个 Agent：先取，取不到再建（否则 create 会"已存在"冲突）。
       const agent = await wait_for_agent(session_id)
-      if (!host.tasks) register_query_tools((agent as unknown as { ctx: unknown }).ctx)
+      register_query_tools((agent as unknown as { ctx: unknown }).ctx)
       // 微信/QQ 共用 Agent scope；每次入站更新当前通道，不能只按 QQ 的会话集合判重。
       const session_key = String(session_id)
       if (msg_id !== undefined) last_msg.set(session_key, msg_id)

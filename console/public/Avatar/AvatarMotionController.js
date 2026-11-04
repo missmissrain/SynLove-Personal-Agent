@@ -45,6 +45,7 @@ export class AvatarMotionController {
     this.hair = new AvatarHairSpring()
     this.actions = new AvatarIdleActions()
     this.time = 0
+    this.strength = 1
     this.gestureStart = -100
     this.nextGesture = 5+Math.random()*4
     this.nextLook = 0
@@ -59,7 +60,7 @@ export class AvatarMotionController {
   rotate_bone(name, x, y, z) {
     const bone = this.byName.get(name)
     if (!bone) return
-    this.euler.set(x,y,z,'XYZ')
+    this.euler.set(x*this.strength,y*this.strength,z*this.strength,'XYZ')
     bone.quaternion.multiply(this.delta.setFromEuler(this.euler))
   }
 
@@ -76,9 +77,10 @@ export class AvatarMotionController {
     this.actions.start_action(this.time,name)
   }
 
-  /** 参数dt为实际渲染间隔秒、still表示静止预览；dt限幅，暂停期间不推进动作时间。 */
-  update_motion(dt, still = false) {
+  /** 参数dt为实际间隔秒、still为显式静止预览、gentle为系统减少动效偏好；温和模式保留小幅待机但不自动挥手。 */
+  update_motion(dt, still = false, gentle = false) {
     dt = Math.max(0,Math.min(.05,dt))
+    this.strength = gentle ? .25 : 1
     if (!still) this.time += dt
     for (let i=0;i<this.bones.length;i++) {
       this.bones[i].position.copy(this.base[i].position)
@@ -99,11 +101,13 @@ export class AvatarMotionController {
       const follow = 1-Math.exp(-dt*1.4)
       this.look.x += (target.x-this.look.x)*follow
       this.look.y += (target.y-this.look.y)*follow
-      if (t>=this.nextGesture) {
+      if (!gentle && t>=this.nextGesture) {
         this.start_gesture()
         this.nextGesture = t+10+Math.random()*8
       }
-      const action=this.actions.sample_action(t)
+      const action=gentle
+        ? {name:'rest',active:false,yaw:0,tilt:0,nod:0,arm:0,elbow:0,wrist:0}
+        : this.actions.sample_action(t)
       const breath = Math.sin(t*1.43)
       const yaw = .036*this.look.x+.009*Math.sin(t*.47)+action.yaw
       const tilt = .017*Math.sin(t*.63+.4)+.010*this.look.x+action.tilt
@@ -122,10 +126,10 @@ export class AvatarMotionController {
       this.rotate_bone('Hand.L',.012*Math.sin(t*.72)+action.wrist,0,0)
       this.rotate_bone('Hand.R',.010*Math.sin(t*.68+1.3),0,0)
       const hair = this.hair.update_motion(dt,t,yaw)
-      this.uniforms.hairWind.value.set(...hair)
-      this.state = {headYaw:yaw,headTilt:tilt,arm:arm+action.arm,action:action.name,
+      this.uniforms.hairWind.value.set(...hair.map(value=>value*this.strength))
+      this.state = {headYaw:yaw*this.strength,headTilt:tilt*this.strength,arm:(arm+action.arm)*this.strength,action:action.name,
         actionActive:action.active,
-        hairMax:Math.max(...hair.map(Math.abs)),still:false}
+        hairMax:Math.max(...hair.map(value=>Math.abs(value*this.strength))),still:false,gentle}
     }
     for (const root of this.roots) root.updateMatrixWorld(true)
     for (let i=0;i<this.bones.length;i++) {

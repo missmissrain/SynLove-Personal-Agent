@@ -385,10 +385,8 @@ export class WeixinConnector {
       ...options.reasoning_effort === undefined ? {} : { reasoning_effort: options.reasoning_effort },
     })
     if (this.host.tasks) this.host.tasks.worker_setup = (child: any, task: any) => {
-      if (task.kind === 'coding') return
       if (this.timeline !== undefined) register_timeline_tools(child, this.timeline as TimelineStore)
       register_graph_tools(child, this.graph)
-      if (task.kind === 'research') return
       register_notify_tools(child, this.notify)
       register_bridge_result_tools(child, this.store)
       register_bridge_session_tools(child)
@@ -868,7 +866,7 @@ export class WeixinConnector {
     try {
       const agent = await this.host.create_agent(brandString<SessionId>(probe_id))
       // 复现真实的 QQ 先注册、微信后绑定路径；不注入消息、不调用模型、不外发。
-      if (this.timeline !== undefined && !this.host.tasks) {
+      if (this.timeline !== undefined) {
         register_timeline_tools(agent.ctx, this.timeline)
         register_graph_tools(agent.ctx, this.graph)
       }
@@ -876,8 +874,10 @@ export class WeixinConnector {
       this.bind_agent_stream(agent)
       if (this.host.tasks) {
         const tools = agent.ctx.tools.schemas(agent)
-        if (tools.length !== 5 || tools.some(tool => !tool.name.startsWith('mcp__synlove-task__')))
-          throw new Error('主人格五工具隔离检查失败：' + tools.map(tool => tool.name).join(','))
+        const allowed = this.host.tasks.presenter_tool_names()
+        if (tools.some(tool => !allowed.includes(tool.name))
+          || !allowed.every(name => tools.some(tool => tool.name === name)))
+          throw new Error('主人格任务与记忆查询工具检查失败：' + tools.map(tool => tool.name).join(','))
         const worker_tools = await this.host.tasks.check_worker(this.current_model, this.workspace_path)
         probe('agent-task', 'roles.checked', { presenter_tools:tools.length, worker_tools })
       }
@@ -1175,14 +1175,16 @@ export class WeixinConnector {
     this.stream_disposers.get(session_id)?.()
     // 长期记忆的读取工具装在**这个 agent 自己**的 ctx 上（用 agent.ctx.effect 保证随 agent 卸载清理）。
     // 只装"读"：写入由链路自动完成，不开放给模型，避免它把臆想的事实写进长期记忆。
-    if (this.timeline !== undefined && !this.host.tasks) {
+    if (this.timeline !== undefined) {
       agent.ctx.effect(() => {
         register_timeline_tools(agent.ctx, this.timeline as TimelineStore)
         register_graph_tools(agent.ctx, this.graph)
+        if (!this.host.tasks) {
         register_notify_tools(agent.ctx, this.notify)
         register_bridge_result_tools(agent.ctx, this.store)
     // codex / opencode 的会话清单与聊天记录（便于远程指挥那些会话）
     register_bridge_session_tools(agent.ctx)
+        }
         return () => { /* 工具注册随 effect 作用域自动释放 */ }
       }, 'webhook-weixin.memory-tools()')
     }

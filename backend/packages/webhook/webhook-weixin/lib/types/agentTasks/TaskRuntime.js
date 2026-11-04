@@ -10,7 +10,6 @@ import { WorkerSessionFactory } from './WorkerSessionFactory.js';
 import { TaskResultCollector } from './TaskResultCollector.js';
 import { PresenterEventBridge } from './PresenterEventBridge.js';
 import { delete_session_artifacts, sessions_root } from '../session/sessionFiles.js';
-/** 状态的中文口语说法：模型只有英文枚举时容易直接翻译成英文句子，这里直接给可念的中文。 */
 const STATE_SAY = {
     queued: '还在排队，马上就开跑',
     running: '正在跑着呢',
@@ -114,14 +113,15 @@ export class TaskRuntime {
                 }
             }, options);
             const names = handle.agent.ctx.tools.schemas(handle.agent).map((tool)=>tool.name);
-            if (!names.includes('read') || names.some((name)=>[
-                    'write',
-                    'edit',
-                    'pwsh',
-                    'bash',
-                    'codex',
-                    'opencode'
-                ].includes(name))) throw new Error('只读执行预设工具边界不符合配置');
+            const shell = process.platform === 'win32' ? 'pwsh' : 'bash';
+            if (![
+                'read',
+                'write',
+                'edit',
+                shell,
+                'opencode',
+                'codex'
+            ].every((name)=>names.includes(name))) throw new Error('统一执行预设缺少文件、命令行或编码连接器工具');
             return names.length;
         } finally{
             await handle?.dispose();
@@ -131,6 +131,15 @@ export class TaskRuntime {
                 id
             });
         }
+    }
+    presenter_tool_names() {
+        return [
+            ...this.mcp.list_tools().map((tool)=>`mcp__synlove-task__${tool.name}`),
+            'timeline_days',
+            'timeline_search',
+            'timeline_read',
+            'relation_query'
+        ];
     }
     note_input(agent, origin) {
         const key = `${origin.channel}:${origin.messageId}`;
@@ -162,11 +171,12 @@ export class TaskRuntime {
                 toolCallTimeoutMs: 15000,
                 registerResources: false
             });
-            const allow = this.mcp.list_tools().map((tool)=>`mcp__synlove-task__${tool.name}`);
+            const allow = this.presenter_tool_names();
+            const known = agent.ctx.tools.view(agent).restrictableNames;
             agent.ctx.tools.restrict({
-                allow: []
+                allow: allow.filter((name)=>known.has(name))
             });
-            agent.ctx.tools.guard((exec)=>allow.includes(exec.name) ? undefined : '主人格只能使用任务 MCP');
+            agent.ctx.tools.guard((exec)=>allow.includes(exec.name) ? undefined : '主人格仅使用任务管理和记忆只读查询');
             agent.ctx.on('system-prompt/assemble', async (_assembly, _context, next)=>{
                 const assembly = await next();
                 return {
@@ -197,9 +207,10 @@ export class TaskRuntime {
             if (events[i].type !== 'user/message') continue;
             const source = events[i].data?.source;
             if (source?.kind === 'synlove-task-result') throw new Error('结果处理轮次不能启动或修改任务');
-            // time-context / system-prompt 等插件会在每轮注入 form=snapshot 的上下文快照，
-            // 它们不是真实用户输入，没有 taskOriginId，必须跳过（否则任务工具永远被拒）。
-            if (source?.form === 'snapshot') continue;
+            if (source?.kind === 'plugin' && source.form === 'snapshot' && [
+                'time-context',
+                'system-prompt'
+            ].includes(source.plugin)) continue;
             const key = source?.taskOriginId;
             if (!key) throw new Error('当前消息没有可信通道来源，拒绝后台操作');
             const origin = this.store.get_origin(key, owner.session);
@@ -227,11 +238,9 @@ export class TaskRuntime {
         const definition = this.mcp.list_tools().find((tool)=>tool.name === name);
         if (!definition) throw new Error('未知任务工具');
         if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('不允许的任务参数');
-        const unexpected = Object.keys(args).filter((key)=>!Object.hasOwn(definition.inputSchema.properties, key));
+        const unexpected = Object.keys(args).filter((key)=>!Object.hasOwn(definition.inputSchema.properties, key) && !(name === 'task_submit' && key === 'kind'));
         if (unexpected.length) {
-            const hint = name === 'task_submit' && (args.taskId || args.message)
-                ? '；给进行中的任务补充要求请改用 task_message（参数 taskId + message），task_submit 只用于新建任务（必填 request）'
-                : `；本工具（${name}）只接受参数：${Object.keys(definition.inputSchema.properties).join(', ')}`;
+            const hint = name === 'task_submit' && (args.taskId || args.message) ? '；给进行中的任务补充要求请改用 task_message（参数 taskId + message），task_submit 只用于新建任务（必填 request）' : `；本工具（${name}）只接受参数：${Object.keys(definition.inputSchema.properties).join(', ')}`;
             throw new Error(`不允许的任务参数：${unexpected.join(', ')}${hint}`);
         }
         const presentation = this.is_presenting(owner.session);
@@ -241,12 +250,7 @@ export class TaskRuntime {
         const scope = origin?.owner ?? owner.session;
         if (name === 'task_submit') {
             if (typeof args.request !== 'string' || !args.request.trim() || args.request.length > 12000) throw new Error('任务要求必须为1至12000字符');
-            const kind = args.kind ?? 'operations';
-            if (![
-                'research',
-                'coding',
-                'operations'
-            ].includes(kind)) throw new Error('未知任务类别');
+            const kind = 'execution';
             const key = createHash('sha256').update(`${scope}\n${origin.key}\n${args.request.trim()}`).digest('hex');
             const task = this.store.create_task(scope, key, {
                 ...origin,
@@ -262,8 +266,7 @@ export class TaskRuntime {
                 taskId: task.id,
                 state: task.state,
                 accepted: true,
-                say: '已经交给后台啦，正在排队等开工，弄好了我马上告诉你～',
-                replyInstruction: '只用中文、用自己的自然口语说一句告诉用户任务已交给后台（可参考 say 的意思）。严禁念出 taskId、英文字段名或 JSON，严禁把 state 直译成英文句子；不要等待或轮询，结束后会主动通知。不得把已接收说成已经完成。'
+                replyInstruction: '用自己的自然语气告诉用户后台已接下；不能说已完成。结束会主动通知，不必轮询。'
             };
         }
         if (args.taskId !== undefined && (typeof args.taskId !== 'string' || !args.taskId || args.taskId.length > 80)) throw new Error('任务ID无效');
@@ -284,7 +287,6 @@ export class TaskRuntime {
             taskId: id,
             state: task.state,
             stateLabel: STATE_SAY[task.state] ?? task.state,
-            say: `那个任务${STATE_SAY[task.state] ?? task.state}；只用中文口语告诉用户，别念任务ID或JSON。`,
             workerSessionId: task.worker,
             updatedAt: task.updated
         };
@@ -351,7 +353,7 @@ export class TaskRuntime {
                 if (task.state !== 'queued' || this.active.size >= this.config.maxConcurrent) continue;
                 if ([
                     ...this.active.values()
-                ].some((run)=>run.task.origin.workspace === task.origin.workspace && (run.task.kind !== 'research' || task.kind !== 'research'))) continue;
+                ].some((run)=>run.task.origin.workspace === task.origin.workspace)) continue;
                 const entry = {
                     task,
                     handle: undefined,
@@ -395,7 +397,7 @@ export class TaskRuntime {
                         {
                             type: 'text',
                             text: [
-                                `任务ID：${task.id}；类别：${task.kind}；获准工作区：${task.origin.workspace}。`,
+                                `任务ID：${task.id}；获准工作区：${task.origin.workspace}。所有任务使用统一执行工具集。`,
                                 `用户本次原文（约束不能丢失）：${task.origin.originalText ?? ''}`,
                                 `具体任务：${task.request}`,
                                 '不要向用户直接发消息；执行完给出完整最终总结，包含实际完成、验证、产物、风险与未完成项。'

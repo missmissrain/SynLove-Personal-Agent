@@ -142,14 +142,6 @@ export class TaskMcpServer {
         return [
             make('task_submit', '把操作或长任务交给独立后台会话，立即返回任务ID。只能用于新建任务；给进行中的任务补充要求要用 task_message，不能用本工具。成功后用自己的自然语气告知用户已经交到后台处理；失败时不得说已开始。不要等待任务结束。', {
                 request: text,
-                kind: {
-                    type: 'string',
-                    enum: [
-                        'research',
-                        'coding',
-                        'operations'
-                    ]
-                },
                 originId: {
                     type: 'string',
                     minLength: 1,

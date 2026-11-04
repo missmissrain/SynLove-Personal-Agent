@@ -30,7 +30,7 @@ export class WorkerSessionFactory {
             },
             setup: async (child, agent)=>{
                 await presets.mount(child, preset.id);
-                await new WorkerServiceTools(this.root).mount_tools(child, task.kind);
+                await new WorkerServiceTools(this.root).mount_tools(child);
                 child.tools.presentAs('native');
                 this.setup?.(child, task);
                 child.systemPrompt.section({
@@ -64,14 +64,10 @@ export class WorkerSessionFactory {
                     ].map((name)=>`mcp__synlove-task__${name}`)
                 ];
                 const known = child.tools.view(agent).restrictableNames;
-                const allow = this.config.toolAllow?.[task.kind];
                 child.tools.restrict({
-                    deny: deny.filter((name)=>known.has(name)),
-                    ...allow ? {
-                        allow: allow.filter((name)=>known.has(name))
-                    } : {}
+                    deny: deny.filter((name)=>known.has(name))
                 });
-                child.tools.guard((exec)=>deny.includes(exec.name) || allow && !allow.includes(exec.name) ? '该工具不在本次后台任务权限内' : undefined);
+                child.tools.guard((exec)=>deny.includes(exec.name) ? '任务执行者的结果由主人格统一回传，不直接发送消息或派生执行者' : undefined);
             }
         });
     }

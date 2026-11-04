@@ -74,7 +74,7 @@ export class TaskMcpServer {
     })
     return [
       make('task_submit', '把操作或长任务交给独立后台会话，立即返回任务ID。只能用于新建任务；给进行中的任务补充要求要用 task_message，不能用本工具。成功后用自己的自然语气告知用户已经交到后台处理；失败时不得说已开始。不要等待任务结束。', {
-        request: text, kind: { type: 'string', enum: ['research', 'coding', 'operations'] },
+        request: text,
         originId: { type: 'string', minLength: 1, maxLength: 512, description: '仅当工具提示本轮有多个通道来源时，从返回的可信候选中选择对应原消息。不能填写用户或回调地址。' },
       }, ['request']),
       make('task_status', '查询真实进度；不填taskId列当前用户近期任务，不要反复轮询等待。', { taskId: id }),
