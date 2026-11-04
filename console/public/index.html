@@ -131,35 +131,31 @@
   <section id="tab-remote" class="panel">
     <div class="workspace-tabs" role="tablist" aria-label="连接分类">
       <button type="button" id="remote-services-tab" role="tab" aria-selected="true" aria-controls="remote-service-container" data-remote-view="services" class="active">后台服务</button>
-      <button type="button" id="remote-computer-tab" role="tab" aria-selected="false" aria-controls="remote-computer-view" data-remote-view="computer" tabindex="-1">远控电脑</button>
+      <button type="button" id="remote-computer-tab" role="tab" aria-selected="false" aria-controls="remote-computer-view" data-remote-view="computer" tabindex="-1">设备管理</button>
     </div>
     <div id="remote-service-container" role="tabpanel" aria-labelledby="remote-services-tab"></div>
     <div class="card remote-computer-card" id="remote-computer-view" role="tabpanel" aria-labelledby="remote-computer-tab" hidden>
-      <div class="section-heading"><h3>远控电脑</h3><button id="remote-new">添加电脑</button></div>
-      <div id="remote-target-list" class="remote-target-list" aria-label="已保存电脑"></div>
+      <div class="section-heading"><h3>设备管理 <span id="terminal-online-count" class="badge">读取中</span></h3><button id="remote-new">添加设备</button></div>
+      <div id="remote-target-list" class="remote-target-list" aria-label="已登记设备"></div>
       <form id="remote-target-form" autocomplete="off">
         <div class="form-grid">
-          <label>电脑标识<input id="remote-id" placeholder="officePc" required pattern="[a-zA-Z][a-zA-Z0-9]{0,63}" maxlength="64" /></label>
-          <label>显示名称<input id="remote-description" placeholder="办公室电脑" maxlength="120" /></label>
-          <label>IP / 主机名<input id="remote-host" placeholder="目标 IP 或 VPS 地址" required /></label>
-          <label>SSH / 转发端口<input id="remote-port" type="number" min="1" max="65535" value="22" required /></label>
-          <label>电脑登录账号<input id="remote-user" placeholder="目标电脑的 Windows 账号" autocomplete="off" required /></label>
-          <label>登录密码<input id="remote-password" type="password" autocomplete="new-password" placeholder="输入密码；已保存时留空保留" /></label>
+          <label>显示名称<input id="remote-description" placeholder="设备名称" maxlength="80" /></label>
+          <label>设备标识<input id="remote-id" placeholder="留空自动生成" pattern="[a-zA-Z][a-zA-Z0-9_-]{0,63}" maxlength="64" /></label>
+          <label>设备类型<select id="remote-kind"><option value="windows">Windows 电脑</option><option value="linux">Linux 主机</option><option value="android">安卓设备</option><option value="embedded">嵌入式设备</option><option value="gateway">接入网关</option></select></label>
+          <label>接入方式<select id="remote-transport"><option value="direct">独立终端</option><option value="adb">ADB · 预留</option><option value="gateway">网关转发 · 预留</option></select></label>
+          <label id="remote-parent-label" hidden>接入设备<select id="remote-parent"><option value="">请选择</option></select></label>
           <label>连接开关<select id="remote-enabled"><option value="true">开启</option><option value="false">关闭</option></select></label>
+          <label>Codex 完成通知<select id="remote-codex"><option value="false">关闭</option><option value="true">开启</option></select></label>
+          <label>OpenCode 完成通知<select id="remote-opencode"><option value="false">关闭</option><option value="true">开启</option></select></label>
         </div>
-        <div class="remote-identity">
-          <div class="section-heading"><label for="remote-fingerprint">SSH 主机指纹</label><button id="remote-key" type="button">读取指纹</button></div>
-          <input id="remote-fingerprint" placeholder="SHA256:…" aria-label="SSH 主机指纹" />
-          <label class="remote-trust"><input id="remote-trust" type="checkbox" /> 已在目标电脑核对指纹</label>
-          <div class="hint" id="remote-key-hint">首次连接需核对指纹；读取指纹不会登录或运行命令。</div>
-        </div>
+        <p id="remote-notification-hint" class="hint" hidden>服务器尚未配置通知接收人，开启后完成事件会暂存在服务器。</p>
         <div class="row remote-actions">
-          <button id="remote-save" class="primary" type="submit">保存配置</button>
+          <button id="remote-save" class="primary" type="submit">生成接入文件</button>
+          <button id="remote-pair" type="button" hidden>生成接入文件</button>
           <button id="remote-test" type="button">测试连接</button>
-          <button id="remote-delete" type="button" class="danger">删除配置</button>
         </div>
       </form>
-      <div id="remote-result" class="remote-result" role="status" aria-live="polite">选择电脑或添加一个连接。密码仅保存在本机。</div>
+      <div id="remote-result" class="remote-result" role="status" aria-live="polite">选择设备，或为新终端生成接入文件。</div>
     </div>
   </section>
 
@@ -442,7 +438,7 @@
 <script src="/ConsoleDashboard.js"></script>
 <script src="/ConsoleWorkspace.js"></script>
 <script src="/ConsoleTooltip.js"></script>
-<script src="/RemoteConnections.js"></script>
+<script src="/TerminalDevices.js"></script>
 <script type="module" src="/Avatar/AvatarPanel.js"></script>
 </body>
 </html>

@@ -4,6 +4,6 @@
   "workerPreset": "task-worker",
   "maxConcurrent": 2,
   "taskTimeoutMs": 1800000,
-  "presentationTimeoutMs": 90000,
+  "presentationTimeoutMs": 180000,
   "workerModel": {}
 }

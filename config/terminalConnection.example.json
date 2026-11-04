@@ -1,0 +1,8 @@
+{
+  "repositoryRoot": "../SynLove-Terminal-Connection",
+  "maintenanceRoot": "../SynLove-Terminal-Connection",
+  "adminURL": "http://127.0.0.1:17864",
+  "adminToken": "REPLACE_WITH_PRIVATE_LOCAL_ADMIN_TOKEN",
+  "deviceSnapshot": "../SynLove-Terminal-Connection/runtime/server/devices.json",
+  "serverDeviceId": "server"
+}

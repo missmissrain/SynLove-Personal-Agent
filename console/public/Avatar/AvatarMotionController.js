@@ -71,13 +71,13 @@ export class AvatarMotionController {
     }
   }
 
-  /** 参数name为可选的有限动作名；自动模式选不同动作，保留独立验收入口。 */
-  start_gesture(name) {
+  /** 参数name为可选动作名、gentle为温和模式；每次切换从原始姿态叠加，不积累旋转。 */
+  start_gesture(name, gentle = false) {
     this.gestureStart = this.time
-    this.actions.start_action(this.time,name)
+    this.actions.start_action(this.time,name,gentle)
   }
 
-  /** 参数dt为实际间隔秒、still为显式静止预览、gentle为系统减少动效偏好；温和模式保留小幅待机但不自动挥手。 */
+  /** 参数dt为实际间隔秒、still为显式静止预览、gentle为系统减少动效偏好；温和模式降幅并仅自动选择头肩动作。 */
   update_motion(dt, still = false, gentle = false) {
     dt = Math.max(0,Math.min(.05,dt))
     this.strength = gentle ? .25 : 1
@@ -101,30 +101,30 @@ export class AvatarMotionController {
       const follow = 1-Math.exp(-dt*1.4)
       this.look.x += (target.x-this.look.x)*follow
       this.look.y += (target.y-this.look.y)*follow
-      if (!gentle && t>=this.nextGesture) {
-        this.start_gesture()
-        this.nextGesture = t+10+Math.random()*8
+      if (t>=this.nextGesture) {
+        this.start_gesture(undefined,gentle)
+        this.nextGesture = t+(gentle ? 18 : 10)+Math.random()*8
       }
-      const action=gentle
-        ? {name:'rest',active:false,yaw:0,tilt:0,nod:0,arm:0,elbow:0,wrist:0}
-        : this.actions.sample_action(t)
+      // 偏好在动作中切换时，先平滑收尾旧动作，后续按温和列表选择。
+      const action=this.actions.sample_action(t)
+      const arms=gentle ? 0 : 1
       const breath = Math.sin(t*1.43)
       const yaw = .036*this.look.x+.009*Math.sin(t*.47)+action.yaw
       const tilt = .017*Math.sin(t*.63+.4)+.010*this.look.x+action.tilt
       const nod = .016*this.look.y+action.nod
       this.rotate_bone('Spine',.0025*breath,0,.002*Math.sin(t*.57))
-      this.rotate_bone('Chest',.0045*breath,.003*Math.sin(t*.43),0)
+      this.rotate_bone('Chest',.0045*breath+action.chest,.003*Math.sin(t*.43),0)
       this.rotate_bone('Neck',nod*.32,yaw*.25,tilt*.28)
       this.rotate_bone('Head',nod*.68,yaw*.75,tilt*.72)
-      this.rotate_bone('Shoulder.L',.0035*breath,0,.003*Math.sin(t*.8))
-      this.rotate_bone('Shoulder.R',.0035*breath,0,-.003*Math.sin(t*.8))
+      this.rotate_bone('Shoulder.L',.0035*breath,0,.003*Math.sin(t*.8)+action.shoulder)
+      this.rotate_bone('Shoulder.R',.0035*breath,0,-.003*Math.sin(t*.8)-action.shoulder)
       const arm = .055*Math.sin(t*.90+.8)
-      this.rotate_bone('UpperArm.L',arm+action.arm,0,.018*Math.sin(t*.49))
-      this.rotate_bone('UpperArm.R',-.050*Math.sin(t*.83+1.6),0,-.016*Math.sin(t*.51))
-      this.rotate_bone('Forearm.L',.020*Math.sin(t*.90+.1)+action.elbow,0,0)
-      this.rotate_bone('Forearm.R',.020*Math.sin(t*.83+1.0),0,0)
-      this.rotate_bone('Hand.L',.012*Math.sin(t*.72)+action.wrist,0,0)
-      this.rotate_bone('Hand.R',.010*Math.sin(t*.68+1.3),0,0)
+      this.rotate_bone('UpperArm.L',arm+action.arm*arms,0,.018*Math.sin(t*.49))
+      this.rotate_bone('UpperArm.R',-.050*Math.sin(t*.83+1.6)+action.armR*arms,0,-.016*Math.sin(t*.51))
+      this.rotate_bone('Forearm.L',.020*Math.sin(t*.90+.1)+action.elbow*arms,0,0)
+      this.rotate_bone('Forearm.R',.020*Math.sin(t*.83+1.0)+action.elbowR*arms,0,0)
+      this.rotate_bone('Hand.L',.012*Math.sin(t*.72)+action.wrist*arms,0,0)
+      this.rotate_bone('Hand.R',.010*Math.sin(t*.68+1.3)+action.wristR*arms,0,0)
       const hair = this.hair.update_motion(dt,t,yaw)
       this.uniforms.hairWind.value.set(...hair.map(value=>value*this.strength))
       this.state = {headYaw:yaw*this.strength,headTilt:tilt*this.strength,arm:(arm+action.arm)*this.strength,action:action.name,

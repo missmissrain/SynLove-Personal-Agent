@@ -9,17 +9,25 @@ import { TaskMcpServer } from './TaskMcpServer.js';
 import { WorkerSessionFactory } from './WorkerSessionFactory.js';
 import { TaskResultCollector } from './TaskResultCollector.js';
 import { PresenterEventBridge } from './PresenterEventBridge.js';
+import { TaskReportStore } from './TaskReportStore.js';
+import { TaskProgressCache } from './TaskProgressCache.js';
+import { AgentReasoning } from './AgentReasoning.js';
 import { delete_session_artifacts, sessions_root } from '../session/sessionFiles.js';
-const STATE_SAY = {
-    queued: '还在排队，马上就开跑',
-    running: '正在跑着呢',
-    cancelling: '正在停下来',
-    succeeded: '已经跑完啦',
-    partial: '跑完了，但有些部分没做成',
-    failed: '没跑成，出错了',
-    cancelled: '已经取消了',
-    interrupted: '中途被打断了'
-};
+/**
+ * event 为会话事件；把执行内核一次助手回复整理成可读文本。
+ * 有正文就记正文，只有工具调用时记“调用 工具名”，推理内容不写入缓存。
+ */
+function reply_text(event) {
+    if (event?.type !== 'assistant/message') return '';
+    const content = event.data?.message?.content;
+    if (!Array.isArray(content)) return '';
+    const parts = [];
+    for (const block of content){
+        if (block?.type === 'text' && String(block.text ?? '').trim()) parts.push(String(block.text).trim());
+        else if (block?.type === 'tool-call') parts.push('调用 ' + String(block.name ?? block.toolName ?? '工具'));
+    }
+    return parts.join('\n').slice(0, 8000);
+}
 export class TaskRuntime {
     ctx;
     root;
@@ -30,6 +38,7 @@ export class TaskRuntime {
     collector = new TaskResultCollector();
     bridge;
     config;
+    progress;
     active = new Map();
     channels = new Map();
     attached = new WeakSet();
@@ -47,11 +56,12 @@ export class TaskRuntime {
         this.config = {
             maxConcurrent: 2,
             taskTimeoutMs: 1800000,
-            presentationTimeoutMs: 90000,
+            presentationTimeoutMs: 180000,
             ...config
         };
         if (!Number.isInteger(this.config.maxConcurrent) || this.config.maxConcurrent < 1 || this.config.maxConcurrent > 4) throw new Error('任务并发必须为1至4');
         this.store = new TaskStore(join(root, 'runtime', 'agentTasks', 'taskStore.sqlite'));
+        this.progress = new TaskProgressCache(root);
         if (!this.store.claim_lease(this.owner)) {
             this.store.close_store();
             throw new Error('另一个实例占用后台任务运行器');
@@ -91,6 +101,9 @@ export class TaskRuntime {
     }
     is_presenting(session) {
         return this.bridge.is_presenting(session);
+    }
+    host_context() {
+        return this.ctx;
     }
     assert_owner() {
         if (this.stopped || !this.store.has_lease(this.owner)) throw new Error('后台任务运行器已停止或失去所有权');
@@ -138,7 +151,9 @@ export class TaskRuntime {
             'timeline_days',
             'timeline_search',
             'timeline_read',
-            'relation_query'
+            'relation_query',
+            'mcp__remote-cmd__terminal_devices',
+            'mcp__remote-cmd__remote_cmd_list'
         ];
     }
     note_input(agent, origin) {
@@ -190,6 +205,7 @@ export class TaskRuntime {
                 text: readFileSync(join(this.root, 'prompts', 'PresenterProtocol.md'), 'utf8')
             });
             agent.ctx.effect(()=>()=>this.mcp.revoke_owner(token));
+            new AgentReasoning(this.root, 'presenter').attach_agent(agent);
             this.log_event('presenter.ready', {
                 tools: allow.length
             });
@@ -275,6 +291,7 @@ export class TaskRuntime {
                 taskId: task.id,
                 state: task.state,
                 kind: task.kind,
+                progressCount: this.progress.count(task.id),
                 updatedAt: task.updated
             }));
         let task;
@@ -286,9 +303,19 @@ export class TaskRuntime {
         if (name === 'task_status') return {
             taskId: id,
             state: task.state,
-            stateLabel: STATE_SAY[task.state] ?? task.state,
             workerSessionId: task.worker,
+            progressCount: this.progress.count(id),
             updatedAt: task.updated
+        };
+        if (name === 'task_progress') return {
+            taskId: id,
+            state: task.state,
+            updatedAt: task.updated,
+            entries: this.progress.read(id, 30).map((row)=>({
+                    at: row.at,
+                    text: String(row.text ?? '').slice(0, 1200)
+                })),
+            note: this.progress.count(id) ? undefined : '还没有读到执行内核的回复；任务已结束的话缓存已经销毁，最终结论用 task_result'
         };
         if (name === 'task_result') {
             const offset = args.offset ?? 0;
@@ -299,6 +326,13 @@ export class TaskRuntime {
                 state: task.state,
                 summary: result.slice(offset, offset + 10000),
                 nextOffset: offset + 10000 < result.length ? offset + 10000 : null,
+                artifacts: [
+                    'succeeded',
+                    'partial',
+                    'failed',
+                    'cancelled',
+                    'interrupted'
+                ].includes(task.state) ? new TaskReportStore(this.root).persist_result(task) : undefined,
                 verification: '以执行总结中的实际验证范围为准；会话结束不等于所有目标均已验证'
             };
         }
@@ -400,6 +434,9 @@ export class TaskRuntime {
                                 `任务ID：${task.id}；获准工作区：${task.origin.workspace}。所有任务使用统一执行工具集。`,
                                 `用户本次原文（约束不能丢失）：${task.origin.originalText ?? ''}`,
                                 `具体任务：${task.request}`,
+                                '报告使用 save_report 保存到宿主固定目录；不要把任务说明中自动补写的旧目录当成真实路径，也不要让主人格代写文件。',
+                                '长报告先保存，再给简短最终总结（建议1500字以内），保留结论、真实路径、风险与未完成项，不把整篇报告塞进总结。',
+                                '每一轮回复的最后单独一行写进度摘要，固定格式：摘要：本轮做了……；希望……；结果……（不超过120字）。这一行是给主人格看进度的，每轮都要写，没有进展也要如实写。',
                                 '不要向用户直接发消息；执行完给出完整最终总结，包含实际完成、验证、产物、风险与未完成项。'
                             ].join('\n')
                         }
@@ -408,6 +445,16 @@ export class TaskRuntime {
                         kind: 'user'
                     }
                 }));
+                const workerId = String(task.worker);
+                const stop = this.ctx?.on?.('session/event', (session, event)=>{
+                    if (String(session?.header?.id ?? session) !== workerId) return;
+                    const text = reply_text(event);
+                    if (!text) return;
+                    try {
+                        this.progress.append(task.id, text, Number(event?.time) || Date.now());
+                    } catch  {}
+                });
+                entry.progressOff = typeof stop === 'function' ? stop : undefined;
                 await entry.handle.agent.whenIdle();
             }
             const result = this.collector.collect_result(entry.handle.agent, 0, entry.cancelled, true);
@@ -425,6 +472,8 @@ export class TaskRuntime {
             });
         } finally{
             clearTimeout(timer);
+            entry.progressOff?.();
+            this.progress.clear(task.id);
             try {
                 await entry.handle?.dispose();
             } catch  {}
@@ -447,11 +496,12 @@ export class TaskRuntime {
             });
         }
         this.closing = (async ()=>{
+            const notices = this.bridge.close_bridge();
             await this.mcp.close_server();
             await Promise.allSettled([
                 ...this.runs
             ]);
-            await this.bridge.close_bridge();
+            await notices;
             this.store.release_lease(this.owner);
             this.store.close_store();
         })();

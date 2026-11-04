@@ -5,8 +5,10 @@
  */
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const require = createRequire(join(root, 'backend', 'package.json'))
@@ -16,11 +18,15 @@ const { StdioClientTransport } = require('@modelcontextprotocol/client/stdio')
 class RemoteControlMcpTest {
   /** 无参数；建立与 Harness 相同的 MCP 连接，执行无副作用契约检查后回收子进程。 */
   async run_test() {
+    const component = JSON.parse(readFileSync(join(root, 'config/terminalConnection.json'), 'utf8')).repositoryRoot
+    const temp = mkdtempSync(join(tmpdir(), 'synloveMcpTest-'))
+    const config = join(temp, 'Admin.json')
+    writeFileSync(config, JSON.stringify({ adminURL: 'http://127.0.0.1:1', adminToken: 'isolatedTest' }))
     const client = new Client({ name: 'synlove-isolated-test', version: '1.0.0' },
       { capabilities: {}, versionNegotiation: { mode: 'auto' } })
     const transport = new StdioClientTransport({
       command: process.env.DSH_PYTHON || join(root, '.venv', 'Scripts', 'python.exe'),
-      args: [join(root, 'remoteControl', 'RemoteCmdMcp.py')],
+      args: [resolve(root, component, 'terminalConnection/tools/TerminalMcp.py'), '--config', config],
       env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' },
       stderr: 'pipe',
     })
@@ -28,7 +34,7 @@ class RemoteControlMcpTest {
       await client.connect(transport)
       const reply = await client.listTools()
       assert.deepEqual(reply.tools.map(tool => tool.name),
-        ['remote_cmd_list', 'remote_cmd_probe', 'remote_cmd_run'])
+        ['terminal_devices', 'remote_cmd_list', 'remote_cmd_probe', 'remote_cmd_run', 'terminal_music'])
       await client.ping()
       // 期限在读取任何目标配置、建立任何 SSH 连接前即被拒绝。
       const invalid = await client.callTool({
@@ -36,9 +42,10 @@ class RemoteControlMcpTest {
       })
       assert.equal(invalid.isError, true)
       assert.equal(JSON.parse(invalid.content[0].text).ok, false)
-      console.log('PASS: Harness MCP SDK 握手、3 个工具、心跳、参数失败反馈')
+      console.log('PASS: Harness MCP SDK 握手、5 个终端工具、心跳、参数失败反馈')
     } finally {
       await client.close()
+      rmSync(temp, { recursive: true, force: true })
     }
   }
 }

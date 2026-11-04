@@ -65,7 +65,7 @@ export class TaskMcpServer {
   }
   /** token 为已释放主人格的临时能力令牌。 */
   revoke_owner(token: string): void { this.tokens.delete(token) }
-  /** 无参数；返回稳定的五个工具，避免每轮工具前缀变化。 */
+  /** 无参数；返回稳定的六个工具，避免每轮工具前缀变化。 */
   list_tools(): any[] {
     const text = { type: 'string', minLength: 1, maxLength: 12000 }
     const id = { type: 'string', minLength: 1, maxLength: 80 }
@@ -78,6 +78,7 @@ export class TaskMcpServer {
         originId: { type: 'string', minLength: 1, maxLength: 512, description: '仅当工具提示本轮有多个通道来源时，从返回的可信候选中选择对应原消息。不能填写用户或回调地址。' },
       }, ['request']),
       make('task_status', '查询真实进度；不填taskId列当前用户近期任务，不要反复轮询等待。', { taskId: id }),
+      make('task_progress', '读取执行内核到目前为止的每一次回复（任务进行期间的缓存，任务结束后自动销毁），判断它现在做到哪一步。', { taskId: id }, ['taskId']),
       make('task_message', '给指定进行中的任务补充要求，返回接收状态；不能把普通聊天自动转发过去。', { taskId: id, message: text }, ['taskId', 'message']),
       make('task_cancel', '停止指定后台任务；收到确认前不能说已经停止。多个任务且目标不明确时先问用户。', { taskId: id }, ['taskId']),
       make('task_result', '读取任务保存的最终总结；完整结果分页返回，保留失败、风险、未验证项。', {

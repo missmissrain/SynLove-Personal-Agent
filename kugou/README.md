@@ -1,6 +1,25 @@
 ﻿# 酷狗音乐控制（KuGouMusicApi + 点播）
 
-用本机 `KuGouMusicApi` 搜索/点歌，用本地播放器播放；账号 cookie/token 只存在本机，不进仓库。
+使用 `KuGouMusicApi` 搜索和解析曲目，通过 SynLove-Terminal-Connection 在指定设备播放。服务器维护曲目队列，终端维护播放器进程与音频设备。
+
+## 服务器控制指定电脑播放
+
+酷狗解析与扬声器可以分处两台设备。服务器运行音乐 MCP，被控电脑安装 SynLove-Terminal-Connection 客户端，通过 VPS 的签名终端协议接收播放操作，不需要运行 SynLove 主程序或 GUI。
+
+将 `kugou/config/playback.example.json` 复制为私有 `config/musicPlayback.json`，配置：
+
+| 字段 | 含义 |
+| --- | --- |
+| `mode` | 兼容已有配置；实际播放统一通过终端接口 |
+| `target` | 设备管理或 `terminal_devices` 返回的已配对设备 ID |
+| `transport` | 使用 `terminal`，通过主程序私有桥接配置访问终端管理器 |
+| `volume` | 播放音量，0至100，默认35 |
+
+未填写 `target` 时使用桥接配置的 `serverDeviceId`，仍经终端接口播放；目标设备需要运行终端客户端。终端配置缺失时搜歌和登录工具仍可加载，播放控制明确返回失败。私有配置不提交仓库，修改后需重新加载音乐MCP。
+
+服务器仍负责歌单和逐首取地址，本机接收器统一维护播放器进程及实际播放状态。控制使用播放ID核对归属；目标离线明确失败，不自动在服务器出声。音乐MCP会等待本机音频时钟前进再报告正在播放；超时提示先查状态，避免重复点播。
+
+长歌单自动连播需要服务器音乐MCP保持运行；服务器MCP退出不会自动终止本机已开始的歌曲，但后续逐首解析不会继续。电脑未登录、关机或休眠时不保证播放。接入细节及默认回环端口见远控仓库说明。
 
 ## 目录
 
@@ -11,7 +30,8 @@ kugou/
 ├── config/auth.example.json# 登录凭据模板（token/userid/mid）
 ├── config/auth.json        # 真实凭据，扫码后自动生成（.gitignore 已挡）
 ├── client/kugouApi.py      # API 客户端：串行限速、TTL 缓存、失败冷却、dfid 持久化
-├── client/kugouPlayback.py # ffplay 点播 + 队列 + 暂停/继续/切歌
+├── client/MusicQueue.py    # 服务器曲目队列与补页
+├── client/RemoteMusicPlayback.py # 独立终端API适配器
 ├── tools/kugouLogin.py     # 扫码登录助手
 ├── mcp/kugouMcp.py         # 给欣爱的工具（MCP stdio）
 └── README.md
@@ -26,8 +46,7 @@ cd KuGouMusicApi
 npm install
 ```
 
-播放依赖本机 `ffplay`（ffmpeg 自带）：装好后把 `ffplay` 加进 `PATH`，或在
-`kugouPlayback(...)` 里显式传 `ffplay` 路径。
+播放设备需要 `ffplay`（FFmpeg 提供），在终端仓库的私有配置中设置可执行路径或加入该设备的 `PATH`。音乐MCP所在服务器不需要音频设备。
 
 ## 启动
 

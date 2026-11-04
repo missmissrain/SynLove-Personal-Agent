@@ -1,6 +1,6 @@
 /**
- * 远控连接心跳：只检查已保存、启用且有凭据的电脑，复用固定SSH/CMD探测，不执行任意指令。
- * 参数store为现有配置管理器，interval默认45秒；同一轮未结束不再启动下一轮。
+ * 终端管理器健康读取：设备心跳归独立服务维护，GUI不再建立第二套SSH设备探活。
+ * 参数store为终端管理桥接客户端，interval默认45秒；同一轮未结束不再启动下一轮。
  */
 export class RemoteConnectionHeartbeat {
   /** store为探测存储，interval为心跳毫秒；不在构造函数发起网络请求。 */
@@ -11,16 +11,12 @@ export class RemoteConnectionHeartbeat {
     this.stopped = false
   }
 
-  /** 无参数；顺序探测已授权目标，单个失败由原存储记灰，不阻断其他目标。 */
+  /** 无参数；被动验证终端管理器接口，不写入或覆盖设备在线状态。 */
   async check_targets() {
     if (this.running || this.stopped) return
     this.running = true
     try {
-      const targets = this.store.list_targets().targets.filter(item => item.enabled && item.hasCredential)
-      for (const target of targets) {
-        if (this.stopped) break
-        try { await this.store.probe_target({ action: 'probe', target: target.id }) } catch {}
-      }
+      await this.store.refresh_devices()
     } catch {
       // 配置损坏时不猜测目标；旧证据会自然过期，界面不再显示在线。
     } finally { this.running = false }

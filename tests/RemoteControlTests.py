@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import inspect
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -222,7 +223,7 @@ class RemoteControlTests(unittest.TestCase):
             {"jsonrpc": "2.0", "method": "notifications/initialized"},
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
         ]) + "\n"
-        result = subprocess.run([sys.executable, str(ROOT / "remoteControl" / "RemoteCmdMcp.py")],
+        result = subprocess.run([sys.executable, inspect.getfile(RemoteCmdMcp)],
                                 input=payload, capture_output=True, text=True, encoding="utf-8",
                                 env={**os.environ, "PYTHONUTF8": "1"}, timeout=10,
                                 creationflags=0x08000000 if os.name == "nt" else 0)
@@ -234,6 +235,12 @@ class RemoteControlTests(unittest.TestCase):
     def test_portable_registration_and_startup_arguments(self):
         """实际启动器加载附加 patch，且使用当前生产路径，不改用户 profile。"""
         import start_stack
+        terminal = self.root / "terminalComponent"
+        entry = terminal / "terminalConnection/tools/TerminalMcp.py"
+        entry.parent.mkdir(parents=True)
+        entry.write_text("# isolated entry", encoding="utf-8")
+        bridge = self.root / "config/terminalConnection.json"
+        bridge.write_text(json.dumps({"repositoryRoot": str(terminal)}), encoding="utf-8")
         with patch.object(start_stack, "PROJECT_ROOT", self.root), \
                 patch.object(start_stack, "spawn_silent") as spawn:
             start_stack.start_harness_service({})
@@ -243,7 +250,7 @@ class RemoteControlTests(unittest.TestCase):
         data = json.loads(Path(paths[-1]).read_text(encoding="utf-8"))
         cfg = data[0]["insert"][0]["config"]
         self.assertEqual(cfg["serverName"], "remote-cmd")
-        self.assertEqual(cfg["args"], [str(self.root / "remoteControl" / "RemoteCmdMcp.py")])
+        self.assertEqual(cfg["args"], [str(entry), "--config", str(bridge)])
         self.assertTrue(cfg["toolCallTimeoutMs"] >= 210000)
 
     def test_registration_idempotent(self):

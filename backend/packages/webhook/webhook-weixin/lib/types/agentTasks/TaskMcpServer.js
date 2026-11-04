@@ -154,6 +154,11 @@ export class TaskMcpServer {
             make('task_status', '查询真实进度；不填taskId列当前用户近期任务，不要反复轮询等待。', {
                 taskId: id
             }),
+            make('task_progress', '读取执行内核到目前为止的每一次回复（任务进行期间的缓存，任务结束后自动销毁），判断它现在做到哪一步。', {
+                taskId: id
+            }, [
+                'taskId'
+            ]),
             make('task_message', '给指定进行中的任务补充要求，返回接收状态；不能把普通聊天自动转发过去。', {
                 taskId: id,
                 message: text

@@ -508,6 +508,7 @@
     "@deepseek-ai/dsh-web-search-deepseek": "0.1.6-alpha.1",
     "@deepseek-ai/dsh-web-search-exa": "0.1.6-alpha.1",
     "@deepseek-ai/dsh-web-search-perplexity": "0.1.6-alpha.1",
+    "@deepseek-ai/dsh-web-search-qwen": "0.1.0",
     "@deepseek-ai/dsh-webhook": "0.1.6-alpha.1",
     "@deepseek-ai/dsh-webhook-github": "0.1.6-alpha.1",
     "@deepseek-ai/dsh-webhook-qq": "0.1.6-alpha.1",

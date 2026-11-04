@@ -1419,20 +1419,17 @@ var ObservationRecorder = class {
 		});
 		else if (event.type === "tool/result") {
 			const message = data.message;
-			const results = Array.isArray(message?.content) ? message.content.filter(item => item.type === "tool-result") : [];
-			const callId = message?.callId ?? message?.source?.callId ?? results[0]?.toolCallId;
 			this.emit({
 				...base,
 				spanId: this.fingerprint([
 					root.traceId,
 					data.step,
-					callId
+					message?.callId
 				]).slice(0, 16),
 				parentSpanId: root.spanId,
 				kind: "tool",
 				phase: "end",
-				status: message?.isError || results.some(item => item.isError) ? "error" : "ok",
-				callId,
+				status: message?.isError ? "error" : "ok",
 				step: data.step
 			});
 		}

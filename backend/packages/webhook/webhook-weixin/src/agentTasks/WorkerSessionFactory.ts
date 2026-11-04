@@ -6,6 +6,9 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { WorkerServiceTools } from './WorkerServiceTools.ts'
+import { TaskReportTool } from './TaskReportTool.ts'
+import { WorkerWebSearch } from './WorkerWebSearch.ts'
+import { AgentReasoning } from './AgentReasoning.ts'
 
 export class WorkerSessionFactory {
   /** ctx 必须来自连接器宿主而非主人格 Agent；config 不包含模型密钥。 */
@@ -21,10 +24,13 @@ export class WorkerSessionFactory {
       meta: { cwd: task.origin.workspace, agentPreset: preset.id },
       agentOptions: { ...options, ...this.config.workerModel },
       setup: async (child: any, agent: any) => {
+        new AgentReasoning(this.root, 'worker').attach_agent(agent)
         await presets.mount(child, preset.id)
         await new WorkerServiceTools(this.root).mount_tools(child)
         child.tools.presentAs('native')
         this.setup?.(child, task)
+        new TaskReportTool(this.root, task.id ?? task.worker).mount_tool(child)
+        new WorkerWebSearch().mount_tool(child)
         child.systemPrompt.section({
           name: 'deployment:persona-prefix',
           order: child.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'), text: persona,

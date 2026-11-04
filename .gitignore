@@ -51,6 +51,8 @@ models/
 newsDigest/config/newsDigest.json
 /runtime/tts/
 /config/remoteControl.json
+/config/musicPlayback.json
+/config/terminalConnection.json
 /config/remoteControlKnownHosts
 /remoteControl/接入验证报告.md
 /runtime/downloads/
@@ -59,6 +61,10 @@ newsDigest/config/newsDigest.json
 # 第三方大件（自己 clone，不进仓库）
 kugou/KuGouMusicApi/
 rsshub/RSSHub/
+
+# 人物修缮产物与网页原型（体积大，属于本机调试材料）
+/artifacts/
+/console/public/prototype/
 
 # 酷狗账号凭据与设备指纹
 kugou/config/auth.json

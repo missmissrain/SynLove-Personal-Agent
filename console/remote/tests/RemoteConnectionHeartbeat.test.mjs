@@ -1,29 +1,27 @@
-/** 远控心跳回归：用隔离替身验证目标授权过滤、单轮互斥及失败隔离；不连接真实电脑。 */
+/** 终端心跳回归：验证仅查询权威管理器、单轮互斥及失败恢复；不另行探测用户设备。 */
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { RemoteConnectionHeartbeat } from '../RemoteConnectionHeartbeat.mjs'
 
-test('只探测启用且保存凭据的设备，单个失败不阻断后续设备', async () => {
-  const calls = []
+test('只读终端管理器，失败后下一轮仍可检查，不重建SSH设备探活', async () => {
+  let calls = 0
   const store = {
-    list_targets: () => ({ targets: [
-      { id: 'disabled', enabled: false, hasCredential: true },
-      { id: 'noKey', enabled: true, hasCredential: false },
-      { id: 'offline', enabled: true, hasCredential: true },
-      { id: 'online', enabled: true, hasCredential: true },
-    ] }),
-    probe_target: async body => { calls.push(body.target); if (body.target === 'offline') throw Error('offline') },
+    refresh_devices: async () => { calls++; if (calls === 1) throw Error('offline') },
+    list_targets: () => { throw Error('不应读取旧SSH配置') },
+    probe_target: () => { throw Error('不应另行发送设备探测') },
   }
-  await new RemoteConnectionHeartbeat(store).check_targets()
-  assert.deepEqual(calls, ['offline', 'online'])
+  const heartbeat = new RemoteConnectionHeartbeat(store)
+  await heartbeat.check_targets()
+  assert.equal(heartbeat.running, false)
+  await heartbeat.check_targets()
+  assert.equal(calls, 2)
 })
 
 test('上一轮仍在运行时不重叠探测，停止后不再调用', async () => {
   let release, calls = 0
   const gate = new Promise(resolve => { release = resolve })
   const heartbeat = new RemoteConnectionHeartbeat({
-    list_targets: () => ({ targets: [{ id: 'home', enabled: true, hasCredential: true }] }),
-    probe_target: async () => { calls++; await gate },
+    refresh_devices: async () => { calls++; await gate },
   })
   const first = heartbeat.check_targets()
   await heartbeat.check_targets()

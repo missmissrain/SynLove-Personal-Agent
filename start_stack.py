@@ -934,28 +934,11 @@ def ensure_guard_service(env: dict[str, str]) -> str:
 
 
 def ensure_task_report(env: dict[str, str]) -> str:
-    """确保「完成汇报」常驻：盯 codex / opencode，任务结束就润色成人话推 QQ。
-
-    开关在控制台（状态库 meta 的 report.codex / report.opencode），改完下一轮扫描就生效。
-    日志同样分两份：结论写 runtime/task-report.log，进程输出写 task-report.console.log。
-
-    参数 env：启动器已合并好的环境（含 NO_PROXY 等，QQ 接口要直连）。
-    """
-    pid_file = PROJECT_ROOT / "runtime" / "task-report.pid"
-    if pid_file.is_file():
-        try:
-            pid = int(pid_file.read_text(encoding="utf-8").strip())
-            if process_alive(pid):
-                return "already_running"
-        except (OSError, ValueError):
-            pass
-    process = spawn_silent(
-        [sys.executable, str(PROJECT_ROOT / "taskReport" / "runTaskReport.py"), "--loop"],
-        PROJECT_ROOT, env, "task-report.console.log",
-    )
-    pid_file.parent.mkdir(parents=True, exist_ok=True)
-    pid_file.write_text(str(process.pid), encoding="utf-8")
-    return "started"
+    """env为已同步环境；完成观测归独立终端客户端，主程序不再拉起旧通知观察者。"""
+    if (PROJECT_ROOT / "config" / "terminalConnection.json").is_file():
+        # 完成观测已交给独立终端客户端，主进程不再创建第二个通知观察者。
+        return "terminal_connection_managed"
+    return "terminal_connection_not_configured"
 
 
 def wait_harness_ready(seconds: int = 120, startup=None) -> bool:

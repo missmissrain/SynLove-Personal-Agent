@@ -13,23 +13,32 @@ import { TaskMcpServer } from './TaskMcpServer.ts'
 import { WorkerSessionFactory } from './WorkerSessionFactory.ts'
 import { TaskResultCollector } from './TaskResultCollector.ts'
 import { PresenterEventBridge } from './PresenterEventBridge.ts'
+import { TaskReportStore } from './TaskReportStore.ts'
+import { TaskProgressCache } from './TaskProgressCache.ts'
+import { AgentReasoning } from './AgentReasoning.ts'
 import { delete_session_artifacts, sessions_root } from '../session/sessionFiles.ts'
 
-/** 状态的中文口语说法：模型只有英文枚举时容易直接翻译成英文句子，这里直接给可念的中文。 */
-const STATE_SAY: Record<string, string> = {
-  queued: '还在排队，马上就开跑',
-  running: '正在跑着呢',
-  cancelling: '正在停下来',
-  succeeded: '已经跑完啦',
-  partial: '跑完了，但有些部分没做成',
-  failed: '没跑成，出错了',
-  cancelled: '已经取消了',
-  interrupted: '中途被打断了',
+/**
+ * event 为会话事件；把执行内核一次助手回复整理成可读文本。
+ * 有正文就记正文，只有工具调用时记“调用 工具名”，推理内容不写入缓存。
+ */
+function reply_text(event: any): string {
+  if (event?.type !== 'assistant/message') return ''
+  const content = event.data?.message?.content
+  if (!Array.isArray(content)) return ''
+  const parts: string[] = []
+  for (const block of content) {
+    if (block?.type === 'text' && String(block.text ?? '').trim()) parts.push(String(block.text).trim())
+    else if (block?.type === 'tool-call') parts.push('调用 ' + String(block.name ?? block.toolName ?? '工具'))
+  }
+  return parts.join('\n').slice(0, 8000)
 }
 
 export class TaskRuntime {
   static instances = new WeakMap<object, TaskRuntime>()
   store: TaskStore
+  /** 每个任务一份进度缓存，任务结束后整份销毁。 */
+  progress: TaskProgressCache
   mcp: TaskMcpServer
   factory: WorkerSessionFactory
   collector = new TaskResultCollector()
@@ -48,10 +57,11 @@ export class TaskRuntime {
   worker_setup?: (ctx: any, task: any) => void
   /** ctx 为宿主，root 为生产路径，config 为已读取本机参数；tests 可注入 factory。 */
   constructor(private ctx: any, public root: string, config: any, factory?: any) {
-    this.config = { maxConcurrent: 2, taskTimeoutMs: 1800000, presentationTimeoutMs: 90000, ...config }
+    this.config = { maxConcurrent: 2, taskTimeoutMs: 1800000, presentationTimeoutMs: 180000, ...config }
     if (!Number.isInteger(this.config.maxConcurrent) || this.config.maxConcurrent < 1 || this.config.maxConcurrent > 4)
       throw new Error('任务并发必须为1至4')
     this.store = new TaskStore(join(root, 'runtime', 'agentTasks', 'taskStore.sqlite'))
+    this.progress = new TaskProgressCache(root)
     if (!this.store.claim_lease(this.owner)) { this.store.close_store(); throw new Error('另一个实例占用后台任务运行器') }
     this.store.recover_tasks()
     this.factory = factory ?? new WorkerSessionFactory(ctx, root, this.config, (child, task) => this.worker_setup?.(child, task))
@@ -87,6 +97,8 @@ export class TaskRuntime {
   }
   /** session 为主会话ID；通道回调判断是否为自动结果处理轮次。 */
   is_presenting(session: string): boolean { return this.bridge.is_presenting(session) }
+  /** 无参数；仅给内部表达会话工厂读取宿主，不暴露给模型工具。 */
+  host_context(): any { return this.ctx }
   /** 无参数；旧租约或已停止实例不能继续提交状态。 */
   assert_owner(): void {
     if (this.stopped || !this.store.has_lease(this.owner)) throw new Error('后台任务运行器已停止或失去所有权')
@@ -114,7 +126,8 @@ export class TaskRuntime {
   /** 无参数；返回主人格获准的任务管理与只读记忆工具名，不包含控制和记忆写入。 */
   presenter_tool_names(): string[] {
     return [...this.mcp.list_tools().map(tool => `mcp__synlove-task__${tool.name}`),
-      'timeline_days', 'timeline_search', 'timeline_read', 'relation_query']
+      'timeline_days', 'timeline_search', 'timeline_read', 'relation_query',
+      'mcp__remote-cmd__terminal_devices', 'mcp__remote-cmd__remote_cmd_list']
   }
   /** agent 为主会话，origin 为宿主构造的不可变发送目标；返回注入消息的来源ID。 */
   note_input(agent: any, origin: any): string {
@@ -151,6 +164,7 @@ export class TaskRuntime {
         text: readFileSync(join(this.root, 'prompts', 'PresenterProtocol.md'), 'utf8'),
       })
       agent.ctx.effect(() => () => this.mcp.revoke_owner(token))
+      new AgentReasoning(this.root, 'presenter').attach_agent(agent)
       this.log_event('presenter.ready', { tools: allow.length })
     } catch (error) { this.attached.delete(agent); this.mcp.revoke_owner(token); throw error }
   }
@@ -221,21 +235,29 @@ export class TaskRuntime {
       throw new Error('任务ID无效')
     const id = typeof args.taskId === 'string' ? args.taskId : ''
     if (name === 'task_status' && !id)
-      return this.store.list_tasks(scope).map(task => ({ taskId: task.id, state: task.state, kind: task.kind, updatedAt: task.updated }))
+      return this.store.list_tasks(scope).map(task => ({ taskId: task.id, state: task.state, kind: task.kind,
+        progressCount: this.progress.count(task.id), updatedAt: task.updated }))
     let task: any
     if (presentation) {
       const activeId = this.bridge.active.get(owner.session)?.taskId
       if (id !== activeId) throw new Error('自动结果轮次不能读取其他任务')
       task = this.store.get_task(id, this.bridge.active.get(owner.session).owner)
     } else task = this.store.get_task(id, scope)
-    if (name === 'task_status') return { taskId: id, state: task.state, stateLabel: STATE_SAY[task.state] ?? task.state,
-      workerSessionId: task.worker, updatedAt: task.updated }
+    if (name === 'task_status') return { taskId: id, state: task.state, workerSessionId: task.worker,
+      progressCount: this.progress.count(id), updatedAt: task.updated }
+    // 进度缓存在任务结束时销毁，所以这里读到的就是“当前这一刻”的回复记录。
+    if (name === 'task_progress')
+      return { taskId: id, state: task.state, updatedAt: task.updated,
+        entries: this.progress.read(id, 30).map((row: any) => ({ at: row.at, text: String(row.text ?? '').slice(0, 1200) })),
+        note: this.progress.count(id) ? undefined : '还没有读到执行内核的回复；任务已结束的话缓存已经销毁，最终结论用 task_result' }
     if (name === 'task_result') {
       const offset = args.offset ?? 0
       if (!Number.isInteger(offset) || offset < 0) throw new Error('结果偏移必须为非负整数')
       const result = task.result ?? '任务尚未形成最终总结。'
       return { taskId: id, state: task.state, summary: result.slice(offset, offset + 10000),
         nextOffset: offset + 10000 < result.length ? offset + 10000 : null,
+        artifacts: ['succeeded','partial','failed','cancelled','interrupted'].includes(task.state)
+          ? new TaskReportStore(this.root).persist_result(task) : undefined,
         verification: '以执行总结中的实际验证范围为准；会话结束不等于所有目标均已验证' }
     }
     const run = this.active.get(id)
@@ -296,10 +318,23 @@ export class TaskRuntime {
             `任务ID：${task.id}；获准工作区：${task.origin.workspace}。所有任务使用统一执行工具集。`,
             `用户本次原文（约束不能丢失）：${task.origin.originalText ?? ''}`,
             `具体任务：${task.request}`,
+            '报告使用 save_report 保存到宿主固定目录；不要把任务说明中自动补写的旧目录当成真实路径，也不要让主人格代写文件。',
+            '长报告先保存，再给简短最终总结（建议1500字以内），保留结论、真实路径、风险与未完成项，不把整篇报告塞进总结。',
+            '每一轮回复的最后单独一行写进度摘要，固定格式：摘要：本轮做了……；希望……；结果……（不超过120字）。这一行是给主人格看进度的，每轮都要写，没有进展也要如实写。',
             '不要向用户直接发消息；执行完给出完整最终总结，包含实际完成、验证、产物、风险与未完成项。',
           ].join('\n') }],
           source: { kind: 'user' },
         }))
+        // 执行内核每回复一次就立刻追加进该任务的进度缓存，保留每一条；任务结束整份销毁。
+        const workerId = String(task.worker)
+        const stop = this.ctx?.on?.('session/event', (session: any, event: any) => {
+          if (String(session?.header?.id ?? session) !== workerId) return
+          const text = reply_text(event)
+          if (!text) return
+          try { this.progress.append(task.id, text, Number(event?.time) || Date.now()) }
+          catch { /* 缓存写失败不能影响任务本身 */ }
+        })
+        entry.progressOff = typeof stop === 'function' ? stop : undefined
         await entry.handle.agent.whenIdle()
       }
       const result = this.collector.collect_result(entry.handle.agent, 0, entry.cancelled, true)
@@ -314,6 +349,8 @@ export class TaskRuntime {
           result: `后台执行${entry.cancelled ? '已请求停止；外部副作用需核对' : '失败'}：${String(error).slice(0, 1000)}` })
     } finally {
       clearTimeout(timer)
+      entry.progressOff?.()
+      this.progress.clear(task.id)
       try { await entry.handle?.dispose() } catch {}
       this.active.delete(task.id)
       this.log_event('task.ended', { taskId: task.id })
@@ -331,9 +368,10 @@ export class TaskRuntime {
       run.handle?.agent.cancel({ kind: 'host' })
     }
     this.closing = (async () => {
+      const notices = this.bridge.close_bridge()
       await this.mcp.close_server()
       await Promise.allSettled([...this.runs])
-      await this.bridge.close_bridge()
+      await notices
       this.store.release_lease(this.owner)
       this.store.close_store()
     })()

@@ -5,7 +5,7 @@
  */
 import { DatabaseSync } from 'node:sqlite'
 import { openSync, readSync, closeSync, existsSync, statSync, readFileSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { execFile } from 'node:child_process'
 import { BusinessEndpoint } from './BusinessEndpoint.mjs'
 
@@ -238,21 +238,18 @@ export class DashboardStore {
     } catch { return { total: null, rows: [], error: '远程定时任务暂不可用' } }
   }
 
-  /** 无参数；汇总远控真实探活，仅一分钟内且配置未变化的结果可显示已连接。 */
+  /** 无参数；只读取独立终端管理器快照，展示真实在线设备数，不沿用旧SSH探测副本。 */
   remote_channel() {
-    const config = this.read_json(join(this.project, 'config', 'remoteControl.json'), {})
-    const enabled = Object.entries(config.targets ?? {}).filter(([, row]) => row.enabled === true)
-    const status = this.read_json(join(this.project, 'runtime', 'remoteControl', 'channelStatus.json'), {})
-    const version = ['remoteControl.json', 'secrets.json'].map(name => {
-      const file = join(this.project, 'config', name)
-      return existsSync(file) ? statSync(file).mtimeMs : 0
-    }).join(':')
-    const ready = enabled.some(([id]) => status[id]?.available === true && status[id].version === version &&
-      Date.now() - status[id].checkedAt >= 0 && Date.now() - status[id].checkedAt < 60000)
+    const config = this.read_json(join(this.project, 'config', 'terminalConnection.json'), {})
+    const data = config.deviceSnapshot ? this.read_json(resolve(this.project, config.deviceSnapshot), {}) : {}
+    const fresh = Date.now() / 1000 - Number(data.checkedAt ?? 0)
+    const devices = Array.isArray(data.devices) ? data.devices : []
+    const online = fresh >= 0 && fresh < 15 ? devices.filter(row =>
+      row.online && row.enabled && Date.now() / 1000 - row.lastSeen < 60).length : 0
     return { id: 'remote', tab: 'remote', name: '远程连接',
-      status: ready ? 'connected' : enabled.length ? 'unverified' : 'unconfigured',
-      label: ready ? '已连接' : enabled.length ? '待验证' : '未配置',
-      detail: ready ? '最近一分钟 SSH 与 CMD 协议检查通过' : '配置共享服务与远控电脑，测试后显示连接状态' }
+      status: online ? 'connected' : config.deviceSnapshot ? 'unverified' : 'unconfigured',
+      label: config.deviceSnapshot ? `${online} 台在线` : '未配置',
+      detail: devices.length ? `已登记 ${devices.length} 台设备` : '在设备管理中添加终端' }
   }
 
   /** 无参数；优先读取新闻服务快照，本机服务不可达时只读其同一份调度库。 */

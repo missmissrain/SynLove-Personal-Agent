@@ -78,12 +78,13 @@ PresenterAgent 阅读总结、组织语言
 
 ## 4. 主人格的 MCP 边界
 
-只挂一个 MCP Server：SynLoveTask。一个 Server 暴露五个短工具，而不是把所有能力塞进一个 action 参数。
+只挂一个 MCP Server：SynLoveTask。一个 Server 暴露六个短工具，而不是把所有能力塞进一个 action 参数。
 
 | 工具 | 模型可填参数 | 行为 |
 | --- | --- | --- |
 | task_submit | request、可选 kind、可选已知资源引用 | 保存任务并立即返回 taskId、排队状态；不等待工作结束 |
-| task_status | 可选 taskId | 有 ID 查询该任务；无 ID 列出本人的近期任务，返回有限条目 |
+| task_status | 可选 taskId | 有 ID 查询该任务；无 ID 列出本人的近期任务，返回有限条目与已缓存回复条数 |
+| task_progress | taskId | 读取执行内核每次回复的进度缓存（任务结束后销毁），判断现在停在哪一步 |
 | task_message | taskId、message | 给已定位任务追加要求或回答澄清；返回接收确认 |
 | task_cancel | taskId | 申请停止指定任务；返回 cancelling 或已确认的终态 |
 | task_result | taskId、可选 section、可选 cursor | 读取已保存总结及允许的结果片段，支持有界分页 |

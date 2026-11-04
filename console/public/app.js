@@ -330,7 +330,11 @@ async function refresh_toggles() {
       <label class="label">
         ${escape_service(item.label)} ${tool_help(item.help)}
       </label>
-      <input type="checkbox" data-immediate="${item.key}" ${item.value ? 'checked' : ''} />
+      ${item.kind === 'select'
+        ? `<select class="setting-input" aria-label="${escape_service(item.label)}" data-immediate="${escape_service(item.key)}">${item.options.map(option =>
+          `<option value="${escape_service(option.value)}" ${item.value === option.value ? 'selected' : ''}>${escape_service(option.label)}</option>`
+        ).join('')}</select>`
+        : `<input type="checkbox" data-immediate="${item.key}" ${item.value ? 'checked' : ''} />`}
     </div>`).join('')
 
   $('toggles-restart').innerHTML = data.restart.map(item => {
@@ -353,10 +357,15 @@ async function refresh_toggles() {
 
   for (const input of document.querySelectorAll('[data-immediate]')) {
     input.addEventListener('change', async () => {
-      const result = await post('/api/toggles', {
-        key: input.dataset.immediate, value: input.checked ? '1' : '0',
-      })
-      $('toggle-hint').textContent = result.note
+      const value = input.type === 'checkbox' ? (input.checked ? '1' : '0') : input.value
+      input.disabled = true
+      try {
+        const result = await post('/api/toggles', { key: input.dataset.immediate, value })
+        $('toggle-hint').textContent = result.note
+      } catch (error) {
+        $('toggle-hint').textContent = `保存失败：${error.message}`
+        await refresh_toggles()
+      } finally { input.disabled = false }
     })
   }
   for (const input of document.querySelectorAll('[data-restart]')) {

@@ -31,11 +31,12 @@ import { DashboardStore } from './dashboard/DashboardStore.mjs'
 import { ServiceReadiness } from './dashboard/ServiceReadiness.mjs'
 import { ServiceProbe } from './dashboard/ServiceProbe.mjs'
 import { ServiceProxy } from './ServiceProxy.mjs'
-import { RemoteConnectionStore } from './remote/RemoteConnectionStore.mjs'
+import { TerminalConnectionStore as RemoteConnectionStore } from './remote/TerminalConnectionStore.mjs'
 import { RemoteConnectionHeartbeat } from './remote/RemoteConnectionHeartbeat.mjs'
-import { RemoteConnectionRoutes } from './remote/RemoteConnectionRoutes.mjs'
+import { TerminalConnectionRoutes as RemoteConnectionRoutes } from './remote/TerminalConnectionRoutes.mjs'
 import { RelayTrust } from './remote/RelayTrust.mjs'
 import { PersonaStore } from './PersonaStore.mjs'
+import { AgentReasoningStore } from './AgentReasoningStore.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const PROJECT = resolve(HERE, '..')
@@ -43,6 +44,7 @@ const HARNESS = join(PROJECT, 'backend')
 const RUNTIME = join(PROJECT, 'runtime')
 const CONFIG = join(PROJECT, 'config')
 const personas = new PersonaStore(PROJECT, path => backup_file(path))
+const agent_reasoning = new AgentReasoningStore(PROJECT, path => backup_file(path))
 const BACKEND_SERVICE_CONFIG = join(CONFIG, 'backendService.json')
 RelayTrust.configure_trust(PROJECT)
 const service_proxy = new ServiceProxy(PROJECT)
@@ -476,16 +478,21 @@ function write_console_env(values) {
 
 /**
  * 读「完成汇报」开关（codex / opencode 干完活要不要推 QQ）。
- * 单独放 config/taskReport.json：harness 会整表刷新状态库 meta，不认识的键会被冲掉。
+ * 由终端管理器保存；未配置独立终端时返回关闭状态，不再维护旧观察者配置。
  */
-function read_task_report_toggles() {
-  const path = join(CONFIG, 'taskReport.json')
-  try {
-    const data = JSON.parse(readFileSync(path, 'utf8').replace(/^\uFEFF/, ''))
-    return { codex: data.codex === true, opencode: data.opencode === true }
-  } catch {
-    return { codex: false, opencode: false }
+async function read_task_report_toggles() {
+  if (existsSync(join(CONFIG, 'terminalConnection.json'))) {
+    const cfg = remote_connections.read_bridge()
+    const [data, health] = await Promise.all([
+      remote_connections.request_json('GET', '/v1/devices'),
+      remote_connections.request_json('GET', '/v1/health'),
+    ])
+    const row = data.devices.find(item => item.id === (cfg.serverDeviceId ?? 'server'))
+    if (!row) throw new Error('当前设备尚未登记')
+    return { codex: row.settings?.codex === true, opencode: row.settings?.opencode === true,
+      notificationsConfigured: health.notificationsConfigured === true }
   }
+  return { codex: false, opencode: false, notificationsConfigured: false }
 }
 
 /** 端口是否在监听（直接连一下，避免依赖外部命令）。 */
@@ -1824,13 +1831,17 @@ const api = {
     }
   },
 
-  toggles() {
+  async toggles() {
     const env = read_console_env()
-    const notify = read_task_report_toggles()
+    const notify = await read_task_report_toggles()
+    const notifyHelp = notify.notificationsConfigured
+      ? '当前设备 · 经服务器推送；其他设备在设备管理中配置'
+      : '服务器尚未配置通知接收人；开启后的完成事件暂存于服务器'
     return {
       immediate: [
-        { key: 'report.codex', label: 'codex 完成汇报', kind: 'bool', value: notify.codex, help: '即时生效 · 推 QQ' },
-        { key: 'report.opencode', label: 'opencode 完成汇报', kind: 'bool', value: notify.opencode, help: '即时生效 · 推 QQ' },
+        ...agent_reasoning.list_controls(),
+        { key: 'report.codex', label: 'Codex 完成通知', kind: 'bool', value: notify.codex, help: notifyHelp },
+        { key: 'report.opencode', label: 'OpenCode 完成通知', kind: 'bool', value: notify.opencode, help: notifyHelp },
       ],
       restart: ENV_TOGGLES.map(item => ({
         ...item,
@@ -1839,18 +1850,25 @@ const api = {
     }
   },
 
-  set_toggle(body) {
+  async set_toggle(body) {
     const key = String(body.key ?? '').trim()
     const value = String(body.value ?? '').trim()
+    if (key.startsWith('reasoning.'))
+      return agent_reasoning.save_setting(key.slice('reasoning.'.length), value)
     if (key.startsWith('report.')) {
-      // 完成汇报开关写在 config/taskReport.json：harness 会整表刷新状态库 meta，
-      // 把不认识的键冲掉，所以不能借它的库当配置。
+      // 完成通知开关只写终端管理器，不再维护失效的旧观察者配置。
       const target = key.slice('report.'.length)
       if (!['codex', 'opencode'].includes(target)) throw new Error('未知完成汇报开关')
-      const current = read_task_report_toggles()
-      current[target] = value === '1' || value === 'true'
-      writeFileSync(join(CONFIG, 'taskReport.json'), `${JSON.stringify(current, null, 2)}\n`, 'utf8')
-      return { ok: true, note: '已即时生效' }
+      if (existsSync(join(CONFIG, 'terminalConnection.json'))) {
+        const cfg = remote_connections.read_bridge()
+        const health = await remote_connections.request_json('GET', '/v1/health')
+        const enabled = value === '1' || value === 'true'
+        await remote_connections.save_device({ id: cfg.serverDeviceId ?? 'server',
+          settings: { [target]: enabled } })
+        return { ok: true, note: enabled && health.notificationsConfigured !== true
+          ? '设置已保存；通知接收人尚未配置，完成事件会暂存在服务器' : '设置已保存' }
+      }
+      throw new Error('请先配置终端连接组件')
     }
     if (key.startsWith('notify.')) {
       const target = key.slice('notify.'.length)
@@ -2046,7 +2064,7 @@ export const server = createServer((req, res) => {
         case '/api/overview': return void api.overview().then(send, fail)
         case '/api/dashboard': return void dashboard.snapshot().then(send, fail)
         case '/api/models': return void send(api.models())
-        case '/api/toggles': return void send(api.toggles())
+        case '/api/toggles': return void api.toggles().then(send, fail)
         case '/api/memory/stats': return void admin_call('memory-stats').then(send, fail)
         case '/api/compaction': return void send(api.compaction())
         case '/api/failover': return void api.failover().then(send, fail)
@@ -2096,7 +2114,7 @@ export const server = createServer((req, res) => {
             case '/api/models/context-window': return void send(api.set_context_window(body))
             case '/api/compaction': return void send(api.set_compaction(body))
             case '/api/preset/reload': return void api.reload_preset().then(send, fail)
-            case '/api/toggles': return void send(api.set_toggle(body))
+            case '/api/toggles': return void api.set_toggle(body).then(send, fail)
             case '/api/heartbeat': return void send(heartbeat.set_config(body))
             case '/api/heartbeat/resume': heartbeat.resume(); return void send(heartbeat.snapshot())
             case '/api/heartbeat/pause': {

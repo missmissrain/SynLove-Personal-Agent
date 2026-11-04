@@ -1,0 +1,6 @@
+{
+  "mode": "remote",
+  "target": "targetDevice",
+  "transport": "terminal",
+  "volume": 35
+}

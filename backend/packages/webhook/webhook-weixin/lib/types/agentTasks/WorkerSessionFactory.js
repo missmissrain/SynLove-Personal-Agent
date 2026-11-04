@@ -2,6 +2,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { brandString } from '@deepseek-ai/dsh-brand';
 import { WorkerServiceTools } from './WorkerServiceTools.js';
+import { TaskReportTool } from './TaskReportTool.js';
+import { WorkerWebSearch } from './WorkerWebSearch.js';
+import { AgentReasoning } from './AgentReasoning.js';
 export class WorkerSessionFactory {
     ctx;
     root;
@@ -29,10 +32,13 @@ export class WorkerSessionFactory {
                 ...this.config.workerModel
             },
             setup: async (child, agent)=>{
+                new AgentReasoning(this.root, 'worker').attach_agent(agent);
                 await presets.mount(child, preset.id);
                 await new WorkerServiceTools(this.root).mount_tools(child);
                 child.tools.presentAs('native');
                 this.setup?.(child, task);
+                new TaskReportTool(this.root, task.id ?? task.worker).mount_tool(child);
+                new WorkerWebSearch().mount_tool(child);
                 child.systemPrompt.section({
                     name: 'deployment:persona-prefix',
                     order: child.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'),

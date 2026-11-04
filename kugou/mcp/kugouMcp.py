@@ -30,11 +30,14 @@ ROOT = HERE.parent.parent
 sys.path.insert(0, str(ROOT))
 
 from kugou.client.kugouApi import kugouApi  # noqa: E402
-from kugou.client.kugouPlayback import kugouPlayback  # noqa: E402
+from kugou.client.RemoteMusicPlayback import RemoteMusicPlayback  # noqa: E402
 
 CONFIG = json.loads((ROOT / "kugou" / "config" / "kugou.json").read_text(encoding="utf-8-sig"))
 API = kugouApi(ROOT, CONFIG)
-PLAYER = kugouPlayback(API, ROOT / "runtime" / "kugou-player-state.json")
+PLAYBACK_FILE = ROOT / "config/musicPlayback.json"
+PLAYBACK = (json.loads(PLAYBACK_FILE.read_text(encoding="utf-8-sig"))
+            if PLAYBACK_FILE.is_file() else CONFIG.get("playback", {}))
+PLAYER = RemoteMusicPlayback(ROOT, API, PLAYBACK)
 
 TOOLS = [
     {
@@ -52,7 +55,7 @@ TOOLS = [
     {
         "name": "kugou_play",
         "description": (
-            "点歌并立即播放（走酷狗 API 取地址，用本地播放器播放）。"
+            "点歌并立即播放（酷狗API取地址，在配置的播放电脑出声；可以是远控本机）。"
             "用户说\"想听 XX\"\"放一首 XX\"\"点歌 XX\"时用。"
             "付费歌曲需要已登录（用 kugou_login）；不要用 GUI 搜索/点击。"
         ),
@@ -165,7 +168,12 @@ def do_control(arguments):
     """播放控制。"""
     action = str(arguments.get("action") or "").strip()
     if action == "pause":
-        result = PLAYER.pause_or_resume()
+        status = PLAYER.status()
+        if not status.get("ok", True):
+            return status.get("error", "播放器未连接")
+        if status.get("paused"):
+            return "已经暂停。"
+        result = PLAYER.set_paused(True) if hasattr(PLAYER, "set_paused") else PLAYER.pause_or_resume()
         if not result.get("ok"):
             return result.get("error", "当前没有在播放")
         return "已暂停。" if result.get("paused") else "已继续。"
@@ -174,10 +182,15 @@ def do_control(arguments):
     elif action == "prev":
         result = PLAYER.prev()
     elif action == "stop":
-        PLAYER.stop()
-        return "已停止。"
+        result = PLAYER.stop()
+        return "已停止。" if result.get("ok") else result.get("error", "停止失败")
     elif action == "play":
         status = PLAYER.status()
+        if not status.get("ok", True):
+            return status.get("error", "播放器未连接")
+        if status.get("paused"):
+            result = PLAYER.set_paused(False) if hasattr(PLAYER, "set_paused") else PLAYER.pause_or_resume()
+            return "已继续。" if result.get("ok") else result.get("error", "继续失败")
         if status.get("playing"):
             return "已经在播放。"
         return do_play({"query": (status.get("song") or {}).get("name") or ""}) if status.get("song") else "队列是空的。"
@@ -207,6 +220,8 @@ def do_status():
         f"API: {'在线' if hw['server'] else '未启动'}",
         f"登录: {'已登录' if hw['auth'] else '未登录'}",
     ]
+    if not pb.get("ok", True):
+        lines.append("播放端：" + pb.get("error", "未连接"))
     if pb.get("song"):
         state = "暂停" if pb.get("paused") else ("播放中" if pb.get("playing") else "已停止")
         lines.append(f"当前: {pb['song'].get('name')} - {pb['song'].get('artist')}（{state}）")

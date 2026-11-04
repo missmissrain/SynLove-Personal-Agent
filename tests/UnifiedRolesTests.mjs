@@ -52,7 +52,8 @@ async function make_context(request=()=>{}) {
 test('主人格实际模型请求具备四项记忆查询，控制工具被隔离',async()=>{
   const root=make_root(),seen=[]
   const ctx=await make_context(options=>seen.push(options.tools.map(t=>t.name)))
-  for(const name of ['timeline_days','timeline_search','timeline_read','relation_query','pwsh','write'])
+  for(const name of ['timeline_days','timeline_search','timeline_read','relation_query','pwsh','write',
+    'mcp__remote-cmd__terminal_devices','mcp__remote-cmd__remote_cmd_list','mcp__remote-cmd__remote_cmd_run'])
     add_tool(ctx,name)
   const runtime=new TaskRuntime(ctx,root,{})
   let main
@@ -60,12 +61,13 @@ test('主人格实际模型请求具备四项记忆查询，控制工具被隔�
     main=await ctx.agents.create({sessionId:'unified-main',agentOptions:{provider:'fixture',model:'fixture'}})
     await runtime.attach_presenter(main.agent,{})
     const names=ctx.tools.schemas(main.agent).map(t=>t.name)
-    assert.equal(names.length,9)
+    assert.equal(names.length,12)
     assert.ok(['timeline_days','timeline_search','timeline_read','relation_query'].every(n=>names.includes(n)))
-    assert.ok(!names.includes('pwsh')&&!names.includes('write'))
+    assert.ok(names.includes('mcp__remote-cmd__terminal_devices'))
+    assert.ok(!names.includes('pwsh')&&!names.includes('write')&&!names.includes('mcp__remote-cmd__remote_cmd_run'))
     main.agent.followup(createUserMessage({content:[{type:'text',text:'上次说的事还记得吗'}],source:{kind:'user'}}))
     await main.agent.whenIdle()
-    assert.equal(seen[0].length,9)
+    assert.equal(seen[0].length,12)
   } finally {await runtime.close_runtime();await main?.dispose();await ctx.fiber.dispose();rmSync(root,{recursive:true,force:true})}
 })
 
