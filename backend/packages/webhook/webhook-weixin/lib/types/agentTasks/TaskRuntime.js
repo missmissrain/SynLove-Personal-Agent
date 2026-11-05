@@ -54,7 +54,7 @@ export class TaskRuntime {
         this.ctx = ctx;
         this.root = root;
         this.config = {
-            maxConcurrent: 2,
+            maxConcurrent: 4,
             taskTimeoutMs: 1800000,
             presentationTimeoutMs: 180000,
             ...config
@@ -385,9 +385,6 @@ export class TaskRuntime {
             this.assert_owner();
             for (const task of this.store.pending_tasks('work')){
                 if (task.state !== 'queued' || this.active.size >= this.config.maxConcurrent) continue;
-                if ([
-                    ...this.active.values()
-                ].some((run)=>run.task.origin.workspace === task.origin.workspace)) continue;
                 const entry = {
                     task,
                     handle: undefined,

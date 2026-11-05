@@ -24,7 +24,7 @@ class CharacterRepairCheck {
       const result = await page.evaluate(() => {
         const a = window.synlovePrototype.avatar
         a.renderer.setAnimationLoop(null)
-        const m = a.motion, clipNames=['present_right','confirm','explain','greet','listen','nod','look','relax']
+        const m = a.motion, clipNames=Object.keys(a.motion.actions.clips)
         let peak=0, maxStep=0
         m.update_motion(0,true)
         for(let i=0; i<36000; i++) {

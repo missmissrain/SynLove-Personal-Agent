@@ -105,16 +105,32 @@ test('MCP不再要求分类，旧请求kind可接收但统一落为execution',as
   } finally {await runtime.close_runtime();rmSync(root,{recursive:true,force:true})}
 })
 
-test('旧research任务也不能并行写同一工作区，不同工作区仍可并发',async()=>{
+test('同一工作区也能并行跑，每个任务各自独立会话',async()=>{
+  const root=make_root(),runtime=new TaskRuntime({},root,{maxConcurrent:3})
+  const runs=[]
+  runtime.run_task=async entry=>{runs.push(entry.task.id)}
+  try {
+    const a=runtime.store.create_task('u','one',{workspace:root},'一','execution')
+    const b=runtime.store.create_task('u','two',{workspace:root},'二','execution')
+    const c=runtime.store.create_task('u','three',{workspace:root},'三','execution')
+    await runtime.pump_tasks()
+    assert.deepEqual(runs,[a.id,b.id,c.id])
+    assert.equal(runtime.active.size,3)
+    runtime.active.clear()
+  } finally {await runtime.close_runtime();rmSync(root,{recursive:true,force:true})}
+})
+
+test('并发上限仍生效，超出名额的任务保持排队',async()=>{
   const root=make_root(),runtime=new TaskRuntime({},root,{maxConcurrent:2})
   const runs=[]
   runtime.run_task=async entry=>{runs.push(entry.task.id)}
   try {
-    const a=runtime.store.create_task('u','one',{workspace:root},'一','research')
-    runtime.store.create_task('u','two',{workspace:root},'二','research')
-    const c=runtime.store.create_task('u','three',{workspace:join(root,'other')},'三','execution')
+    const a=runtime.store.create_task('u','one',{workspace:root},'一','execution')
+    const b=runtime.store.create_task('u','two',{workspace:root},'二','execution')
+    const c=runtime.store.create_task('u','three',{workspace:root},'三','execution')
     await runtime.pump_tasks()
-    assert.deepEqual(runs,[a.id,c.id])
+    assert.deepEqual(runs,[a.id,b.id])
+    assert.equal(runtime.store.get_task(c.id,'u').state,'queued')
     assert.equal(runtime.active.size,2)
     runtime.active.clear()
   } finally {await runtime.close_runtime();rmSync(root,{recursive:true,force:true})}

@@ -1,6 +1,6 @@
 /**
  * 任务调度唯一所有者：创建独立执行会话、限制并发、真实取消、恢复中断任务与结果待办。
- * 参数来自 config/agentTaskConfig.json；默认两个后台任务，主人格使用任务MCP和四个只读记忆工具。
+ * 参数来自 config/agentTaskConfig.json；默认四个后台任务，主人格使用任务MCP和四个只读记忆工具。
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -57,7 +57,7 @@ export class TaskRuntime {
   worker_setup?: (ctx: any, task: any) => void
   /** ctx 为宿主，root 为生产路径，config 为已读取本机参数；tests 可注入 factory。 */
   constructor(private ctx: any, public root: string, config: any, factory?: any) {
-    this.config = { maxConcurrent: 2, taskTimeoutMs: 1800000, presentationTimeoutMs: 180000, ...config }
+    this.config = { maxConcurrent: 4, taskTimeoutMs: 1800000, presentationTimeoutMs: 180000, ...config }
     if (!Number.isInteger(this.config.maxConcurrent) || this.config.maxConcurrent < 1 || this.config.maxConcurrent > 4)
       throw new Error('任务并发必须为1至4')
     this.store = new TaskStore(join(root, 'runtime', 'agentTasks', 'taskStore.sqlite'))
@@ -280,7 +280,7 @@ export class TaskRuntime {
       return { taskId: id, accepted: true, effective: '在执行器下一模型步骤读取，正在运行的外部命令不会被强制重做' }
     }
   }
-  /** 无参数；并发有界，同一可写工作区只运行一个任务，完成通知独立于执行名额。 */
+  /** 无参数；并发有界，每个任务一个独立执行会话与上下文，完成通知独立于执行名额。 */
   async pump_tasks(): Promise<void> {
     if (this.stopped || this.pumping) return
     this.pumping = true
@@ -288,7 +288,6 @@ export class TaskRuntime {
       this.assert_owner()
       for (const task of this.store.pending_tasks('work')) {
         if (task.state !== 'queued' || this.active.size >= this.config.maxConcurrent) continue
-        if ([...this.active.values()].some(run => run.task.origin.workspace === task.origin.workspace)) continue
         const entry: any = { task, handle: undefined, cancelled: false, abort: new AbortController() }
         this.active.set(task.id, entry)
         this.store.update_task(task.id, { state: 'running' })

@@ -1,5 +1,39 @@
 # 角色动作与局部资产修缮
 
+## 2026-11-05 预设动作调研与实录
+
+本轮核对了以下实际资源，区分动作素材与播放框架：
+
+| 资源 | 实际提供的内容 | 对当前自定义骨架的意义 |
+| --- | --- | --- |
+| Quaternius Universal Animation Library | 官网列出180余个动画，免费包60个，CC0，提供FBX/glTF/Blend | 可作为后续动作素材源；需要先适配骨架和肩袖安全范围 |
+| VRoid 官方 VRM Animation | 七个示例，包括问候、挥手、比手势；许可与第三方模型规则分别适用 | 是VRMA动作示例，不是任意自定义模型直接播放的动作包 |
+| AIRI | `stage-ui-three` 包提供 `idle_loop.vrma` 和VRM动画加载逻辑 | 参考待机、注视和交互手势分层，不复制来源未单独确认的动画资源 |
+
+原始资料：
+
+- https://quaternius.com/packs/universalanimationlibrary.html
+- https://booth.pm/ja/items/5512385
+- https://github.com/moeru-ai/airi/blob/main/packages/stage-ui-three/src/composables/vrm/animation.ts
+- https://github.com/moeru-ai/airi/blob/main/packages/stage-ui-three/src/assets/vrm/animations/index.ts
+- https://github.com/pixiv/three-vrm/tree/dev/packages/three-vrm-animation
+
+本轮交付的是依据现有骨架自行编排的12组预设关键帧，尚未导入第三方FBX或VRMA。
+`MotionPresetLibrary` 保存动作数据，`MotionClips` 进行分关节限斜率Hermite插值，
+`CharacterMotion` 驱动骨骼并限制动作中断时的角速度。头部按源模型Z向上轴系
+区分转头与歪头；前臂改用实测局部Z轴屈肘，手腕增加独立朝向与摆动。
+呼吸、眨眼和发梢惯性继续独立运行，自主待机只随机挑选轻动作。
+
+动作包括倾听、点头、回望、招手、摊手介绍、说话比划、思考、确认、轻笑、
+好奇歪头、肩颈放松和站姿微调。“轻笑”仅有头肩节奏，不代表新增脸部微笑形态键。
+原肩袖与简化手指仍限制大幅抬手、精确手型和触碰脸部，不把本轮预设描述为成品动捕。
+
+审阅入口：`/prototype/character-driven/MotionReview.html`，可点击12个按钮分别播放。
+`MotionFilmCheck.cjs` 用真实WebGL与MediaRecorder生成960×960、30fps视频，
+按动作序列录制待机、回应、手势、思考及中断切换。浏览器绘制回调数不是编码帧数；
+最终时长与帧率使用ffprobe检查，MP4由已有FFmpeg转码。产物位于
+`artifacts/motionReview`。所有改动仅在隔离原型与审阅工具内。
+
 ## 参考项目与适用边界
 
 调研日期：2026-11-04。下面结论来自项目 README 和实际源码，不代表已完成动作素材移植。
@@ -100,3 +134,15 @@ D:/py39/python.exe -X utf8 tools/characterRepair/AssetRefiner.py console/public/
 浏览器验证使用已有 Playwright，路径可通过 `SYNLOVE_PLAYWRIGHT` 指定；
 `CharacterRepairCheck.cjs` 覆盖资源加载、无效UV、600秒模拟、中断切换、
 三张卡片交互、宽窄屏截图和真实动作录屏。它不调用模型、不使用正式token。
+
+## 2026-11-05：姿态、动作幅度和亮度第二轮审阅
+
+针对动作不明显、默认站姿僵硬及人物过亮的反馈，本轮仅调整原型动作参数和无光照调色，不修改脸部、刘海网格、贴图或绑定。
+
+- 默认站姿加入轻微头肩不对称与屈肘，右臂比左臂更靠前。抬手动作逐渐让出默认偏移，避免默认屈肘与手势角度直接累加。
+- 招手前举由0.52增加至0.70弧度，屈肘由1.12增加至1.32弧度；手掌由肩下移至肩部附近。介绍与说话手势同步增幅。
+- 转头峰值由0.13增加至0.26弧度，倾听侧头由0.065增加至0.105弧度，保持各关节独立起落。
+- 贴图显示颜色除数由0.84调整至0.94，减少曝光抬升；仍采用无光照材质，不新增灯光。该参数不等同于最终画面亮度的固定百分比。
+- 保留每秒1.6弧度的旋转上限；600秒快速切换模拟通过，60fps下最大单帧关节旋转为0.026667弧度。眼线睁闭眼隔离检查通过。
+
+新录屏及同视角静态比较保存在 `artifacts/motionReviewV2`。运行 `PoseReviewCheck.cjs` 可重做固定时间姿态截图；运行 `MotionFilmCheck.cjs` 并指定输出目录可重录五组视频。动作自然度仍以实际审阅为准，简化手型及肩袖形变仍是资产限制。

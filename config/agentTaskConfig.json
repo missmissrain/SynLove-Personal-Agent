@@ -2,7 +2,7 @@
   "enabled": true,
   "presenterPreset": "presenter",
   "workerPreset": "task-worker",
-  "maxConcurrent": 2,
+  "maxConcurrent": 4,
   "taskTimeoutMs": 1800000,
   "presentationTimeoutMs": 180000,
   "workerModel": {}
