@@ -34,7 +34,8 @@ class RemoteControlMcpTest {
       await client.connect(transport)
       const reply = await client.listTools()
       assert.deepEqual(reply.tools.map(tool => tool.name),
-        ['terminal_devices', 'remote_cmd_list', 'remote_cmd_probe', 'remote_cmd_run', 'terminal_music'])
+        ['terminal_devices', 'remote_cmd_list', 'remote_cmd_probe', 'remote_cmd_run', 'terminal_music',
+          'remote_file_targets', 'remote_file_list', 'remote_file_transfer'])
       await client.ping()
       // 期限在读取任何目标配置、建立任何 SSH 连接前即被拒绝。
       const invalid = await client.callTool({
@@ -42,7 +43,7 @@ class RemoteControlMcpTest {
       })
       assert.equal(invalid.isError, true)
       assert.equal(JSON.parse(invalid.content[0].text).ok, false)
-      console.log('PASS: Harness MCP SDK 握手、5 个终端工具、心跳、参数失败反馈')
+      console.log('PASS: Harness MCP SDK 握手、8 个终端工具、心跳、参数失败反馈')
     } finally {
       await client.close()
       rmSync(temp, { recursive: true, force: true })

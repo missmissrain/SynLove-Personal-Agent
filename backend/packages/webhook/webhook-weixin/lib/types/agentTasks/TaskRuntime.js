@@ -13,10 +13,6 @@ import { TaskReportStore } from './TaskReportStore.js';
 import { TaskProgressCache } from './TaskProgressCache.js';
 import { AgentReasoning } from './AgentReasoning.js';
 import { delete_session_artifacts, sessions_root } from '../session/sessionFiles.js';
-/**
- * event 为会话事件；把执行内核一次助手回复整理成可读文本。
- * 有正文就记正文，只有工具调用时记“调用 工具名”，推理内容不写入缓存。
- */
 function reply_text(event) {
     if (event?.type !== 'assistant/message') return '';
     const content = event.data?.message?.content;
@@ -33,12 +29,12 @@ export class TaskRuntime {
     root;
     static instances = new WeakMap();
     store;
+    progress;
     mcp;
     factory;
     collector = new TaskResultCollector();
     bridge;
     config;
-    progress;
     active = new Map();
     channels = new Map();
     attached = new WeakSet();
@@ -135,6 +131,11 @@ export class TaskRuntime {
                 'opencode',
                 'codex'
             ].every((name)=>names.includes(name))) throw new Error('统一执行预设缺少文件、命令行或编码连接器工具');
+            if (existsSync(join(this.root, 'config', 'terminalConnection.json')) && ![
+                'terminal_devices',
+                'remote_file_list',
+                'remote_file_transfer'
+            ].every((name)=>names.includes(`mcp__remote-cmd__${name}`))) throw new Error('终端桥接已配置，但执行内核未装载设备与文件传输工具');
             return names.length;
         } finally{
             await handle?.dispose();

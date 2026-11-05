@@ -33,7 +33,7 @@ class RemoteControlRegistration:
                        "command": self.python,
                        "args": args,
                        "env": {"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"},
-                       "failOnStartupError": False, "toolCallTimeoutMs": 240000}
+                       "failOnStartupError": False, "toolCallTimeoutMs": 360000}
         }]}] if args else []
         path.parent.mkdir(parents=True, exist_ok=True)
         text = json.dumps(data, ensure_ascii=False, indent=2) + "\n"

@@ -117,6 +117,10 @@ export class TaskRuntime {
       const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
       if (!['read','write','edit',shell,'opencode','codex'].every(name => names.includes(name)))
         throw new Error('统一执行预设缺少文件、命令行或编码连接器工具')
+      if (existsSync(join(this.root, 'config', 'terminalConnection.json')) &&
+          !['terminal_devices', 'remote_file_list', 'remote_file_transfer']
+            .every(name => names.includes(`mcp__remote-cmd__${name}`)))
+        throw new Error('终端桥接已配置，但执行内核未装载设备与文件传输工具')
       return names.length
     } finally {
       await handle?.dispose()
