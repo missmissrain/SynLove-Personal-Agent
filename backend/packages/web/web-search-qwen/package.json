@@ -16,6 +16,7 @@
   ],
   "license": "MIT",
   "peerDependencies": {
+    "@deepseek-ai/dsh-credentials": "0.1.6-alpha.1",
     "@deepseek-ai/dsh-launch-environment": "0.1.6-alpha.1",
     "@deepseek-ai/dsh-web": "0.1.6-alpha.1",
     "@deepseek-ai/cordis": "4.0.2"

@@ -241,6 +241,7 @@
     "packages/web/web-search-deepseek",
     "packages/web/web-search-exa",
     "packages/web/web-search-perplexity",
+    "packages/web/web-search-qwen",
     "packages/webhook/tool-codex",
     "packages/webhook/tool-opencode",
     "packages/webhook/webhook",
