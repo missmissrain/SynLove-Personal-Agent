@@ -32,7 +32,7 @@ async function wait_for(predicate, ms=4000) {
 function make_root() {
   const root=mkdtempSync(join(tmpdir(),'synlove-agent-task-'))
   mkdirSync(join(root,'prompts'))
-  for (const name of ['PresenterProtocol.md','TaskExecution.md','WorkerProtocol.md'])
+  for (const name of ['PresenterProtocol.md','TaskExecution.md','WorkerProtocol.md','TaskDeadlineNotice.md','TaskResultNotice.md'])
     copyFileSync(join(process.cwd(),'prompts',name),join(root,'prompts',name))
   return root
 }
@@ -52,7 +52,7 @@ async function make_native(control={}) {
       if (control.stream) { yield* control.stream(options); return }
       const isResult=options.messages.some(m => JSON.stringify(m).includes('synlove-task-result'))
       if (!String(options.sessionId).startsWith('task-'))
-        assert.equal(options.tools.length,6)
+        assert.equal(options.tools.length,7)
       yield {type:'text-delta',index:0,text:control.reply??(isResult?'查好啦，验证结果在这里。':'TASK_OUTCOME: succeeded\n隔离执行总结：检查通过，无外部操作。')}
       yield {type:'finish',reason:{kind:'stop'}}
     }
@@ -231,7 +231,7 @@ test('QQ 完成通知发送后重启依然幂等，不重复发送', async () =>
   } finally { rmSync(root,{recursive:true,force:true}) }
 })
 
-test('实际 MCP SDK 六工具、鉴权、中文、幂等提交和模型自然回复指令', async () => {
+test('实际 MCP SDK 七工具、鉴权、中文、幂等提交和模型自然回复指令', async () => {
   const root=make_root(), runtime=new TaskRuntime({},root,{maxConcurrent:1})
   const agent={id:'main',session:{snapshotEvents:()=>[{type:'user/message',data:{source:{taskOriginId:'qq:one'}}},
     {type:'user/message',data:{source:{kind:'plugin',plugin:'time-context',form:'snapshot'}}}]}}
@@ -244,7 +244,7 @@ test('实际 MCP SDK 六工具、鉴权、中文、幂等提交和模型自然�
     runtime.note_input(agent,origin)
     await runtime.ready
     await client.connect(new StreamableHTTPClientTransport(new URL(runtime.mcp.url),{requestInit:{headers:{Authorization:`Bearer ${token}`}}}))
-    assert.equal((await client.listTools()).tools.length,6)
+    assert.equal((await client.listTools()).tools.length,7)
     const a=await client.callTool({name:'task_submit',arguments:{request:'检查中文内容，不要改变文件',kind:'research'}})
     const first=JSON.parse(a.content[0].text)
     const second=JSON.parse((await client.callTool({name:'task_submit',arguments:{request:'检查中文内容，不要改变文件',kind:'research'}})).content[0].text)
@@ -257,7 +257,7 @@ test('实际 MCP SDK 六工具、鉴权、中文、幂等提交和模型自然�
   } finally {await client.close();await runtime.close_runtime();rmSync(root,{recursive:true,force:true})}
 })
 
-test('真实 Harness 主人格只见六工具、独立执行总结由原通道投递且不重复', async () => {
+test('真实 Harness 主人格只见七工具、独立执行总结由原通道投递且不重复', async () => {
   const root=make_root(), ctx=await make_native({mode:'both',timeContext:true})
   const options={provider:'fixture',model:'fixture',workspace_path:root}
   // 工厂挂载接口按真实 setup(agentCtx, agent) 执行；实际预设解析在生产烟测复核。
@@ -290,11 +290,36 @@ test('真实 Harness 主人格只见六工具、独立执行总结由原通道�
     await runtime.bridge.pump_results();assert.equal(sends.length,1)
     assert.equal(runtime.active.size,0)
     assert.equal(runtime.is_presenting(main.agent.id),false)
-    // 执行内核每次回复都要进缓存；任务结束时整份销毁。
-    assert.equal(cacheAtClear.length,1)
-    assert.ok(cacheAtClear[0].length>0)
-    assert.match(JSON.stringify(cacheAtClear[0]),/隔离执行总结/)
-    assert.deepEqual(runtime.progress.read(reply.taskId),[])
+    // 任务结束保留正式回复，供超时、通知失败和用户追问时继续核对。
+    assert.equal(cacheAtClear.length,0)
+    assert.match(JSON.stringify(runtime.progress.read(reply.taskId)),/隔离执行总结/)
+  } finally {await runtime.close_runtime();await main?.dispose();await ctx.fiber.dispose();rmSync(root,{recursive:true,force:true})}
+})
+
+test('真实Harness期限提醒走主人格独立会话，带真实进度而不归档伪终态', async () => {
+  const root=make_root()
+  let seen=false
+  const ctx=await make_native({before_stream:options=>{
+    if(String(options.sessionId).startsWith('notice-')){
+      const text=JSON.stringify(options.messages)
+      assert.match(text,/到期提醒/);assert.match(text,/第一步完成，第二步待核验/)
+      assert.doesNotMatch(text,/这是后台结束事件/);seen=true
+    }
+  }})
+  const options={provider:'fixture',model:'fixture',workspace_path:root}
+  const runtime=new TaskRuntime(ctx,root,{})
+  let main
+  try {
+    main=await ctx.agents.create({sessionId:'deadline-main',agentOptions:options})
+    await runtime.attach_presenter(main.agent,options)
+    const task=runtime.store.create_task('u','native-deadline',{channel:'qq',options},'测试','execution')
+    runtime.store.update_task(task.id,{state:'running'})
+    const text=await runtime.bridge.present_result(main.agent,{...task,state:'running',deadlineNotice:{
+      deadlineAt:Date.now()+240000,progress:[{text:'第一步完成，第二步待核验'}]
+    }})
+    assert.equal(seen,true);assert.ok(text)
+    assert.equal(existsSync(join(root,'runtime','agentTasks','reports',`执行总结-${task.id}.md`)),false)
+    assert.equal(runtime.store.get_task(task.id,'u').result,null)
   } finally {await runtime.close_runtime();await main?.dispose();await ctx.fiber.dispose();rmSync(root,{recursive:true,force:true})}
 })
 
@@ -416,11 +441,14 @@ test('公共搜索复用安全fetch，去重并解码RSS，无DeepSeek凭据仍�
   await assert.rejects(tool.execute({queries:['失败场景']},{}),/公共搜索不可用/)
 })
 
-test('执行工厂搜索覆盖仅属于子任务，主工具与宿主搜索不变', async () => {
+test('执行工厂沿用统一搜索服务，不用RSS覆盖子任务搜索', async () => {
   const root=make_root(),ctx=await make_native()
-  const host={fetch:async()=>({statusCode:200,body:{content:'<rss><channel/></rss>'}}),search:async()=>{throw Error('不能调用旧搜索')}}
+  let searches=0
+  const host={fetch:async()=>{throw Error('不应调用RSS')},search:async()=>{searches++;return {content:'千问统一搜索正文',sources:[{url:'https://example.com',title:'正式来源'}]}}}
   ctx.provide('web',host)
-  ctx.provide('agentPresets',{resolve:async()=>({id:'task-worker'}),mount:async()=>{}})
+  ctx.provide('agentPresets',{resolve:async()=>({id:'task-worker'}),mount:async child=>{
+    await child.plugin(require('@deepseek-ai/dsh-tool-web'),{timeoutMs:130000,searchMaxResults:16})
+  }})
   const runtime=new TaskRuntime(ctx,root,{workerPreset:'task-worker',toolAllow:{research:['read','web_search']}})
   let worker
   try {
@@ -430,7 +458,8 @@ test('执行工厂搜索覆盖仅属于子任务，主工具与宿主搜索不�
     assert.ok(!names.includes('write'));assert.equal(ctx.web,host)
     const tool=ctx.tools.get('web_search',worker.agent)
     const result=await tool.execute({queries:['验证']},{signal:new AbortController().signal})
-    assert.match(result.text,/sources/)
+    assert.match(JSON.stringify(result),/千问统一搜索正文/)
+    assert.equal(searches,1)
   } finally {await worker?.dispose();await runtime.close_runtime();await ctx.fiber.dispose();rmSync(root,{recursive:true,force:true})}
 })
 
@@ -438,7 +467,7 @@ test('通知超时后用全新上下文重发完整正文，不续写草稿且�
   const root=make_root(), requests=[]
   const ctx=await make_native({stream:async function*(options){
     requests.push({id:options.sessionId,messages:JSON.stringify(options.messages)})
-    assert.equal(options.tools.length,6)
+    assert.equal(options.tools.length,7)
     if(requests.length===1){
       yield {type:'text-delta',index:0,text:'不能发送的半截草稿'}
       await new Promise(resolve=>{if(options.signal.aborted)resolve();else options.signal.addEventListener('abort',resolve,{once:true})})
@@ -516,7 +545,7 @@ test('task_progress 读取进行中任务的回复缓存，task_status 报条数
     const listed=await runtime.call_tool(owner,'task_status',{})
     assert.equal(listed[0].progressCount,2)
     assert.deepEqual(runtime.mcp.list_tools().map(tool=>tool.name),
-      ['task_submit','task_status','task_progress','task_message','task_cancel','task_result'])
+      ['task_submit','task_status','task_progress','task_message','task_cancel','task_result','read_file'])
     runtime.progress.clear(task.id)
     const empty=await runtime.call_tool(owner,'task_progress',{taskId:task.id})
     assert.equal(empty.entries.length,0)

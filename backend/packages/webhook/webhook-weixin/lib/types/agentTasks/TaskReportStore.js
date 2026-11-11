@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync, renameSync, unlinkSync, existsSync, realpathSync, lstatSync } from 'node:fs';
+import { mkdirSync, writeFileSync, renameSync, unlinkSync, existsSync, realpathSync, lstatSync, readFileSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 export class TaskReportStore {
@@ -40,6 +40,39 @@ export class TaskReportStore {
             reportPath: has ? report : summary.path,
             summaryPath: summary.path,
             reportSaved: has
+        };
+    }
+    report_info(id) {
+        const path = this.get_path(id);
+        if (!existsSync(path) || !lstatSync(path).isFile() || lstatSync(path).isSymbolicLink()) return {
+            path,
+            exists: false,
+            characters: 0
+        };
+        const text = readFileSync(path, 'utf8');
+        return {
+            path,
+            exists: true,
+            characters: text.length
+        };
+    }
+    read_report(id, offset = 0, limit = 6000) {
+        const info = this.report_info(id);
+        if (!info.exists) return {
+            ...info,
+            offset: 0,
+            nextOffset: null,
+            text: ''
+        };
+        if (!Number.isInteger(offset) || offset < 0) throw Error('报告偏移必须为非负整数');
+        if (!Number.isInteger(limit) || limit < 1 || limit > 20000) throw Error('报告读取长度必须为1至20000字符');
+        const text = readFileSync(info.path, 'utf8');
+        const end = Math.min(text.length, offset + limit);
+        return {
+            ...info,
+            offset,
+            nextOffset: end < text.length ? end : null,
+            text: text.slice(offset, end)
         };
     }
 }

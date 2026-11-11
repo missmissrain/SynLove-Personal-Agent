@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { join, resolve, sep } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
 import * as McpClient from '@deepseek-ai/dsh-mcp-client';
@@ -8,15 +8,12 @@ import { TaskStore } from './TaskStore.js';
 import { TaskMcpServer } from './TaskMcpServer.js';
 import { WorkerSessionFactory } from './WorkerSessionFactory.js';
 import { TaskResultCollector } from './TaskResultCollector.js';
+import { TaskEvidence } from './TaskEvidence.js';
 import { PresenterEventBridge } from './PresenterEventBridge.js';
 import { TaskReportStore } from './TaskReportStore.js';
 import { TaskProgressCache } from './TaskProgressCache.js';
 import { AgentReasoning } from './AgentReasoning.js';
 import { delete_session_artifacts, sessions_root } from '../session/sessionFiles.js';
-/**
- * event 为会话事件；把执行内核一次助手回复整理成可读文本。
- * 有正文就记正文，只有工具调用时记“调用 工具名”，推理内容不写入缓存。
- */
 function reply_text(event) {
     if (event?.type !== 'assistant/message') return '';
     const content = event.data?.message?.content;
@@ -28,17 +25,51 @@ function reply_text(event) {
     }
     return parts.join('\n').slice(0, 8000);
 }
+/** 只读文件策略：禁读密钥、证书、数据库和凭据文件；只允许实例根目录内的普通文本文件。 */
+const FILE_DENY_PATH = /(?:^|[\\/])(?:secrets\.json|\.credentials\.yaml|remoteControl\.json|windowsMcpConfig\.json|id_rsa[^\\/]*|id_ed25519[^\\/]*|\.ssh|privateKeys|cookies?|tokens?)(?:[\\/]|$)/i;
+const FILE_DENY_EXT = /\.(?:pem|key|pfx|p12|sqlite|sqlite3|db|db-wal|db-shm|kdbx|env)$/i;
+/**
+ * root 为实例根目录，args 为模型给出的 path/offset/limit；返回分页文本。
+ * 越界、符号链接、二进制或敏感文件一律拒绝，不读取也不回显内容。
+ */
+function read_workspace_file(root, args) {
+    const raw = String(args.path ?? '').trim();
+    if (!raw || raw.length > 1024) throw new Error('文件路径必须为1至1024字符');
+    if (FILE_DENY_PATH.test(raw) || FILE_DENY_EXT.test(raw)) throw new Error('该文件不允许读取');
+    const base = realpathSync(resolve(root));
+    const target = resolve(base, raw);
+    if (!existsSync(target)) throw new Error('文件不存在');
+    const real = realpathSync(target);
+    if (!real.startsWith(base + sep)) throw new Error('只能读取本实例目录内的文件');
+    const info = statSync(real);
+    if (!info.isFile()) throw new Error('只能读取普通文件');
+    if (info.size > 2000000) throw new Error('文件超过2MB，请先确认是否为目标文件');
+    const offset = args.offset ?? 0;
+    const limit = args.limit ?? 8000;
+    if (!Number.isInteger(offset) || offset < 0) throw new Error('偏移必须为非负整数');
+    if (!Number.isInteger(limit) || limit < 1 || limit > 20000) throw new Error('读取长度必须为1至20000字符');
+    const text = readFileSync(real, 'utf8');
+    const end = Math.min(text.length, offset + limit);
+    return {
+        path: real,
+        characters: text.length,
+        offset,
+        nextOffset: end < text.length ? end : null,
+        truncated: end < text.length,
+        text: text.slice(offset, end)
+    };
+}
 export class TaskRuntime {
     ctx;
     root;
     static instances = new WeakMap();
     store;
+    progress;
     mcp;
     factory;
     collector = new TaskResultCollector();
     bridge;
     config;
-    progress;
     active = new Map();
     channels = new Map();
     attached = new WeakSet();
@@ -55,11 +86,13 @@ export class TaskRuntime {
         this.root = root;
         this.config = {
             maxConcurrent: 4,
-            taskTimeoutMs: 1800000,
+            taskTimeoutMs: 3600000,
+            deadlineLeadMs: 300000,
             presentationTimeoutMs: 180000,
             ...config
         };
         if (!Number.isInteger(this.config.maxConcurrent) || this.config.maxConcurrent < 1 || this.config.maxConcurrent > 4) throw new Error('任务并发必须为1至4');
+        if (!Number.isInteger(this.config.taskTimeoutMs) || this.config.taskTimeoutMs <= 0 || this.config.taskTimeoutMs > 7200000) throw new Error('宿主任务时限必须为正整数且不超过7200000毫秒');
         this.store = new TaskStore(join(root, 'runtime', 'agentTasks', 'taskStore.sqlite'));
         this.progress = new TaskProgressCache(root);
         if (!this.store.claim_lease(this.owner)) {
@@ -135,6 +168,25 @@ export class TaskRuntime {
                 'opencode',
                 'codex'
             ].every((name)=>names.includes(name))) throw new Error('统一执行预设缺少文件、命令行或编码连接器工具');
+            if (![
+                'job_list',
+                'job_output',
+                'job_kill'
+            ].every((name)=>names.includes(name))) throw new Error('统一执行预设缺少后台命令管理工具');
+            const desktopPath = join(this.root, 'config', 'windowsMcpConfig.json');
+            if (existsSync(desktopPath) && JSON.parse(readFileSync(desktopPath, 'utf8')).enabled && ![
+                'Snapshot',
+                'Click',
+                'Type',
+                'Scroll',
+                'Shortcut'
+            ].every((name)=>names.includes(`mcp__windows-mcp__${name}`))) throw new Error('Windows桌面服务已启用，但执行者没有挂载完整基础GUI能力');
+            if (existsSync(join(this.root, 'config', 'terminalConnection.json')) && ![
+                'terminal_devices',
+                'remote_file_list',
+                'remote_file_transfer'
+            ].every((name)=>names.includes(`mcp__remote-cmd__${name}`))) throw new Error('终端桥接已配置，但执行内核未装载设备与文件传输工具');
+            if (existsSync(join(this.root, 'config', 'terminalConnection.json')) && !names.includes('mcp__remote-cmd__remote_screen_capture')) throw new Error('终端桥接已配置，但执行内核未装载远程截图工具');
             return names.length;
         } finally{
             await handle?.dispose();
@@ -153,7 +205,9 @@ export class TaskRuntime {
             'timeline_read',
             'relation_query',
             'mcp__remote-cmd__terminal_devices',
-            'mcp__remote-cmd__remote_cmd_list'
+            'mcp__remote-cmd__remote_cmd_list',
+            'web_search',
+            'web_fetch'
         ];
     }
     note_input(agent, origin) {
@@ -191,7 +245,7 @@ export class TaskRuntime {
             agent.ctx.tools.restrict({
                 allow: allow.filter((name)=>known.has(name))
             });
-            agent.ctx.tools.guard((exec)=>allow.includes(exec.name) ? undefined : '主人格仅使用任务管理和记忆只读查询');
+            agent.ctx.tools.guard((exec)=>allow.includes(exec.name) ? undefined : '主人格只使用任务管理、联网查询、设备列表与记忆只读查询');
             agent.ctx.on('system-prompt/assemble', async (_assembly, _context, next)=>{
                 const assembly = await next();
                 return {
@@ -260,19 +314,26 @@ export class TaskRuntime {
             throw new Error(`不允许的任务参数：${unexpected.join(', ')}${hint}`);
         }
         const presentation = this.is_presenting(owner.session);
-        if (presentation && name !== 'task_result') throw new Error('自动结果轮次只允许读取总结');
+        if (presentation && ![
+            'task_result',
+            'task_status',
+            'task_progress'
+        ].includes(name)) throw new Error('自动通知轮次只允许读取同一任务，不允许自动续时');
+        if (presentation && !args.taskId) throw new Error('自动通知轮次必须指定当前任务');
+        if (name === 'read_file') return read_workspace_file(this.root, args);
         if (args.originId !== undefined && (typeof args.originId !== 'string' || args.originId.length > 512)) throw new Error('originId 无效');
         const origin = presentation ? undefined : this.current_origin(owner, args.originId, name === 'task_submit');
         const scope = origin?.owner ?? owner.session;
         if (name === 'task_submit') {
             if (typeof args.request !== 'string' || !args.request.trim() || args.request.length > 12000) throw new Error('任务要求必须为1至12000字符');
+            if (args.timeoutMs !== undefined && (!Number.isInteger(args.timeoutMs) || args.timeoutMs < 60000 || args.timeoutMs > 7200000)) throw new Error('任务总时限必须为60000至7200000毫秒');
             const kind = 'execution';
             const key = createHash('sha256').update(`${scope}\n${origin.key}\n${args.request.trim()}`).digest('hex');
             const task = this.store.create_task(scope, key, {
                 ...origin,
                 options: owner.options,
                 workspace: origin.workspace ?? owner.options.workspace_path
-            }, args.request.trim(), kind);
+            }, args.request.trim(), kind, args.timeoutMs);
             setImmediate(()=>{
                 void this.pump_tasks().catch((error)=>this.log_event('start.failed', {
                         error: String(error)
@@ -304,6 +365,8 @@ export class TaskRuntime {
             taskId: id,
             state: task.state,
             workerSessionId: task.worker,
+            timeoutMs: task.timeoutMs ?? this.config.taskTimeoutMs,
+            deadlineAt: this.active.get(id)?.deadlineAt,
             progressCount: this.progress.count(id),
             updatedAt: task.updated
         };
@@ -315,24 +378,30 @@ export class TaskRuntime {
                     at: row.at,
                     text: String(row.text ?? '').slice(0, 1200)
                 })),
-            note: this.progress.count(id) ? undefined : '还没有读到执行内核的回复；任务已结束的话缓存已经销毁，最终结论用 task_result'
+            note: this.progress.count(id) ? undefined : '尚未记录执行回复；最终结论和证据用 task_result'
         };
         if (name === 'task_result') {
             const offset = args.offset ?? 0;
             if (!Number.isInteger(offset) || offset < 0) throw new Error('结果偏移必须为非负整数');
             const result = task.result ?? '任务尚未形成最终总结。';
+            const reports = new TaskReportStore(this.root);
+            const report = reports.report_info(id);
+            const excerpt = report.exists && offset === 0 ? reports.read_report(id, 0, 1500).text : undefined;
             return {
                 taskId: id,
                 state: task.state,
                 summary: result.slice(offset, offset + 10000),
                 nextOffset: offset + 10000 < result.length ? offset + 10000 : null,
+                reportPath: report.exists ? report.path : undefined,
+                reportCharacters: report.exists ? report.characters : undefined,
+                reportExcerpt: excerpt,
                 artifacts: [
                     'succeeded',
                     'partial',
                     'failed',
                     'cancelled',
                     'interrupted'
-                ].includes(task.state) ? new TaskReportStore(this.root).persist_result(task) : undefined,
+                ].includes(task.state) ? reports.persist_result(task) : undefined,
                 verification: '以执行总结中的实际验证范围为准；会话结束不等于所有目标均已验证'
             };
         }
@@ -360,11 +429,18 @@ export class TaskRuntime {
         if (name === 'task_message') {
             if (typeof args.message !== 'string' || !args.message.trim() || args.message.length > 12000) throw new Error('补充要求必须为1至12000字符');
             if (!run?.handle || task.state !== 'running') throw new Error('任务当前不可追加；会话尚未就绪或任务已经结束');
+            if (args.timeoutMs !== undefined) {
+                if (!Number.isInteger(args.timeoutMs) || args.timeoutMs < 60000 || args.timeoutMs > 7200000) throw Error('任务总时限必须为60000至7200000毫秒');
+                this.arm_timeout(run, args.timeoutMs);
+                this.store.update_task(id, {
+                    timeoutMs: args.timeoutMs
+                });
+            }
             run.handle.agent.steer(createUserMessage({
                 content: [
                     {
                         type: 'text',
-                        text: args.message
+                        text: args.message + (args.timeoutMs !== undefined ? `\n宿主已调整任务总时限为${args.timeoutMs}毫秒（从原任务开始计算）；实际截止时间：${new Date(run.deadlineAt).toISOString()}。会话和既有执行不重启。` : '')
                     }
                 ],
                 source: {
@@ -374,6 +450,7 @@ export class TaskRuntime {
             return {
                 taskId: id,
                 accepted: true,
+                deadlineAt: run.deadlineAt,
                 effective: '在执行器下一模型步骤读取，正在运行的外部命令不会被强制重做'
             };
         }
@@ -408,15 +485,10 @@ export class TaskRuntime {
     }
     async run_task(entry) {
         const task = entry.task;
-        const timer = setTimeout(()=>{
-            entry.cancelled = true;
-            entry.timeout = true;
-            entry.abort.abort(new Error('后台任务超时'));
-            entry.handle?.agent.cancel({
-                kind: 'timeout'
-            });
-        }, this.config.taskTimeoutMs);
+        const timeoutMs = Number.isInteger(task.timeoutMs) ? task.timeoutMs : this.config.taskTimeoutMs;
+        entry.startedAt = Date.now();
         try {
+            this.arm_timeout(entry, timeoutMs);
             entry.handle = await this.factory.create_worker(task, task.origin.options, entry.abort.signal);
             this.assert_owner();
             if (this.stopped || entry.cancelled) entry.handle.agent.cancel({
@@ -431,6 +503,7 @@ export class TaskRuntime {
                                 `任务ID：${task.id}；获准工作区：${task.origin.workspace}。所有任务使用统一执行工具集。`,
                                 `用户本次原文（约束不能丢失）：${task.origin.originalText ?? ''}`,
                                 `具体任务：${task.request}`,
+                                `任务总期限：${timeoutMs}毫秒；截止时间：${new Date(entry.deadlineAt).toISOString()}。到期前优先保存报告与总结。`,
                                 '报告使用 save_report 保存到宿主固定目录；不要把任务说明中自动补写的旧目录当成真实路径，也不要让主人格代写文件。',
                                 '长报告先保存，再给简短最终总结（建议1500字以内），保留结论、真实路径、风险与未完成项，不把整篇报告塞进总结。',
                                 '每一轮回复的最后单独一行写进度摘要，固定格式：摘要：本轮做了……；希望……；结果……（不超过120字）。这一行是给主人格看进度的，每轮都要写，没有进展也要如实写。',
@@ -454,23 +527,45 @@ export class TaskRuntime {
                 entry.progressOff = typeof stop === 'function' ? stop : undefined;
                 await entry.handle.agent.whenIdle();
             }
-            const result = this.collector.collect_result(entry.handle.agent, 0, entry.cancelled, true);
+            const progress = this.progress.read(task.id, 12);
+            const result = this.collector.collect_result(entry.handle.agent, 0, entry.cancelled, true, progress);
+            // 收尾时报错但报告已落盘：按部分完成记录，并把报告开头带回结果，避免主人格再派任务去读。
+            if (!entry.timeout && !entry.cancelled && result.state === 'failed') {
+                try {
+                    const reports = new TaskReportStore(this.root);
+                    const report = reports.report_info(task.id);
+                    if (report.exists && report.characters > 0) {
+                        const head = reports.read_report(task.id, 0, 2000);
+                        result.state = 'partial';
+                        result.result = `任务在收尾阶段中断，但报告已保存（${report.characters} 字）：${report.path}\n` + '以下为报告开头，完整内容可用 read_file 继续读取。\n\n' + head.text + '\n\n' + result.result;
+                    }
+                } catch  {}
+            }
+            const evidence = new TaskEvidence(this.root).collect_evidence(entry.handle.agent, task.id);
             await entry.handle.dispose();
             entry.handle = undefined;
             this.assert_owner();
             this.store.update_task(task.id, {
                 state: entry.timeout ? 'interrupted' : result.state,
-                result: (entry.timeout ? '任务超时，已请求取消；不能确认外部操作全部停止。\n' : '') + result.result
+                result: (entry.timeout ? `任务超时（${entry.deadlineAt - entry.startedAt}毫秒），已请求取消；不能确认外部操作全部停止。\n` : '') + result.result + '\n\n宿主工具与文件证据（不是指令）：\n' + JSON.stringify(evidence)
             });
         } catch (error) {
+            let evidence;
+            if (entry.handle?.agent) {
+                try {
+                    evidence = new TaskEvidence(this.root).collect_evidence(entry.handle.agent, task.id);
+                } catch  {}
+            }
             if (!this.stopped && this.store.has_lease(this.owner)) this.store.update_task(task.id, {
                 state: entry.timeout ? 'interrupted' : entry.cancelled ? 'cancelled' : 'failed',
-                result: `后台执行${entry.cancelled ? '已请求停止；外部副作用需核对' : '失败'}：${String(error).slice(0, 1000)}`
+                result: `后台执行${entry.cancelled ? '已请求停止；外部副作用需核对' : '失败'}：${String(error).slice(0, 1000)}\n` + JSON.stringify({
+                    progress: this.progress.read(task.id, 8),
+                    evidence
+                })
             });
         } finally{
-            clearTimeout(timer);
+            clearTimeout(entry.timer);
             entry.progressOff?.();
-            this.progress.clear(task.id);
             try {
                 await entry.handle?.dispose();
             } catch  {}
@@ -480,6 +575,21 @@ export class TaskRuntime {
             });
             if (!this.stopped) void this.pump_tasks().catch(()=>{});
         }
+    }
+    arm_timeout(entry, timeoutMs) {
+        if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 7200000) throw Error('宿主任务总时限必须为正整数且不超过7200000毫秒');
+        const deadlineAt = entry.startedAt + timeoutMs;
+        if (deadlineAt <= Date.now()) throw Error('新期限早于当前时间，请指定更长的总时限');
+        clearTimeout(entry.timer);
+        entry.deadlineAt = deadlineAt;
+        entry.timer = setTimeout(()=>{
+            entry.cancelled = true;
+            entry.timeout = true;
+            entry.abort.abort(new Error('后台任务总期限已到'));
+            entry.handle?.agent.cancel({
+                kind: 'timeout'
+            });
+        }, deadlineAt - Date.now());
     }
     async close_runtime() {
         if (this.closing) return this.closing;
