@@ -2,7 +2,7 @@
  * 任务产物存储：将报告与完整执行总结分别原子落盘，不允许模型指定任意写入路径。
  * 注册参数 root 为生产根目录；默认写入 runtime/agentTasks/reports，单份正文最多二百万字符。
  */
-import { mkdirSync, writeFileSync, renameSync, unlinkSync, existsSync, realpathSync, lstatSync } from 'node:fs'
+import { mkdirSync, writeFileSync, renameSync, unlinkSync, existsSync, realpathSync, lstatSync, readFileSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
@@ -33,5 +33,23 @@ export class TaskReportStore {
     const report = this.get_path(task.id)
     const has = existsSync(report) && lstatSync(report).isFile() && !lstatSync(report).isSymbolicLink()
     return { reportPath: has ? report : summary.path, summaryPath: summary.path, reportSaved: has }
+  }
+  /** id 为任务标识；只返回报告是否存在与字符数，不读正文，用于任务结果附带产物信息。 */
+  report_info(id: string): any {
+    const path = this.get_path(id)
+    if (!existsSync(path) || !lstatSync(path).isFile() || lstatSync(path).isSymbolicLink())
+      return { path, exists: false, characters: 0 }
+    const text = readFileSync(path, 'utf8')
+    return { path, exists: true, characters: text.length }
+  }
+  /** id 为任务标识，offset/limit 为字符窗口；只读文本片段，缺失或越界时返回空串。 */
+  read_report(id: string, offset = 0, limit = 6000): any {
+    const info = this.report_info(id)
+    if (!info.exists) return { ...info, offset: 0, nextOffset: null, text: '' }
+    if (!Number.isInteger(offset) || offset < 0) throw Error('报告偏移必须为非负整数')
+    if (!Number.isInteger(limit) || limit < 1 || limit > 20000) throw Error('报告读取长度必须为1至20000字符')
+    const text = readFileSync(info.path, 'utf8')
+    const end = Math.min(text.length, offset + limit)
+    return { ...info, offset, nextOffset: end < text.length ? end : null, text: text.slice(offset, end) }
   }
 }
