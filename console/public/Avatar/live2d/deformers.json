@@ -1,0 +1,123 @@
+{
+  "groups": {
+    "Face": [
+      "Face_Skin",
+      "Face_ForegroundHair",
+      "Face_EyeOcclusion"
+    ],
+    "Eye_L": [
+      "Eye_White_L",
+      "Iris_L",
+      "Eye_Open_L",
+      "Eye_Lower_L",
+      "Eye_Closed_L",
+      "Eye_Mask_L"
+    ],
+    "Eye_R": [
+      "Eye_White_R",
+      "Iris_R",
+      "Eye_Open_R",
+      "Eye_Lower_R",
+      "Eye_Closed_R",
+      "Eye_Mask_R"
+    ],
+    "Mouth": [
+      "Mouth_Closed",
+      "Mouth_Open",
+      "Mouth_O",
+      "Mouth_I"
+    ]
+  },
+  "baked_under_body": [
+    "Hair_Back"
+  ],
+  "quad": true,
+  "tol_px": 0.35,
+  "tol_swung_px": 0.35,
+  "fit_px": {
+    "Face": {
+      "Face_Skin": [
+        0.049,
+        0.0
+      ],
+      "Face_ForegroundHair": [
+        0.049,
+        0.0
+      ],
+      "Face_EyeOcclusion": [
+        0.096,
+        0.0
+      ]
+    },
+    "Eye_L": {
+      "Eye_White_L": [
+        0.0,
+        0.0
+      ],
+      "Iris_L": [
+        0.0,
+        0.0
+      ],
+      "Eye_Open_L": [
+        0.0,
+        0.0
+      ],
+      "Eye_Lower_L": [
+        0.0,
+        0.0
+      ],
+      "Eye_Closed_L": [
+        0.0,
+        0.0
+      ],
+      "Eye_Mask_L": [
+        0.0,
+        0.0
+      ]
+    },
+    "Eye_R": {
+      "Eye_White_R": [
+        0.0,
+        0.0
+      ],
+      "Iris_R": [
+        0.0,
+        0.0
+      ],
+      "Eye_Open_R": [
+        0.0,
+        0.0
+      ],
+      "Eye_Lower_R": [
+        0.0,
+        0.0
+      ],
+      "Eye_Closed_R": [
+        0.0,
+        0.0
+      ],
+      "Eye_Mask_R": [
+        0.0,
+        0.0
+      ]
+    },
+    "Mouth": {
+      "Mouth_Closed": [
+        0.0,
+        0.0
+      ],
+      "Mouth_Open": [
+        0.0,
+        0.0
+      ],
+      "Mouth_O": [
+        0.0,
+        0.0
+      ],
+      "Mouth_I": [
+        0.0,
+        0.0
+      ]
+    }
+  }
+}

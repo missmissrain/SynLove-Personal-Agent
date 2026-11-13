@@ -1,0 +1,212 @@
+{
+  "Version": 3,
+  "Parameters": [
+    {
+      "Id": "ParamAngleX",
+      "GroupId": "",
+      "Name": "ParamAngleX"
+    },
+    {
+      "Id": "ParamAngleY",
+      "GroupId": "",
+      "Name": "ParamAngleY"
+    },
+    {
+      "Id": "ParamAngleZ",
+      "GroupId": "",
+      "Name": "ParamAngleZ"
+    },
+    {
+      "Id": "ParamBodyAngleZ",
+      "GroupId": "",
+      "Name": "ParamBodyAngleZ"
+    },
+    {
+      "Id": "ParamBreath",
+      "GroupId": "",
+      "Name": "ParamBreath"
+    },
+    {
+      "Id": "ParamEyeLOpen",
+      "GroupId": "",
+      "Name": "ParamEyeLOpen"
+    },
+    {
+      "Id": "ParamEyeROpen",
+      "GroupId": "",
+      "Name": "ParamEyeROpen"
+    },
+    {
+      "Id": "ParamEyeSmile",
+      "GroupId": "",
+      "Name": "ParamEyeSmile"
+    },
+    {
+      "Id": "ParamEyeBallX",
+      "GroupId": "",
+      "Name": "ParamEyeBallX"
+    },
+    {
+      "Id": "ParamEyeBallY",
+      "GroupId": "",
+      "Name": "ParamEyeBallY"
+    },
+    {
+      "Id": "ParamBrowForm",
+      "GroupId": "",
+      "Name": "ParamBrowForm"
+    },
+    {
+      "Id": "ParamMouthOpenY",
+      "GroupId": "",
+      "Name": "ParamMouthOpenY"
+    },
+    {
+      "Id": "ParamMouthVariant",
+      "GroupId": "",
+      "Name": "ParamMouthVariant"
+    },
+    {
+      "Id": "ParamHairBack",
+      "GroupId": "",
+      "Name": "ParamHairBack"
+    },
+    {
+      "Id": "ParamHairPitch",
+      "GroupId": "",
+      "Name": "ParamHairPitch"
+    },
+    {
+      "Id": "ParamBodyAngleX",
+      "GroupId": "",
+      "Name": "ParamBodyAngleX"
+    },
+    {
+      "Id": "ParamBodyAngleY",
+      "GroupId": "",
+      "Name": "ParamBodyAngleY"
+    },
+    {
+      "Id": "ParamHairBack2",
+      "GroupId": "",
+      "Name": "ParamHairBack2"
+    },
+    {
+      "Id": "ParamHairBack3",
+      "GroupId": "",
+      "Name": "ParamHairBack3"
+    },
+    {
+      "Id": "ParamMouthForm",
+      "GroupId": "",
+      "Name": "ParamMouthForm"
+    },
+    {
+      "Id": "ParamLegL",
+      "GroupId": "",
+      "Name": "ParamLegL"
+    },
+    {
+      "Id": "ParamLegR",
+      "GroupId": "",
+      "Name": "ParamLegR"
+    },
+    {
+      "Id": "ParamArmL",
+      "GroupId": "",
+      "Name": "ParamArmL"
+    },
+    {
+      "Id": "ParamWristL",
+      "GroupId": "",
+      "Name": "ParamWristL"
+    },
+    {
+      "Id": "ParamArmR",
+      "GroupId": "",
+      "Name": "ParamArmR"
+    },
+    {
+      "Id": "ParamWristR",
+      "GroupId": "",
+      "Name": "ParamWristR"
+    },
+    {
+      "Id": "ParamArmLFollow",
+      "GroupId": "",
+      "Name": "ParamArmLFollow"
+    },
+    {
+      "Id": "ParamWristLFollow",
+      "GroupId": "",
+      "Name": "ParamWristLFollow"
+    },
+    {
+      "Id": "ParamElbowL",
+      "GroupId": "",
+      "Name": "ParamElbowL"
+    },
+    {
+      "Id": "ParamFingerCurlL",
+      "GroupId": "",
+      "Name": "ParamFingerCurlL"
+    },
+    {
+      "Id": "ParamThumbL",
+      "GroupId": "",
+      "Name": "ParamThumbL"
+    },
+    {
+      "Id": "ParamLegLFollow",
+      "GroupId": "",
+      "Name": "ParamLegLFollow"
+    },
+    {
+      "Id": "ParamKneeL",
+      "GroupId": "",
+      "Name": "ParamKneeL"
+    },
+    {
+      "Id": "ParamArmRFollow",
+      "GroupId": "",
+      "Name": "ParamArmRFollow"
+    },
+    {
+      "Id": "ParamWristRFollow",
+      "GroupId": "",
+      "Name": "ParamWristRFollow"
+    },
+    {
+      "Id": "ParamElbowR",
+      "GroupId": "",
+      "Name": "ParamElbowR"
+    },
+    {
+      "Id": "ParamFingerCurlR",
+      "GroupId": "",
+      "Name": "ParamFingerCurlR"
+    },
+    {
+      "Id": "ParamThumbR",
+      "GroupId": "",
+      "Name": "ParamThumbR"
+    },
+    {
+      "Id": "ParamLegRFollow",
+      "GroupId": "",
+      "Name": "ParamLegRFollow"
+    },
+    {
+      "Id": "ParamKneeR",
+      "GroupId": "",
+      "Name": "ParamKneeR"
+    },
+    {
+      "Id": "ParamHairFront",
+      "GroupId": "",
+      "Name": "ParamHairFront"
+    }
+  ],
+  "ParameterGroups": [],
+  "Parts": []
+}

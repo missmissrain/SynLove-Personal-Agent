@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "description": "欣爱专用待机小动作；采用多段待机与独立淡入淡出，不直接复用其他角色的模型参数。",
+  "presets": [
+    {"name":"curiousTilt","duration":5.4,"channels":{"ParamAngleZ":10,"ParamAngleX":7,"ParamEyeBallX":0.18,"ParamWristL":0.20}},
+    {"name":"gentleNod","duration":4.8,"channels":{"ParamAngleY":[12,1],"ParamAngleZ":2,"ParamArmL":[0.20,1],"ParamArmR":[0.20,1,0.3]}},
+    {"name":"lookAside","duration":5.6,"channels":{"ParamAngleX":14,"ParamAngleY":2,"ParamEyeBallX":0.28,"ParamBodyAngleZ":1.0,"ParamHairBack":[0.18,1]}},
+    {"name":"lookBack","duration":5.8,"channels":{"ParamAngleX":-14,"ParamAngleZ":-8,"ParamEyeBallX":-0.28,"ParamWristR":0.22}},
+    {"name":"softSway","duration":6.2,"channels":{"ParamBodyAngleZ":[1.5,1],"ParamAngleZ":[6,1,0.3],"ParamArmL":[0.26,1,0.4],"ParamArmR":[-0.26,1,0.4]}},
+    {"name":"littleWave","duration":5.8,"channels":{"ParamArmR":0.62,"ParamWristR":[0.30,2.5],"ParamFingerCurlR":[0.28,2],"ParamAngleZ":-7}},
+    {"name":"relaxHands","duration":5.4,"channels":{"ParamArmL":0.28,"ParamArmR":0.28,"ParamFingerCurlL":[0.28,1],"ParamFingerCurlR":[0.28,1,0.3],"ParamWristL":[0.20,1],"ParamWristR":[-0.20,1]}},
+    {"name":"listening","duration":5.2,"channels":{"ParamAngleZ":-10,"ParamAngleY":4,"ParamEyeBallY":0.14,"ParamBodyAngleZ":-0.7,"ParamArmL":0.22}}
+  ]
+}
