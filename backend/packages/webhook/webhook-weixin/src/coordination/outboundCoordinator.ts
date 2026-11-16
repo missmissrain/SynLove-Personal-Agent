@@ -10,6 +10,7 @@
  */
 
 import { probe, probe_timer } from '../diagnostics/probe.ts'
+import { createHash } from 'node:crypto'
 import { ObservationRecorder } from '@deepseek-ai/dsh-llm'
 import type { StatePort } from '../state/statePort.ts'
 import type { TurnContextStore } from '../state/turnContextStore.ts'
@@ -185,6 +186,26 @@ export class OutboundCoordinator {
 
   // ── 入队 API（协调器调用） ─────────────────────────────────────────────
 
+  /** session_id、user_id为入站归属；只在新凭据出现时唤醒该用户暂存的通知，不跨用户补发。 */
+  async resume_parked_notices(session_id: string, user_id: string): Promise<number> {
+    const token = await this.turn_context.latest_token_if_fresh_async(session_id, undefined, user_id)
+    if (!token || !this.store.parked_results || !this.store.get_outbox) return 0
+    const hash = createHash('sha256').update(token).digest('hex')
+    let count = 0
+    for (const item of await this.store.parked_results(500)) {
+      const row = await this.store.get_outbox(item.outbound_id)
+      if (!row || row.session_id !== session_id || row.user_id !== user_id
+        || row.turn !== undefined || !/等待新入站凭据|会话窗口已关闭/.test(row.last_error ?? '')) continue
+      const key = `notice-resume:${row.outbound_id}`
+      if (await this.store.get_meta(key) === hash) continue
+      await this.store.set_meta(key, hash)
+      await this.store.mark_outbox_failed(row.outbound_id, 'failed_retryable', '新入站凭据已到达，等待补发', Date.now())
+      count++
+    }
+    if (count) probe('outbound', 'notice.resumed', { session_id, count })
+    return count
+  }
+
   /** 入队一条正式回复（转级上下文由 turn 决定）。 */
   enqueue_assistant(input: { session_id: string; user_id: string; turn: number; text: string }): void {
     if (!input.text.trim()) return
@@ -353,7 +374,10 @@ export class OutboundCoordinator {
       // 原因（实测踩到）：token 只有用户发消息时才会带来，而通知入队时窗口常常是关着的，
       // 于是存下的 token 是空的；等用户下次说话、窗口重新打开，这条通知**仍然没有 token**
       // 而发不出去。发送时刻再取一次，积压的通知就能趁着窗口开着补发。
-      const send_token = record.context_token ?? this.turn_context.latest_token_if_fresh(record.session_id)
+      // 异步任务可能超过十分钟，凭据真实寿命由平台裁决，不因本地年龄阈值直接丢弃。
+      const fresh = await this.turn_context.latest_token_if_fresh_async(record.session_id,
+        record.turn === undefined ? Number.MAX_SAFE_INTEGER : undefined, record.user_id)
+      const send_token = record.turn === undefined ? fresh ?? record.context_token : record.context_token ?? fresh
       if (send_token !== undefined && record.context_token === undefined) {
         probe('outbound', 'token.picked_at_send', { outbound_id: record.outbound_id, kind: record.kind })
       }
@@ -390,39 +414,30 @@ export class OutboundCoordinator {
       const attempt = record.attempt + 1
 
       if (rate_limited) {
-        // 先分清两种 ret=-2，它们的处理方式完全相反：
-        //
-        // (a) **没有 context_token** —— 实测这类发送几乎必然被拒（历史统计：
-        //     带 token 70/70 成功，不带 token 13 次失败），因为 iLink 需要会话上下文才能投递。
-        //     这类消息**不能**占用全局冷却、更不能挡住后面的队列——否则一条无 token 的通知
-        //     会把"带 token 的真实回复"堵死（实测就是这样让用户几小时收不到消息的）。
-        //     做法：推迟到下次有入站消息（那时才会有新 token）再试，并**继续推进队列**。
-        // 通知类（turn 为空：任务完成汇报、进度）**永不阻塞队列、永不触发全局熔断**。
-        //
-        // 这是踩过的坑：通知类通常没有自己的新鲜 token（要么没有、要么是"最近一次"的旧 token），
-        // 而旧 token 必然被拒。若把它当"真限流"就会把 streak 顶到几十，
-        // 全局冷却一路冻结——**连带把带新鲜 token 的真实回复也冻住**，
-        // 表现为"整晚收不到消息，你一说话积压全涌出来"（实测 streak 24、10 小时零成功）。
+        // ret=-2并不能独立证明凭据过期。通知短暂退避后仍失败，才等待新凭据；
+        // 通知不触发全局熔断，避免挡住用户当前回复。
         const is_notice = record.turn === undefined
         if (is_notice) {
-          // 通知类**停放**，不重试、不丢弃。
-          //
-          // 依据（四组对照实验全部 ret=-2）：平台只允许在"用户刚发过消息"的窗口内发送；
-          // 旧 token / 无 token / 先调 notifystart 都不行——notifystart 也重开不了窗口。
-          // 所以窗口关着时反复重试纯属白费（还会拖慢真实回复）。
-          // 但结果本身有价值（"你让我做的事做完了"），所以停放在队列里保留一段时间，
-          // 由工具 `处理结果日志` 在用户主动询问时返回。
+          const fresh = await this.turn_context.latest_token_if_fresh_async(record.session_id, Number.MAX_SAFE_INTEGER, record.user_id)
+          if ((fresh ?? record.context_token) && attempt < 3) {
+            await this.store.mark_outbox_failed(record.outbound_id, 'failed_retryable',
+              '通知暂时被拒，退避重试；尚不能判定凭据过期', Date.now() + 15000 * attempt)
+            done({ outcome: 'notice_retry', attempt })
+            return true
+          }
           const park_ms = this.parked_retention_ms
           await this.store.mark_outbox_failed(
-            record.outbound_id, 'failed_retryable', '会话窗口已关闭：已停放，等用户询问时返回',
-            Date.now() + park_ms,
+            record.outbound_id, 'failed_terminal', '通知发送被拒，等待新入站凭据后自动补发',
           )
+          const rejected = fresh ?? record.context_token
+          if (rejected) await this.store.set_meta(`notice-resume:${record.outbound_id}`,
+            createHash('sha256').update(rejected).digest('hex'))
           // 顺手清理超过保留期的停放结果，避免长期堆积
           await this.store.prune_parked_results(park_ms)
           done({ outcome: 'notice_parked', error: detail, attempt, park_ms })
           probe('outbound', 'notice.parked', {
             outbound_id: record.outbound_id, park_ms,
-            has_token: record.context_token !== undefined,
+            has_token: (fresh ?? record.context_token) !== undefined,
           })
           return true
         }
@@ -668,7 +683,7 @@ export class OutboundCoordinator {
     for (const record of pending) {
       // 通知类（处理结果）按**停放保留期**算，而不是 10 分钟：
       // 它们本来就是"窗口关闭时先存着，等用户来问"，重启不能把它们当过期删掉。
-      const limit = record.turn === undefined
+      const limit = record.client_id.startsWith('task-') ? Infinity : record.turn === undefined
         ? Math.max(stale_ms, this.parked_retention_ms)
         : Math.max(stale_ms, reply_stale_ms)
       if (now - record.created_at > limit) {

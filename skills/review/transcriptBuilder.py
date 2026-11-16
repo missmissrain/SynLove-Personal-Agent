@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .SessionCompression import SessionCompression
+from tools.LogRedactor import LogRedactor
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
@@ -37,21 +38,25 @@ class transcriptBuilder:
         for path in sorted(self.session_root.rglob("session.v3.jsonl.zstd")):
             rows.extend(self._read_session(path, since_ts, until_ts))
         rows.sort(key=lambda item: item[0])
-        turns = sum(1 for item in rows if item[1] == "user")
-        lines = [self._render(item) for item in rows]
-        text = "\n".join(lines)
-        truncated = False
-        if len(text) > max_chars:
-            text = text[-max_chars:]
-            cut = text.find("\n")
-            if cut > 0:
-                text = text[cut + 1:]
-            text = "[更早的内容已省略]\n" + text
-            truncated = True
-        start_ts = rows[0][0] if rows else since_ts
-        end_ts = rows[-1][0] if rows else until_ts
+        rows = [(stamp, kind, LogRedactor.redact_text(body)) for stamp, kind, body in rows]
+        # 从最早未处理记录开始；同毫秒记录不可拆开，否则时间水位会漏读并列事件。
+        selected, size = [], 0
+        for row in rows:
+            line_size = len(self._render(row)) + 1
+            if selected and size + line_size > max_chars and row[0] != selected[-1][0]:
+                break
+            selected.append(row)
+            size += line_size
+        truncated = len(selected) < len(rows)
+        text = "\n".join(self._render(item) for item in selected)
+        turns = sum(1 for item in selected if item[1] == "user")
+        evidence = [item[2] for item in selected if item[1] == "result"]
+        start_ts = selected[0][0] if selected else since_ts
+        end_ts = selected[-1][0] if selected else until_ts
         return {"text": text, "start_ts": start_ts, "end_ts": end_ts,
-                "turns": turns, "truncated": truncated}
+                "turns": turns, "truncated": truncated,
+                "processed_until": end_ts if truncated else until_ts,
+                "evidence": [body for body in evidence if body in text]}
 
     def _read_session(self, path, since_ts, until_ts):
         """读一个会话文件，返回 [(ts, kind, body)]。"""
@@ -87,13 +92,24 @@ class transcriptBuilder:
                 args = data.get("arguments") or {}
                 raw = args if isinstance(args, str) else json.dumps(args, ensure_ascii=False)
                 out.append((ts, "tool", f"{name} {raw[:200]}"))
+            elif kind == "tool/result":
+                msg = data.get("message") or {}
+                parts = []
+                for block in msg.get("content") or []:
+                    if isinstance(block, dict) and block.get("type") == "tool-result":
+                        body = _text_of(block.get("content"))
+                        if body:
+                            status = "error" if block.get("isError") else "returned"
+                            parts.append(f"status={status} {body}")
+                if parts:
+                    out.append((ts, "result", " ".join(parts)[:850]))
         return out
 
     def _render(self, row):
         """渲染一行：[MM-DD HH:MM] 角色：正文。"""
         ts, kind, body = row
         stamp = datetime.fromtimestamp(ts / 1000, self.tz).strftime("%m-%d %H:%M")
-        who = {"user": "用户", "assistant": "欣爱", "tool": "工具"}.get(kind, kind)
+        who = {"user": "用户", "assistant": "欣爱", "tool": "工具", "result": "工具回执"}.get(kind, kind)
         return f"[{stamp}] {who}：{body[:900]}"
 
 

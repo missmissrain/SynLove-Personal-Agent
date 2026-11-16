@@ -117,6 +117,18 @@ export class QqOutbox {
             this.draining = false;
         }
     }
+    delivery_status(id) {
+        if (Object.values(this.receipts).includes(id)) return {
+            status: 'sent'
+        };
+        const row = this.rows.find((item)=>item.id === id);
+        return row ? {
+            status: row.status,
+            error: row.error
+        } : {
+            status: 'missing'
+        };
+    }
     stop_queue() {
         this.stopped = true;
     }

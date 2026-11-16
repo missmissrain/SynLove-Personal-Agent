@@ -3,8 +3,8 @@
   "note": "示例：模型定义（不含任何密钥）。真实使用时复制为 modelConfig.json，密钥填到 secrets.json。",
   "updatedAt": "2026-09-29T07:10:55.023Z",
   "defaultModel": {
-    "provider": "volcengine",
-    "model": "doubao-seed-2-0-lite-260215"
+    "provider": "dahuangf",
+    "model": "gpt-6.1-sol"
   },
   "providers": {
     "volcengine": {
@@ -239,6 +239,27 @@
       ],
       "defaultContextWindow": 1000000
     },
+    "dahuangf": {
+      "displayName": "Dahuangf GPT-6.1-Sol",
+      "api": "openai-responses",
+      "baseURL": "https://tokens.dahuangf.com/v1",
+      "baseURLEnv": "DAHUANGF_BASE_URL",
+      "apiKeyEnv": "DAHUANGF_API_KEY",
+      "models": [
+        {
+          "id": "gpt-6.1-sol",
+          "name": "GPT-6.1-Sol",
+          "input": [
+            "text",
+            "image"
+          ],
+          "reasoning": true,
+          "contextWindow": 128000,
+          "note": "首选云端模型；不可用时自动回退到千问"
+        }
+      ],
+      "defaultContextWindow": 128000
+    },
     "gemma-local": {
       "displayName": "本地 Gemma4 (llama.cpp)",
       "api": "openai-responses",
@@ -293,6 +314,14 @@
     "note": "按配置顺序尝试已设置凭据的模型。",
     "enabled": true,
     "order": [
+      {
+        "provider": "dahuangf",
+        "model": "gpt-6.1-sol"
+      },
+      {
+        "provider": "dahuangf",
+        "model": "gpt-6.1-sol"
+      },
       {
         "provider": "volcengine",
         "model": "doubao-seed-2-0-lite-260215"

@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
+import { OpenCodeCommand } from '@deepseek-ai/dsh-native-command/openCodeCommand';
 import { existsSync } from 'node:fs';
 import { defineTool } from '@deepseek-ai/dsh-tools';
+import { SoftwareLocator } from '@deepseek-ai/dsh-native-command/softwareLocator';
 export const name = 'tool-opencode';
 export const inject = [
     'tools'
@@ -17,10 +19,7 @@ const DEFAULT_OPENCODE_BIN = process.env.OPENCODE_BIN?.trim() || 'opencode';
 const DEFAULT_WORKSPACE = process.env.DSH_OPENCODE_WORKSPACE?.trim() || process.cwd();
 const DEFAULT_SERVER_URL = 'http://127.0.0.1:4096';
 function resolve_bin() {
-    const configured = process.env.OPENCODE_BIN;
-    if (configured !== undefined && configured.trim() && existsSync(configured.trim())) return configured.trim();
-    if (existsSync(DEFAULT_OPENCODE_BIN)) return DEFAULT_OPENCODE_BIN;
-    return 'opencode';
+    return new SoftwareLocator().resolve_command('opencode', process.env.OPENCODE_BIN);
 }
 function resolve_server_url() {
     const configured = process.env.OPENCODE_SERVER_URL;
@@ -31,6 +30,7 @@ function strip_ansi(text) {
     return text.replace(/\u001B\[[0-9;?]*[A-Za-z]/g, '').replace(/\r\n/g, '\n').replace(/\r/g, '');
 }
 function run_opencode(args, cwd, signal) {
+    args = OpenCodeCommand.adapt_args(resolve_bin(), args);
     return new Promise((resolve)=>{
         if (signal?.aborted) {
             resolve({
@@ -88,7 +88,7 @@ function run_opencode(args, cwd, signal) {
             clearTimeout(timer);
             resolve({
                 ok: false,
-                text: 'ERROR: ' + (error.message || 'opencode 启动失败')
+                text: 'ERROR: ' + (error.message || 'opencode 启动失败') + '\n启动失败不等于未安装。请在实际执行设备用terminal_software_find核对路径、解释器与权限，再用绝对路径验证，勿盲目重装或换执行器。'
             });
         });
         child.on('close', (code)=>{

@@ -15,9 +15,13 @@ export class TaskStore {
       CREATE TABLE IF NOT EXISTS agentTasks (
         id TEXT PRIMARY KEY, session TEXT NOT NULL, key TEXT UNIQUE NOT NULL, origin TEXT NOT NULL,
         request TEXT NOT NULL, kind TEXT NOT NULL, state TEXT NOT NULL, worker TEXT UNIQUE NOT NULL,
-        result TEXT, notice TEXT, queued INTEGER NOT NULL DEFAULT 0, error TEXT,
+        timeoutMs INTEGER, result TEXT, notice TEXT, queued INTEGER NOT NULL DEFAULT 0, error TEXT,
         created INTEGER NOT NULL, updated INTEGER NOT NULL);
-      CREATE INDEX IF NOT EXISTS taskPending ON agentTasks(state,queued,created);`);
+      CREATE INDEX IF NOT EXISTS taskPending ON agentTasks(state,queued,created);
+      CREATE TABLE IF NOT EXISTS taskDeadlineNotices (
+        taskId TEXT NOT NULL, deadlineAt INTEGER NOT NULL, text TEXT NOT NULL,
+        queued INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(taskId,deadlineAt));`);
+        if (!this.db.prepare('PRAGMA table_info(agentTasks)').all().some((row)=>row.name === 'timeoutMs')) this.db.exec('ALTER TABLE agentTasks ADD COLUMN timeoutMs INTEGER');
         if (!this.db.prepare('PRAGMA table_info(taskLease)').all().some((row)=>row.name === 'pid')) this.db.exec('ALTER TABLE taskLease ADD COLUMN pid INTEGER NOT NULL DEFAULT 0');
     }
     save_origin(id, session, data) {
@@ -27,10 +31,10 @@ export class TaskStore {
         const row = this.db.prepare('SELECT data FROM taskOrigins WHERE id=? AND session=?').get(id, session);
         return row ? JSON.parse(row.data) : undefined;
     }
-    create_task(session, key, origin, request, kind) {
+    create_task(session, key, origin, request, kind, timeoutMs) {
         const id = randomUUID(), now = Date.now();
         this.db.prepare(`INSERT OR IGNORE INTO agentTasks
-      (id,session,key,origin,request,kind,state,worker,created,updated) VALUES (?,?,?,?,?,?,'queued',?,?,?)`).run(id, session, key, JSON.stringify(origin), request, kind, `task-${id}`, now, now);
+      (id,session,key,origin,request,kind,state,worker,timeoutMs,created,updated) VALUES (?,?,?,?,?,?,'queued',?,?,?,?)`).run(id, session, key, JSON.stringify(origin), request, kind, `task-${id}`, timeoutMs ?? null, now, now);
         return this.decode_row(this.db.prepare('SELECT * FROM agentTasks WHERE key=?').get(key));
     }
     get_task(id, session) {
@@ -53,11 +57,21 @@ export class TaskStore {
             'result',
             'notice',
             'queued',
-            'error'
+            'error',
+            'timeoutMs'
         ]);
         const fields = Object.keys(patch);
         if (!fields.length || fields.some((key)=>!allow.has(key))) throw new Error('非法任务状态字段');
         this.db.prepare(`UPDATE agentTasks SET ${fields.map((key)=>`${key}=?`).join(',')},updated=? WHERE id=?`).run(...fields.map((key)=>patch[key]), Date.now(), id);
+    }
+    get_deadline_notice(id, deadline) {
+        return this.db.prepare('SELECT * FROM taskDeadlineNotices WHERE taskId=? AND deadlineAt=?').get(id, deadline);
+    }
+    save_deadline_notice(id, deadline, text) {
+        this.db.prepare('INSERT OR IGNORE INTO taskDeadlineNotices(taskId,deadlineAt,text) VALUES(?,?,?)').run(id, deadline, text);
+    }
+    queue_deadline_notice(id, deadline) {
+        this.db.prepare('UPDATE taskDeadlineNotices SET queued=1 WHERE taskId=? AND deadlineAt=?').run(id, deadline);
     }
     recover_tasks() {
         this.db.prepare(`UPDATE agentTasks SET state='interrupted',

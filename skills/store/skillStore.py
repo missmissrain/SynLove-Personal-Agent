@@ -16,6 +16,7 @@
 import json
 import re
 import time
+import uuid
 from pathlib import Path
 
 from skills.store.durableFile import durableFile
@@ -125,10 +126,25 @@ class skillStore:
         写不进去时（临时文件被占用）会转存降级副本，不抛异常——一轮复盘不能因为暂存失败全废。
         """
         self.pending_dir.mkdir(parents=True, exist_ok=True)
+        for old in self.pending_dir.glob(f"{name}-*.json"):
+            previous = FILE_WRITER.read_json(old)
+            if str(previous.get("content", "")).strip() == content.strip():
+                return old
         stamp = time.strftime("%Y%m%d-%H%M%S")
-        path = self.pending_dir / f"{name}-{stamp}.json"
+        path = self.pending_dir / f"{name}-{stamp}-{uuid.uuid4().hex[:8]}.json"
         payload = {"name": name, "content": content, "reason": reason, "created_at": stamp}
         return path if FILE_WRITER.write_text(path, json.dumps(payload, ensure_ascii=False, indent=2)) else None
+
+    def stage_candidate(self, name, content, reason=""):
+        """name、content 为候选技能；reason 为待审原因；校验后暂存且不写入生效目录。"""
+        ok, error = self.validate(name, content)
+        if not ok:
+            return {"action": "skipped", "error": error}
+        pending = self._stage(name, content, reason)
+        if pending is None:
+            return {"action": "skipped", "error": "候选技能暂存失败", "retryable": True}
+        return {"action": "staged", "pending": str(pending),
+                "path": str(self.dir / name / "SKILL.md")}
 
     @staticmethod
     def _frontmatter(content):

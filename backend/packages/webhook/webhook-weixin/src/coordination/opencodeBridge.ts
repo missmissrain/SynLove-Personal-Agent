@@ -12,8 +12,10 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process'
+import { OpenCodeCommand } from '@deepseek-ai/dsh-native-command/openCodeCommand'
 import { existsSync } from 'node:fs'
 import { probe } from '../diagnostics/probe.ts'
+import { SoftwareLocator } from '@deepseek-ai/dsh-native-command/softwareLocator'
 
 /** 默认工作区（欣爱的专属工作区）。 */
 /** opencode 远程任务的默认工作目录：环境变量优先，否则当前工作目录（不写死本机路径）。 */
@@ -53,11 +55,7 @@ function kill_tree(child: ChildProcess): void {
 
 /** 解析 opencode 可执行文件。 */
 function resolve_bin(): string {
-  const configured = process.env.OPENCODE_BIN
-  if (configured !== undefined && configured.trim() && existsSync(configured.trim())) return configured.trim()
-  // 兜底直接交给 PATH 解析（不写死本机安装路径）；需要时用 OPENCODE_BIN 指定
-  const fallback = 'opencode'
-  return existsSync(fallback) ? fallback : 'opencode'
+  return new SoftwareLocator().resolve_command('opencode', process.env.OPENCODE_BIN)
 }
 
 /** 去掉 ANSI 控制序列。 */
@@ -292,13 +290,13 @@ export class OpencodeBridge {
   ): Promise<{ ok: boolean; connectivity: boolean }> {
     const bin = resolve_bin()
     const model = model_override ?? process.env.DSH_OPENCODE_MODEL?.trim()
-    const args = [
+    const args = OpenCodeCommand.adapt_args(bin, [
       'run', '--auto',
       '--attach', this.server_url,
       '--dir', this.workspace,
       ...model === undefined || model === '' ? [] : ['-m', model],
       task_text,
-    ]
+    ])
     probe('opencode-bridge', 'run.start', {
       user_id, workspace: this.workspace, model: model ?? '(default)', attach: this.server_url, task_len: task_text.length,
     })

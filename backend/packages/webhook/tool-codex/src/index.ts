@@ -17,6 +17,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { SoftwareLocator } from '@deepseek-ai/dsh-native-command/softwareLocator'
 
 /** Cordis 插件名。 */
 export const name = 'tool-codex'
@@ -46,10 +47,7 @@ const DEFAULT_CODEX_BIN = join(process.env.LOCALAPPDATA ?? '', 'OpenAI', 'Codex'
 
 /** 解析 Codex 可执行文件。 */
 function resolve_bin(): string {
-  const configured = process.env.CODEX_BIN
-  if (configured !== undefined && configured.trim() && existsSync(configured.trim())) return configured.trim()
-  if (existsSync(DEFAULT_CODEX_BIN)) return DEFAULT_CODEX_BIN
-  return 'codex'
+  return new SoftwareLocator().resolve_command('codex', process.env.CODEX_BIN)
 }
 
 /** 去掉 ANSI 控制序列与回车。 */
@@ -101,7 +99,8 @@ function run_codex(args: string[], cwd: string | undefined, signal?: AbortSignal
     child.on('error', error => {
       signal?.removeEventListener('abort', abort)
       clearTimeout(timer)
-      resolve({ ok: false, text: 'ERROR: ' + (error.message || 'codex 启动失败') })
+      resolve({ ok: false, text: 'ERROR: ' + (error.message || 'codex 启动失败')
+        + '\n启动失败不等于未安装。请在实际执行设备用terminal_software_find核对路径、解释器与权限，再用绝对路径验证，勿盲目重装或换执行器。' })
     })
     child.on('close', code => {
       signal?.removeEventListener('abort', abort)

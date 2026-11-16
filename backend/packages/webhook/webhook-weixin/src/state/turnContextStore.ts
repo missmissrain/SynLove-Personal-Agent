@@ -154,9 +154,10 @@ export class TurnContextStore {
   }
 
   /** 异步读取新鲜 token，兼容本地和远程状态端口。 */
-  async latest_token_if_fresh_async(session_id: string, max_age_ms = 10 * 60_000): Promise<string | undefined> {
+  async latest_token_if_fresh_async(session_id: string, max_age_ms = 10 * 60_000, user_id?: string): Promise<string | undefined> {
     const fallback = await this.store.latest_delivery_for_session(session_id)
     if (fallback === undefined || Date.now() - fallback.received_at > max_age_ms) return undefined
+    if (user_id !== undefined && fallback.user_id !== user_id) return undefined
     return fallback.context_token
   }
 

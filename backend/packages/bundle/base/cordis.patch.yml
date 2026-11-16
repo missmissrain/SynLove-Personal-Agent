@@ -456,8 +456,14 @@
     - id: web-search-qwen
       name: '@deepseek-ai/dsh-web-search-qwen'
       config:
-        apiKeyEnv: DASHSCOPE_API_KEY
-        model: qwen3.8-flash
+        apiKeyEnv: DAHUANGF_API_KEY
+        baseURL: https://tokens.dahuangf.com/v1
+        model: gpt-6.1-sol
+        protocol: responses
+        searchTool: web_search
+        fallbackBaseURL: https://dashscope.aliyuncs.com/compatible-mode/v1
+        fallbackModel: qwen3.8-flash
+        fallbackApiKeyEnv: DASHSCOPE_API_KEY
 
     - id: web-fetch-http
       name: '@deepseek-ai/dsh-web-fetch-http'

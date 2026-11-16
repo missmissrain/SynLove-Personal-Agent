@@ -642,7 +642,7 @@ export class WeixinStateStore {
   prune_parked_results(max_age_ms: number, now = Date.now()): number {
     const removed = this.db.prepare(
       "DELETE FROM outbox WHERE turn IS NULL AND status IN ('pending','failed_retryable','failed_terminal') "
-      + 'AND created_at < ?',
+      + "AND client_id NOT LIKE 'task-%' AND created_at < ?",
     ).run(now - max_age_ms).changes
     if (removed > 0) probe('state', 'parked.pruned', { removed, max_age_ms })
     return Number(removed)
@@ -657,7 +657,7 @@ export class WeixinStateStore {
   trim_pending_notices(session_id: string, keep = 3): number {
     const removed = this.db.prepare(
       "DELETE FROM outbox WHERE outbound_id IN ("
-      + "  SELECT outbound_id FROM outbox WHERE session_id = ? AND status = 'pending' AND turn IS NULL "
+      + "  SELECT outbound_id FROM outbox WHERE session_id = ? AND status = 'pending' AND turn IS NULL AND client_id NOT LIKE 'task-%' "
       + '  ORDER BY sequence DESC LIMIT -1 OFFSET ?)',
     ).run(session_id, keep).changes
     if (removed > 0) probe('state', 'outbox.notices_trimmed', { session_id, removed, keep })

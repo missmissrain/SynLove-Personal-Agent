@@ -64,8 +64,13 @@ def _find_codex() -> Path | None:
     PATH 里通常是 `codex.CMD` 垫片，直接 spawn 会报「找不到命令」，
     但 _run 会把 .cmd 交给 cmd.exe 执行，所以这里允许返回 .cmd。
     """
+    try:
+        from maintenance.SoftwareCommandResolver import SoftwareCommandResolver
+        return Path(SoftwareCommandResolver(ROOT_DEFAULT).resolve_command("codex"))
+    except (OSError, ValueError, RuntimeError, ImportError):
+        pass
     local = os.environ.get("LOCALAPPDATA") or ""
-    globbed = sorted(Path(local).glob("OpenAI/Codex/bin/codex.exe")) if local else []
+    globbed = sorted(Path(local).glob("OpenAI/Codex/bin/**/codex.exe"), reverse=True) if local else []
     return _first_existing([os.environ.get("SYNLOVE_CODEX_BIN"), *globbed,
                             shutil.which("codex"), shutil.which("codex.cmd"),
                             shutil.which("codex.exe"), shutil.which("codex.ps1")])
@@ -73,6 +78,11 @@ def _find_codex() -> Path | None:
 
 def _find_opencode() -> Path | None:
     """找 opencode：环境变量 → 桌面端自带 CLI → node 全局安装 → PATH。"""
+    try:
+        from maintenance.SoftwareCommandResolver import SoftwareCommandResolver
+        return Path(SoftwareCommandResolver(ROOT_DEFAULT).resolve_command("opencode"))
+    except (OSError, ValueError, RuntimeError, ImportError):
+        pass
     local = os.environ.get("LOCALAPPDATA") or ""
     candidates = []
     candidates.append(os.environ.get("SYNLOVE_OPENCODE_BIN"))
@@ -369,7 +379,11 @@ class codeRepair:
         """参数 prompt 为修复提示词；直接启动带 auto 的非交互 OpenCode。"""
         if OPENCODE_BIN is None:
             return False, "没找到 opencode（可设 SYNLOVE_OPENCODE_BIN 指定路径）"
-        return self._run([str(OPENCODE_BIN), "run", "--auto", "--dir", str(self.root), prompt],
+        version = subprocess.run([str(OPENCODE_BIN), "--version"], capture_output=True,
+                                 timeout=10, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        modern = version.stdout.decode("utf-8", "replace").strip().lstrip("opencode v").startswith("2.")
+        args = [] if modern else ["--dir", str(self.root)]
+        return self._run([str(OPENCODE_BIN), "run", "--auto", *args, prompt],
                          self.root, self.timeout)
 
     # ---------------------------------------------------------------- 验证

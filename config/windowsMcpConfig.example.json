@@ -1,0 +1,6 @@
+{
+  "enabled": false,
+  "url": "http://127.0.0.1:17865/mcp",
+  "token": "REPLACE_WITH_RANDOM_PRIVATE_TOKEN_AT_LEAST_32_CHARS",
+  "toolCallTimeoutMs": 120000
+}

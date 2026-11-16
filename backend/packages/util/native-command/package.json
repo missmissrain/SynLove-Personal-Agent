@@ -18,6 +18,8 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./softwareLocator": "./lib/types/SoftwareLocator.js",
+    "./openCodeCommand": "./lib/types/OpenCodeCommand.js",
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },

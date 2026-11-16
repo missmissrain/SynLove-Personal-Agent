@@ -12,6 +12,7 @@
 """
 
 import json
+from .SkillQualityGate import SkillQualityGate
 
 
 class reviewTools:
@@ -26,6 +27,8 @@ class reviewTools:
         self.staged = []
         self.finished = False
         self.persist_error = ""
+        self.force_stage = False
+        self.quality_gate = SkillQualityGate(transcript)
 
     def definitions(self):
         """OpenAI tools 定义。"""
@@ -129,7 +132,9 @@ class reviewTools:
             skill_name = str(args.get("name") or "").strip()
             content = str(args.get("content") or "")
             reason = str(args.get("reason") or "")
-            result = self.store.save(skill_name, content, reason)
+            issues = self.quality_gate.review_content(content, self.force_stage)
+            result = (self.store.stage_candidate(skill_name, content, reason + "；" + "；".join(issues))
+                      if issues else self.store.save(skill_name, content, reason))
             if result.get("action") == "skipped":
                 if result.get("retryable"):
                     self.persist_error = result.get("error") or "技能持久化失败"

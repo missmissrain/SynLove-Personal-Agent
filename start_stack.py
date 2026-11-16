@@ -64,7 +64,27 @@ def _resolve_bin(env_name: str, *candidates: str, default: str) -> Path:
     return Path(default)
 
 
-OPENCODE_BIN = _resolve_bin("OPENCODE_BIN", "opencode", "opencode.cmd", default="opencode")
+def resolve_opencode_cli() -> Path:
+    """无参数；复用终端软件定位，优先与桌面相同的CLI，找不到保留旧入口诊断。"""
+    configured = os.environ.get("OPENCODE_BIN")
+    if configured and Path(configured).is_file():
+        return Path(configured)
+    try:
+        from maintenance.SoftwareCommandResolver import SoftwareCommandResolver
+        return Path(SoftwareCommandResolver(PROJECT_ROOT).resolve_command("opencode"))
+    except (OSError, ValueError, RuntimeError, ImportError):
+        return _resolve_bin("OPENCODE_BIN", "opencode", "opencode.cmd", default="opencode")
+
+
+def opencode_modern() -> bool:
+    """无参数；只检测真实EXE版本，不启动GUI，不将无法探测的候选视为2.x。"""
+    if OPENCODE_BIN.suffix.lower() != ".exe" or not OPENCODE_BIN.is_file():
+        return False
+    result = run_hidden([str(OPENCODE_BIN), "--version"], capture_output=True, timeout=10)
+    return result.returncode == 0 and result.stdout.decode("utf-8", "replace").strip().removeprefix("opencode v").startswith("2.")
+
+
+OPENCODE_BIN = resolve_opencode_cli()
 OPENCODE_SERVER_PORT = int(os.environ.get("OPENCODE_SERVER_PORT") or "4096")
 OPENCODE_SERVER_URL = os.environ.get("OPENCODE_SERVER_URL") or ("http://127.0.0.1:%d" % OPENCODE_SERVER_PORT)
 def _resolve_gemma_root() -> Path:
@@ -454,6 +474,9 @@ def ensure_opencode_server(env: dict[str, str]) -> str:
     cfg = ServiceRegistry().get_service("opencode")
     if cfg["management"] != "managed":
         return cfg["management"]
+    if opencode_modern():
+        result = run_hidden([str(OPENCODE_BIN), "service", "start"], capture_output=True, timeout=30, env=env)
+        return "shared_service_ready" if result.returncode == 0 else "shared_service_failed"
     global OPENCODE_SERVER_PORT
     OPENCODE_SERVER_PORT = cfg["port"]
     if opencode_server_reachable():
@@ -941,6 +964,31 @@ def ensure_task_report(env: dict[str, str]) -> str:
     return "terminal_connection_not_configured"
 
 
+def ensure_voice_gateway(env: dict[str, str]) -> str:
+    """确保本机语音网关在回环端口运行，避免重复拉起实例或弹出黑窗。"""
+    port = int(os.environ.get("SYNLOVE_VOICE_GATEWAY_PORT") or "8812")
+    if port_open(port):
+        return "already_running"
+    entry = PROJECT_ROOT / "voice" / "runVoiceGateway.py"
+    if not entry.is_file():
+        return "missing_entry"
+    child_env = dict(env)
+    child_env["PYTHONUTF8"] = "1"
+    process = spawn_silent(
+        [sys.executable, str(entry)],
+        PROJECT_ROOT,
+        child_env,
+        "voice-gateway.log",
+    )
+    (PROJECT_ROOT / "runtime" / "voice-gateway.pid").write_text(
+        str(process.pid), encoding="utf-8")
+    for _ in range(20):
+        time.sleep(0.25)
+        if port_open(port):
+            return "started"
+    return "start_unverified"
+
+
 def wait_harness_ready(seconds: int = 120, startup=None) -> bool:
     """等 3080/3081 两个端口就绪；超时返回 False（自启动据此判断要不要重试）。"""
     deadline = time.time() + seconds
@@ -997,7 +1045,8 @@ def main() -> int:
         print("WARNING: 以下凭据名已存在于当前环境变量，会遮蔽 JSON 里的值（请清掉环境变量后重启）："
               + ", ".join(shadowed))
     print("credentials_synced=" + str(CREDENTIALS_FILE) + " refs=" + str(secret_count))
-    env.setdefault("OPENCODE_SERVER_URL", OPENCODE_SERVER_URL)
+    if not opencode_modern():
+        env.setdefault("OPENCODE_SERVER_URL", OPENCODE_SERVER_URL)
     env.setdefault("OPENCODE_BIN", str(OPENCODE_BIN))
     startup.record_stage("config_ready")
     # 云端对话不等待本地显存。仅当默认对话确实使用本地模型时同步准备LLM；

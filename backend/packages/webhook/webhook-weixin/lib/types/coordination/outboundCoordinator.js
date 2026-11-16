@@ -1,4 +1,5 @@
 import { probe, probe_timer } from '../diagnostics/probe.js';
+import { createHash } from 'node:crypto';
 import { ObservationRecorder } from '@deepseek-ai/dsh-llm';
 const MAX_TEXT_CHARS = Number(process.env.DSH_WEIXIN_MAX_TEXT_CHARS ?? '1000');
 function split_text(text, limit) {
@@ -58,6 +59,26 @@ export class OutboundCoordinator {
         this.rate_limit_cooldown_max_ms = options.rate_limit_cooldown_max_ms ?? Number(process.env.DSH_WEIXIN_RATE_LIMIT_COOLDOWN_MAX_MS ?? '600000');
         this.no_token_defer_ms = options.no_token_defer_ms ?? Number(process.env.DSH_WEIXIN_NO_TOKEN_DEFER_MS ?? '300000');
         this.parked_retention_ms = options.parked_retention_ms ?? Number(process.env.DSH_WEIXIN_PARKED_RETENTION_MS ?? '21600000');
+    }
+    async resume_parked_notices(session_id, user_id) {
+        const token = await this.turn_context.latest_token_if_fresh_async(session_id, undefined, user_id);
+        if (!token || !this.store.parked_results || !this.store.get_outbox) return 0;
+        const hash = createHash('sha256').update(token).digest('hex');
+        let count = 0;
+        for (const item of (await this.store.parked_results(500))){
+            const row = await this.store.get_outbox(item.outbound_id);
+            if (!row || row.session_id !== session_id || row.user_id !== user_id || row.turn !== undefined || !/等待新入站凭据|会话窗口已关闭/.test(row.last_error ?? '')) continue;
+            const key = `notice-resume:${row.outbound_id}`;
+            if (await this.store.get_meta(key) === hash) continue;
+            await this.store.set_meta(key, hash);
+            await this.store.mark_outbox_failed(row.outbound_id, 'failed_retryable', '新入站凭据已到达，等待补发', Date.now());
+            count++;
+        }
+        if (count) probe('outbound', 'notice.resumed', {
+            session_id,
+            count
+        });
+        return count;
     }
     enqueue_assistant(input) {
         if (!input.text.trim()) return;
@@ -196,7 +217,8 @@ export class OutboundCoordinator {
         });
         await this.store.mark_outbox_sending(record.outbound_id);
         try {
-            const send_token = record.context_token ?? this.turn_context.latest_token_if_fresh(record.session_id);
+            const fresh = await this.turn_context.latest_token_if_fresh_async(record.session_id, record.turn === undefined ? Number.MAX_SAFE_INTEGER : undefined, record.user_id);
+            const send_token = record.turn === undefined ? fresh ?? record.context_token : record.context_token ?? fresh;
             if (send_token !== undefined && record.context_token === undefined) {
                 probe('outbound', 'token.picked_at_send', {
                     outbound_id: record.outbound_id,
@@ -235,8 +257,19 @@ export class OutboundCoordinator {
             if (rate_limited) {
                 const is_notice = record.turn === undefined;
                 if (is_notice) {
+                    const fresh = await this.turn_context.latest_token_if_fresh_async(record.session_id, Number.MAX_SAFE_INTEGER, record.user_id);
+                    if ((fresh ?? record.context_token) && attempt < 3) {
+                        await this.store.mark_outbox_failed(record.outbound_id, 'failed_retryable', '通知暂时被拒，退避重试；尚不能判定凭据过期', Date.now() + 15000 * attempt);
+                        done({
+                            outcome: 'notice_retry',
+                            attempt
+                        });
+                        return true;
+                    }
                     const park_ms = this.parked_retention_ms;
-                    await this.store.mark_outbox_failed(record.outbound_id, 'failed_retryable', '会话窗口已关闭：已停放，等用户询问时返回', Date.now() + park_ms);
+                    await this.store.mark_outbox_failed(record.outbound_id, 'failed_terminal', '通知发送被拒，等待新入站凭据后自动补发');
+                    const rejected = fresh ?? record.context_token;
+                    if (rejected) await this.store.set_meta(`notice-resume:${record.outbound_id}`, createHash('sha256').update(rejected).digest('hex'));
                     await this.store.prune_parked_results(park_ms);
                     done({
                         outcome: 'notice_parked',
@@ -247,7 +280,7 @@ export class OutboundCoordinator {
                     probe('outbound', 'notice.parked', {
                         outbound_id: record.outbound_id,
                         park_ms,
-                        has_token: record.context_token !== undefined
+                        has_token: (fresh ?? record.context_token) !== undefined
                     });
                     return true;
                 }
@@ -468,7 +501,7 @@ export class OutboundCoordinator {
         const reply_stale_ms = Number(process.env.DSH_WEIXIN_REPLY_STALE_MS ?? String(30 * 60_000));
         let dropped = 0;
         for (const record of pending){
-            const limit = record.turn === undefined ? Math.max(stale_ms, this.parked_retention_ms) : Math.max(stale_ms, reply_stale_ms);
+            const limit = record.client_id.startsWith('task-') ? Infinity : record.turn === undefined ? Math.max(stale_ms, this.parked_retention_ms) : Math.max(stale_ms, reply_stale_ms);
             if (now - record.created_at > limit) {
                 await this.store.mark_outbox_failed(record.outbound_id, 'failed_terminal', '重启恢复：超过补发时限，已丢弃');
                 dropped += 1;

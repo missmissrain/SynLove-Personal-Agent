@@ -25,13 +25,8 @@ function reply_text(event) {
     }
     return parts.join('\n').slice(0, 8000);
 }
-/** 只读文件策略：禁读密钥、证书、数据库和凭据文件；只允许实例根目录内的普通文本文件。 */
 const FILE_DENY_PATH = /(?:^|[\\/])(?:secrets\.json|\.credentials\.yaml|remoteControl\.json|windowsMcpConfig\.json|id_rsa[^\\/]*|id_ed25519[^\\/]*|\.ssh|privateKeys|cookies?|tokens?)(?:[\\/]|$)/i;
 const FILE_DENY_EXT = /\.(?:pem|key|pfx|p12|sqlite|sqlite3|db|db-wal|db-shm|kdbx|env)$/i;
-/**
- * root 为实例根目录，args 为模型给出的 path/offset/limit；返回分页文本。
- * 越界、符号链接、二进制或敏感文件一律拒绝，不读取也不回显内容。
- */
 function read_workspace_file(root, args) {
     const raw = String(args.path ?? '').trim();
     if (!raw || raw.length > 1024) throw new Error('文件路径必须为1至1024字符');
@@ -352,6 +347,7 @@ export class TaskRuntime {
                 taskId: task.id,
                 state: task.state,
                 kind: task.kind,
+                notification: this.bridge.delivery.get_delivery(task.id),
                 progressCount: this.progress.count(task.id),
                 updatedAt: task.updated
             }));
@@ -365,6 +361,7 @@ export class TaskRuntime {
             taskId: id,
             state: task.state,
             workerSessionId: task.worker,
+            notification: this.bridge.delivery.get_delivery(id),
             timeoutMs: task.timeoutMs ?? this.config.taskTimeoutMs,
             deadlineAt: this.active.get(id)?.deadlineAt,
             progressCount: this.progress.count(id),
@@ -391,6 +388,7 @@ export class TaskRuntime {
                 taskId: id,
                 state: task.state,
                 summary: result.slice(offset, offset + 10000),
+                notification: this.bridge.delivery.get_delivery(id),
                 nextOffset: offset + 10000 < result.length ? offset + 10000 : null,
                 reportPath: report.exists ? report.path : undefined,
                 reportCharacters: report.exists ? report.characters : undefined,
@@ -529,7 +527,6 @@ export class TaskRuntime {
             }
             const progress = this.progress.read(task.id, 12);
             const result = this.collector.collect_result(entry.handle.agent, 0, entry.cancelled, true, progress);
-            // 收尾时报错但报告已落盘：按部分完成记录，并把报告开头带回结果，避免主人格再派任务去读。
             if (!entry.timeout && !entry.cancelled && result.state === 'failed') {
                 try {
                     const reports = new TaskReportStore(this.root);

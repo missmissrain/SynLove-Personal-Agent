@@ -37,6 +37,7 @@ import { TerminalConnectionRoutes as RemoteConnectionRoutes } from './remote/Ter
 import { RelayTrust } from './remote/RelayTrust.mjs'
 import { PersonaStore } from './PersonaStore.mjs'
 import { AgentReasoningStore } from './AgentReasoningStore.mjs'
+import { SelfIterationStore } from './SelfIterationStore.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const PROJECT = resolve(HERE, '..')
@@ -45,6 +46,7 @@ const RUNTIME = join(PROJECT, 'runtime')
 const CONFIG = join(PROJECT, 'config')
 const personas = new PersonaStore(PROJECT, path => backup_file(path))
 const agent_reasoning = new AgentReasoningStore(PROJECT, path => backup_file(path))
+const self_iteration = new SelfIterationStore(PROJECT, path => backup_file(path))
 const BACKEND_SERVICE_CONFIG = join(CONFIG, 'backendService.json')
 RelayTrust.configure_trust(PROJECT)
 const service_proxy = new ServiceProxy(PROJECT)
@@ -1840,6 +1842,7 @@ const api = {
     return {
       immediate: [
         ...agent_reasoning.list_controls(),
+        ...self_iteration.list_controls(),
         { key: 'report.codex', label: 'Codex 完成通知', kind: 'bool', value: notify.codex, help: notifyHelp },
         { key: 'report.opencode', label: 'OpenCode 完成通知', kind: 'bool', value: notify.opencode, help: notifyHelp },
       ],
@@ -1853,6 +1856,7 @@ const api = {
   async set_toggle(body) {
     const key = String(body.key ?? '').trim()
     const value = String(body.value ?? '').trim()
+    if (key.startsWith('iteration.')) return self_iteration.save_setting(key.slice('iteration.'.length), value)
     if (key.startsWith('reasoning.'))
       return agent_reasoning.save_setting(key.slice('reasoning.'.length), value)
     if (key.startsWith('report.')) {

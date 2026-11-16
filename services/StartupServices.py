@@ -61,6 +61,7 @@ class StartupServices:
                 "kugou": lambda: start_stack.ensure_kugou_api(dict(os.environ)),
                 "guard": lambda: start_stack.ensure_guard_service(dict(os.environ)),
                 "taskreport": lambda: start_stack.ensure_task_report(dict(os.environ)),
+                "voice": lambda: start_stack.ensure_voice_gateway(dict(os.environ)),
             }
             # 这些是轻量 API 宿主；模型权重仍按需加载，远程端点仍只由部署方管理。
             for name in ("history", "memory", "state", "qqstate", "observation", "session", "coding", "crawler"):
@@ -74,7 +75,7 @@ class StartupServices:
                     return name, {"state": "cancelled", "seconds": 0}
                 # kuGou 不在统一服务注册表内，由 kugou.json 自己声明是否启用。
                 # 同理，完成汇报不是注册表服务，是启动器直接拉起的常驻脚本。
-                if name not in ("guard", "kugou", "taskreport") and registry.get_service(name)["management"] != "managed":
+                if name not in ("guard", "kugou", "taskreport", "voice") and registry.get_service(name)["management"] != "managed":
                     return name, {"state": "external_or_disabled", "seconds": 0}
                 try:
                     value = call()

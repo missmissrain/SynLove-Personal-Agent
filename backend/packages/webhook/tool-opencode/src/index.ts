@@ -5,9 +5,11 @@
  */
 
 import { spawn } from 'node:child_process'
+import { OpenCodeCommand } from '@deepseek-ai/dsh-native-command/openCodeCommand'
 import { existsSync } from 'node:fs'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { SoftwareLocator } from '@deepseek-ai/dsh-native-command/softwareLocator'
 import type { PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
 
 /** Cordis 插件名。 */
@@ -55,10 +57,7 @@ const DEFAULT_SERVER_URL = 'http://127.0.0.1:4096'
 
 /** 解析 opencode 可执行文件：优先 OPENCODE_BIN，其次已知绝对路径，最后交给 PATH。 */
 function resolve_bin(): string {
-  const configured = process.env.OPENCODE_BIN
-  if (configured !== undefined && configured.trim() && existsSync(configured.trim())) return configured.trim()
-  if (existsSync(DEFAULT_OPENCODE_BIN)) return DEFAULT_OPENCODE_BIN
-  return 'opencode'
+  return new SoftwareLocator().resolve_command('opencode', process.env.OPENCODE_BIN)
 }
 
 /** 解析 opencode server 地址：优先 OPENCODE_SERVER_URL，其次默认本地 4096。 */
@@ -86,6 +85,7 @@ function strip_ansi(text: string): string {
  * （实测卡死 300 秒以上；把 stdin 关掉后同一条命令 9~15 秒返回）。
  */
 function run_opencode(args: string[], cwd: string | undefined, signal?: AbortSignal): Promise<CommandResult> {
+  args = OpenCodeCommand.adapt_args(resolve_bin(), args)
   return new Promise((resolve) => {
     if (signal?.aborted) { resolve({ ok: false, text: '本次调用已取消，未启动进程。' }); return }
     // .exe 直接执行（Node 会正确引用含空格的参数）；只有落到 .cmd 时才经 cmd.exe。
@@ -123,7 +123,8 @@ function run_opencode(args: string[], cwd: string | undefined, signal?: AbortSig
     child.on('error', error => {
       signal?.removeEventListener('abort', abort)
       clearTimeout(timer)
-      resolve({ ok: false, text: 'ERROR: ' + (error.message || 'opencode 启动失败') })
+      resolve({ ok: false, text: 'ERROR: ' + (error.message || 'opencode 启动失败')
+        + '\n启动失败不等于未安装。请在实际执行设备用terminal_software_find核对路径、解释器与权限，再用绝对路径验证，勿盲目重装或换执行器。' })
     })
     child.on('close', code => {
       signal?.removeEventListener('abort', abort)

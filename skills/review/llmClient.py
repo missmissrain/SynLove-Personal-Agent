@@ -66,6 +66,8 @@ class llmClient:
         model = target.get("model") or ""
         timeout = int(target.get("timeoutSeconds") or 180)
         key = self._key(target.get("apiKeyEnv"))
+        if target.get("provider") == "dahuangf" or target.get("api") == "openai-responses":
+            return self._request_responses(target, messages, key, timeout, fallback)
         payload = {
             "model": model,
             "messages": messages,
@@ -84,12 +86,52 @@ class llmClient:
             headers=headers,
             method="POST",
         )
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        mode = target.get("proxyMode", "environment")
+        if mode not in ("direct", "environment"):
+            raise ValueError("proxyMode 仅支持 direct 或 environment")
+        opener = (urllib.request.build_opener(urllib.request.ProxyHandler({}))
+                  if mode == "direct" else urllib.request.build_opener())
+        with opener.open(request, timeout=timeout) as response:
             data = json.loads(response.read().decode("utf-8", "replace"))
         message = ((data.get("choices") or [{}])[0] or {}).get("message") or {}
         return {
             "message": message,
             "model": data.get("model") or model,
+            "provider": target.get("provider") or "",
+            "fallback": fallback,
+        }
+
+    def _request_responses(self, target, messages, key, timeout, fallback):
+        """调用 Responses 协议；把聊天消息转换为 input 并解析文本结果。"""
+        base = str(target.get("baseUrl") or "").rstrip("/")
+        payload = {"model": target.get("model") or "", "input": messages, "max_output_tokens": 2500}
+        headers = {"Content-Type": "application/json"}
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
+        request = urllib.request.Request(
+            f"{base}/responses",
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        opener = (urllib.request.build_opener(urllib.request.ProxyHandler({}))
+                  if target.get("proxyMode", "environment") == "direct"
+                  else urllib.request.build_opener())
+        with opener.open(request, timeout=timeout) as response:
+            data = json.loads(response.read().decode("utf-8", "replace"))
+        text = data.get("output_text")
+        if not text:
+            parts = []
+            for item in data.get("output") or []:
+                for content in item.get("content") or []:
+                    if content.get("type") in ("output_text", "text") and content.get("text"):
+                        parts.append(str(content["text"]))
+            text = "".join(parts)
+        if not text:
+            raise RuntimeError("Responses 返回为空")
+        return {
+            "message": {"role": "assistant", "content": text},
+            "model": data.get("model") or target.get("model"),
             "provider": target.get("provider") or "",
             "fallback": fallback,
         }

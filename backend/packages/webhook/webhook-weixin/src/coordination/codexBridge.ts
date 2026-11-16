@@ -17,6 +17,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { probe } from '../diagnostics/probe.ts'
+import { SoftwareLocator } from '@deepseek-ai/dsh-native-command/softwareLocator'
 
 /** 默认工作区（欣爱的专属工作区）。 */
 /** Codex 远程任务的默认工作目录：环境变量优先，否则当前工作目录（不写死本机路径）。 */
@@ -27,11 +28,7 @@ const RUN_TIMEOUT_MS = Number(process.env.DSH_CODEX_TIMEOUT_MS ?? String(30 * 60
 
 /** 解析 Codex 可执行文件。 */
 function resolve_codex_bin(): string {
-  const configured = process.env.CODEX_BIN
-  if (configured !== undefined && configured.trim() && existsSync(configured.trim())) return configured.trim()
-  const fallback = join(process.env.LOCALAPPDATA ?? '', 'OpenAI', 'Codex', 'bin', 'codex.exe')
-  if (existsSync(fallback)) return fallback
-  return 'codex'
+  return new SoftwareLocator().resolve_command('codex', process.env.CODEX_BIN)
 }
 
 /** 推送回调：把一条消息推给用户（走 outbox）。 */

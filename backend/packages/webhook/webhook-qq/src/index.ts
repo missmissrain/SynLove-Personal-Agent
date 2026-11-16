@@ -328,6 +328,7 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   host.tasks?.register_channel('qq', {
+    delivery_status: async (receipt: string) => get_outbox().delivery_status(receipt),
     resolve: async (origin: any) => {
       const current = origin.target.groupOpenid ? origin.sessionId : shared_session_id() || origin.sessionId
       const agent = await wait_for_agent(brandString<SessionId>(current))

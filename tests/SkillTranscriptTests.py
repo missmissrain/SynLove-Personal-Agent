@@ -48,7 +48,10 @@ class SkillTranscriptTests(unittest.TestCase):
             stamp = int(time.time() * 1000) - 1000
             record = {"time": stamp, "type": "user/message",
                       "data": {"content": [{"type": "text", "text": "人工验收素材"}]}}
-            raw = (json.dumps(record) + "\n").encode()
+            receipt = {"time":stamp + 1,"type":"tool/result","data":{"message":{"content":[
+                {"type":"tool-result","isError":False,"content":[{"type":"text",
+                 "text":"实际健康检查已通过，接口返回正常且协议匹配。 token=fixture-private"}]}]}}}
+            raw = (json.dumps(record) + "\n" + json.dumps(receipt) + "\n").encode()
             compressed = subprocess.check_output(
                 [shutil.which("node"), "-e", "const z=require('node:zlib');process.stdout.write(z.zstdCompressSync(Buffer.from('{\"type\":\"session\"}\\n')));process.stdout.write(z.zstdCompressSync(require('node:fs').readFileSync(0)))"],
                 input=raw, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
@@ -63,6 +66,11 @@ class SkillTranscriptTests(unittest.TestCase):
                 transcript = reviewer.return_value.review.call_args.args[0]
                 self.assertEqual(transcript["turns"], 1)
                 self.assertIn("人工验收素材", transcript["text"])
+                self.assertIn("工具回执", transcript["text"])
+                self.assertEqual(len(transcript["evidence"]), 1)
+                self.assertIn("status=returned", transcript["evidence"][0])
+                self.assertNotIn("fixture-private", transcript["text"])
+                self.assertNotIn("fixture-private", transcript["evidence"][0])
                 state = json.loads(Path(cfg.get("stateFile")).read_text(encoding="utf-8"))
                 self.assertGreaterEqual(state["last_review_ts"], stamp)
             (session / "session.v3.jsonl.zstd").write_bytes(b"broken")

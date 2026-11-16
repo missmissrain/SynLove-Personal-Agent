@@ -46,7 +46,7 @@ class qqPush:
             raise RuntimeError("secrets.json 缺 qq.appId / qq.clientSecret")
         payload = json.dumps({"appId": str(qq["appId"]), "clientSecret": str(qq["clientSecret"])}).encode("utf-8")
         request = urllib.request.Request(TOKEN_URL, data=payload, headers={"Content-Type": "application/json"}, method="POST")
-        with urllib.request.urlopen(request, timeout=20) as response:
+        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request, timeout=20) as response:
             data = json.loads(response.read().decode("utf-8"))
         token = data.get("access_token")
         if not token:
@@ -65,7 +65,7 @@ class qqPush:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
+            with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request, timeout=30) as response:
                 data = json.loads(response.read().decode("utf-8") or "{}")
             ok = response.status == 200 and bool(data.get("id"))
             return ok, ("已发送" if ok else "接口未返回消息 id"), data

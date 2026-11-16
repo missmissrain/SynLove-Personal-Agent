@@ -2,14 +2,11 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { probe } from '../diagnostics/probe.js';
+import { SoftwareLocator } from '@deepseek-ai/dsh-native-command/softwareLocator';
 const DEFAULT_WORKSPACE = process.env.DSH_CODEX_WORKSPACE?.trim() || process.cwd();
 const RUN_TIMEOUT_MS = Number(process.env.DSH_CODEX_TIMEOUT_MS ?? String(30 * 60_000));
 function resolve_codex_bin() {
-    const configured = process.env.CODEX_BIN;
-    if (configured !== undefined && configured.trim() && existsSync(configured.trim())) return configured.trim();
-    const fallback = join(process.env.LOCALAPPDATA ?? '', 'OpenAI', 'Codex', 'bin', 'codex.exe');
-    if (existsSync(fallback)) return fallback;
-    return 'codex';
+    return new SoftwareLocator().resolve_command('codex', process.env.CODEX_BIN);
 }
 export function parse_codex_command(text) {
     const trimmed = text.trim();

@@ -19,9 +19,14 @@ export class TaskStore {
       CREATE TABLE IF NOT EXISTS agentTasks (
         id TEXT PRIMARY KEY, session TEXT NOT NULL, key TEXT UNIQUE NOT NULL, origin TEXT NOT NULL,
         request TEXT NOT NULL, kind TEXT NOT NULL, state TEXT NOT NULL, worker TEXT UNIQUE NOT NULL,
-        result TEXT, notice TEXT, queued INTEGER NOT NULL DEFAULT 0, error TEXT,
+        timeoutMs INTEGER, result TEXT, notice TEXT, queued INTEGER NOT NULL DEFAULT 0, error TEXT,
         created INTEGER NOT NULL, updated INTEGER NOT NULL);
-      CREATE INDEX IF NOT EXISTS taskPending ON agentTasks(state,queued,created);`)
+      CREATE INDEX IF NOT EXISTS taskPending ON agentTasks(state,queued,created);
+      CREATE TABLE IF NOT EXISTS taskDeadlineNotices (
+        taskId TEXT NOT NULL, deadlineAt INTEGER NOT NULL, text TEXT NOT NULL,
+        queued INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(taskId,deadlineAt));`)
+    if (!(this.db.prepare('PRAGMA table_info(agentTasks)').all() as any[]).some(row => row.name === 'timeoutMs'))
+      this.db.exec('ALTER TABLE agentTasks ADD COLUMN timeoutMs INTEGER')
     if (!(this.db.prepare('PRAGMA table_info(taskLease)').all() as any[]).some(row => row.name === 'pid'))
       this.db.exec('ALTER TABLE taskLease ADD COLUMN pid INTEGER NOT NULL DEFAULT 0')
   }
@@ -35,11 +40,11 @@ export class TaskStore {
     return row ? JSON.parse(row.data) : undefined
   }
   /** session、key 为宿主归属及幂等键；重复请求返回原任务。 */
-  create_task(session: string, key: string, origin: any, request: string, kind: string): any {
+  create_task(session: string, key: string, origin: any, request: string, kind: string, timeoutMs?: number): any {
     const id = randomUUID(), now = Date.now()
     this.db.prepare(`INSERT OR IGNORE INTO agentTasks
-      (id,session,key,origin,request,kind,state,worker,created,updated) VALUES (?,?,?,?,?,?,'queued',?,?,?)`)
-      .run(id, session, key, JSON.stringify(origin), request, kind, `task-${id}`, now, now)
+      (id,session,key,origin,request,kind,state,worker,timeoutMs,created,updated) VALUES (?,?,?,?,?,?,'queued',?,?,?,?)`)
+      .run(id, session, key, JSON.stringify(origin), request, kind, `task-${id}`, timeoutMs ?? null, now, now)
     return this.decode_row(this.db.prepare('SELECT * FROM agentTasks WHERE key=?').get(key))
   }
   /** id 为任务 ID，session 为当前权限范围，不能跨会话读取。 */
@@ -65,11 +70,23 @@ export class TaskStore {
   }
   /** id 为已验证任务；字段由宿主限定，永不拼接模型列名。 */
   update_task(id: string, patch: any): void {
-    const allow = new Set(['state', 'result', 'notice', 'queued', 'error'])
+    const allow = new Set(['state', 'result', 'notice', 'queued', 'error', 'timeoutMs'])
     const fields = Object.keys(patch)
     if (!fields.length || fields.some(key => !allow.has(key))) throw new Error('非法任务状态字段')
     this.db.prepare(`UPDATE agentTasks SET ${fields.map(key => `${key}=?`).join(',')},updated=? WHERE id=?`)
       .run(...fields.map(key => patch[key]), Date.now(), id)
+  }
+  /** id、deadline为任务和期限；返回对应的持久提醒。 */
+  get_deadline_notice(id: string, deadline: number): any {
+    return this.db.prepare('SELECT * FROM taskDeadlineNotices WHERE taskId=? AND deadlineAt=?').get(id, deadline)
+  }
+  /** id、deadline、text为已核验的提醒内容；重试不覆盖已保存正文。 */
+  save_deadline_notice(id: string, deadline: number, text: string): void {
+    this.db.prepare('INSERT OR IGNORE INTO taskDeadlineNotices(taskId,deadlineAt,text) VALUES(?,?,?)').run(id,deadline,text)
+  }
+  /** id、deadline为提醒身份；只标记入队，最终任务通知独立去重。 */
+  queue_deadline_notice(id: string, deadline: number): void {
+    this.db.prepare('UPDATE taskDeadlineNotices SET queued=1 WHERE taskId=? AND deadlineAt=?').run(id,deadline)
   }
   /** 无参数；运行中的旧进程不可安全重放，改为中断并产生持久通知待办。 */
   recover_tasks(): void {

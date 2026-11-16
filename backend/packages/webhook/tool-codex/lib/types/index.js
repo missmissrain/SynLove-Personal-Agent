@@ -3,6 +3,7 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { defineTool } from '@deepseek-ai/dsh-tools';
+import { SoftwareLocator } from '@deepseek-ai/dsh-native-command/softwareLocator';
 export const name = 'tool-codex';
 export const inject = [
     'tools'
@@ -17,10 +18,7 @@ const ACTIONS = [
 const DEFAULT_WORKSPACE = process.env.DSH_CODEX_WORKSPACE?.trim() || process.cwd();
 const DEFAULT_CODEX_BIN = join(process.env.LOCALAPPDATA ?? '', 'OpenAI', 'Codex', 'bin', 'codex.exe');
 function resolve_bin() {
-    const configured = process.env.CODEX_BIN;
-    if (configured !== undefined && configured.trim() && existsSync(configured.trim())) return configured.trim();
-    if (existsSync(DEFAULT_CODEX_BIN)) return DEFAULT_CODEX_BIN;
-    return 'codex';
+    return new SoftwareLocator().resolve_command('codex', process.env.CODEX_BIN);
 }
 function strip_ansi(text) {
     return text.replace(/\u001B\[[0-9;?]*[A-Za-z]/g, '').replace(/\r\n/g, '\n').replace(/\r/g, '');
@@ -83,7 +81,7 @@ function run_codex(args, cwd, signal) {
             clearTimeout(timer);
             resolve({
                 ok: false,
-                text: 'ERROR: ' + (error.message || 'codex 启动失败')
+                text: 'ERROR: ' + (error.message || 'codex 启动失败') + '\n启动失败不等于未安装。请在实际执行设备用terminal_software_find核对路径、解释器与权限，再用绝对路径验证，勿盲目重装或换执行器。'
             });
         });
         child.on('close', (code)=>{

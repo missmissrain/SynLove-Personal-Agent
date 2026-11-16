@@ -30,6 +30,9 @@ class BuildWebhook {
   }
 }
 const builder = new BuildWebhook()
+// 软件定位器保持独立模块，不覆盖上游native-command现有打包产物。
+const shared = join(dirname(dirname(fileURLToPath(import.meta.url))), 'backend/packages/util/native-command')
+builder.build_tree(join(shared, 'src'), join(shared, 'lib/types'))
 const names=process.argv.slice(2).filter(name=>!name.startsWith('--'))
 for (const name of names.length ? names : ['webhook-weixin','webhook-qq'])
   builder.build_package(name)

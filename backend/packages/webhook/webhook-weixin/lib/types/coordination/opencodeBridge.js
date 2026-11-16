@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
+import { OpenCodeCommand } from '@deepseek-ai/dsh-native-command/openCodeCommand';
 import { existsSync } from 'node:fs';
 import { probe } from '../diagnostics/probe.js';
+import { SoftwareLocator } from '@deepseek-ai/dsh-native-command/softwareLocator';
 const DEFAULT_WORKSPACE = process.env.DSH_OPENCODE_WORKSPACE?.trim() || process.cwd();
 const RUN_TIMEOUT_MS = Number(process.env.DSH_OPENCODE_TIMEOUT_MS ?? String(30 * 60_000));
 function kill_tree(child) {
@@ -24,10 +26,7 @@ function kill_tree(child) {
     child.kill('SIGKILL');
 }
 function resolve_bin() {
-    const configured = process.env.OPENCODE_BIN;
-    if (configured !== undefined && configured.trim() && existsSync(configured.trim())) return configured.trim();
-    const fallback = 'opencode';
-    return existsSync(fallback) ? fallback : 'opencode';
+    return new SoftwareLocator().resolve_command('opencode', process.env.OPENCODE_BIN);
 }
 function strip_ansi(text) {
     return text.replace(/\u001B\[[0-9;?]*[A-Za-z]/g, '').replace(/\r\n/g, '\n').replace(/\r/g, '');
@@ -217,7 +216,7 @@ export class OpencodeBridge {
     async run(user_id, session_id, task_text, context_token, model_override) {
         const bin = resolve_bin();
         const model = model_override ?? process.env.DSH_OPENCODE_MODEL?.trim();
-        const args = [
+        const args = OpenCodeCommand.adapt_args(bin, [
             'run',
             '--auto',
             '--attach',
@@ -229,7 +228,7 @@ export class OpencodeBridge {
                 model
             ],
             task_text
-        ];
+        ]);
         probe('opencode-bridge', 'run.start', {
             user_id,
             workspace: this.workspace,

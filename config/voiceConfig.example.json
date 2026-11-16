@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "listenHost": "127.0.0.1",
+  "listenPort": 8812,
+  "wakeWords": [
+    "欣爱"
+  ],
+  "audioMaxBytes": 33554432,
+  "protocol": {
+    "health": "GET /health",
+    "turn": "POST /v1/voice/turn",
+    "headers": [
+      "Authorization: Bearer <optional local token>",
+      "X-Device-Id: terminal identifier",
+      "X-Session-Id: voice session identifier",
+      "X-Audio-Name: input.wav"
+    ]
+  }
+}

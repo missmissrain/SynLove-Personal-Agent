@@ -298,6 +298,7 @@ export function apply(ctx, config) {
         return outbox;
     };
     host.tasks?.register_channel('qq', {
+        delivery_status: async (receipt)=>get_outbox().delivery_status(receipt),
         resolve: async (origin)=>{
             const current = origin.target.groupOpenid ? origin.sessionId : shared_session_id() || origin.sessionId;
             const agent = await wait_for_agent(brandString(current));

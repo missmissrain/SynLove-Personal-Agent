@@ -7,7 +7,6 @@ import { join } from 'node:path'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { WorkerServiceTools } from './WorkerServiceTools.ts'
 import { TaskReportTool } from './TaskReportTool.ts'
-import { WorkerWebSearch } from './WorkerWebSearch.ts'
 import { AgentReasoning } from './AgentReasoning.ts'
 
 export class WorkerSessionFactory {
@@ -30,7 +29,6 @@ export class WorkerSessionFactory {
         child.tools.presentAs('native')
         this.setup?.(child, task)
         new TaskReportTool(this.root, task.id ?? task.worker).mount_tool(child)
-        new WorkerWebSearch().mount_tool(child)
         child.systemPrompt.section({
           name: 'deployment:persona-prefix',
           order: child.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'), text: persona,

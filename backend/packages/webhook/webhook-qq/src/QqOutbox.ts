@@ -114,6 +114,12 @@ export class QqOutbox {
     } finally { this.draining = false }
   }
 
+  /** id为本队列回执；成功以持久receipts为准，队列不存在不能当作已送达。 */
+  delivery_status(id: string): { status: string; error?: string } {
+    if (Object.values(this.receipts).includes(id)) return { status: 'sent' }
+    const row = this.rows.find(item => item.id === id)
+    return row ? { status: row.status, error: row.error } : { status: 'missing' }
+  }
   /** 无参数；停止取新任务，已经在途的发送仍可持久记录结果。 */
   stop_queue(): void { this.stopped = true }
 }

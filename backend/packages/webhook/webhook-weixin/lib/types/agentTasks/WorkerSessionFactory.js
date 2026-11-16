@@ -3,7 +3,6 @@ import { join } from 'node:path';
 import { brandString } from '@deepseek-ai/dsh-brand';
 import { WorkerServiceTools } from './WorkerServiceTools.js';
 import { TaskReportTool } from './TaskReportTool.js';
-import { WorkerWebSearch } from './WorkerWebSearch.js';
 import { AgentReasoning } from './AgentReasoning.js';
 export class WorkerSessionFactory {
     ctx;
@@ -38,7 +37,6 @@ export class WorkerSessionFactory {
                 child.tools.presentAs('native');
                 this.setup?.(child, task);
                 new TaskReportTool(this.root, task.id ?? task.worker).mount_tool(child);
-                new WorkerWebSearch().mount_tool(child);
                 child.systemPrompt.section({
                     name: 'deployment:persona-prefix',
                     order: child.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'),

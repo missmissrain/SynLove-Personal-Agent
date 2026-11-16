@@ -1,8 +1,3 @@
-/**
- * 执行进度缓存：每个后台任务一份只追加的 JSONL 文件，记录执行内核每一次助手回复。
- * 参数 root 为项目根目录；缓存固定落在 runtime/agentTasks/progress，不接受模型传入的路径。
- * 任务结束时由 TaskRuntime 整份销毁，不留历史。
- */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 export class TaskProgressCache {

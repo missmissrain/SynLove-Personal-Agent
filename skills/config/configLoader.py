@@ -16,8 +16,9 @@ class skillReviewConfig:
     """技能复盘配置（字典的只读封装）。"""
 
     DEFAULTS = {
+        "engine": "codex",
         "enabled": True,
-        "intervalHours": 6,
+        "intervalHours": 72,
         "firstRunLookbackHours": 24,
         "skillsDir": "runtime/dsh/skills",
         "stateFile": "runtime/skill-review-state.json",
@@ -29,16 +30,18 @@ class skillReviewConfig:
         "retryCooldownMinutes": 30,
         "lockStaleSeconds": 21600,
         "model": {
+            "provider": "dahuangf",
+            "baseUrl": "https://tokens.dahuangf.com/v1",
+            "model": "gpt-6.1-sol",
+            "apiKeyEnv": "DAHUANGF_API_KEY",
+            "timeoutSeconds": 180,
+            "proxyMode": "direct",
+        },
+        "fallback": {
             "provider": "qwen",
             "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
             "model": "qwen3.8-flash",
             "apiKeyEnv": "DASHSCOPE_API_KEY",
-            "timeoutSeconds": 180,
-        },
-        "fallback": {
-            "provider": "gemma",
-            "baseUrl": "http://127.0.0.1:8080/v1",
-            "model": "gemma-4-E4B-it-Q4_K_M",
             "timeoutSeconds": 300,
         },
         "maxIterations": 8,
@@ -62,6 +65,12 @@ class skillReviewConfig:
         if self.path.is_file():
             raw = json.loads(self.path.read_text(encoding="utf-8-sig"))
         merged = _deep_merge(self.DEFAULTS, raw)
+        iteration = self.root / "config/nightlyMaintenance.json"
+        if iteration.is_file():
+            control = json.loads(iteration.read_text(encoding="utf-8-sig"))
+            hour = str(control.get("skillHour", "03:00"))
+            if len(hour) == 5 and hour[2:] == ":00" and hour[:2].isdigit():
+                merged["scheduleHour"] = int(hour[:2])
         folder = Path(os.path.expanduser(merged["skillsDir"]))
         if raw.get("skillsDir") in (None, "~/.dsh/skills"):
             folder = Path(os.environ.get("DSH_HOME") or self.root / "runtime/dsh") / "skills"

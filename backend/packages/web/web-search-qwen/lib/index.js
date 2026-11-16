@@ -18,6 +18,8 @@ const QWEN_DEFAULT_MODEL = 'qwen3.8-flash'
 const QWEN_DEFAULT_MAX_TOKENS = 1024
 /** 默认凭据名，与模型通道使用同一把百炼密钥。 */
 const DEFAULT_API_KEY_ENV = 'DASHSCOPE_API_KEY'
+/** Responses 协议的默认搜索工具名。 */
+const DEFAULT_RESPONSES_TOOL = 'web_search'
 /** 每次请求附带的身份标识。 */
 const USER_AGENT = 'synlove-qwen-search/1.0'
 
@@ -89,6 +91,9 @@ class QwenSearchProvider {
   async search(request, signal) {
     const options = this.resolveOptions()
     const apiKey = await this.resolve_key(options, signal)
+    if (options.protocol === 'responses') {
+      return this.search_responses(request, options, apiKey, signal)
+    }
     let response
     try {
       response = await fetch(`${options.baseURL}/chat/completions`, {
@@ -134,6 +139,75 @@ class QwenSearchProvider {
       throw new WebError(`Qwen returned an unprocessable response body: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
     }
   }
+  /** 通过 Responses + web_search 调用兼容网关的服务端搜索。 */
+  async search_responses(request, options, apiKey, signal) {
+    let response
+    try {
+      response = await fetch(`${options.baseURL}/responses`, {
+        method: 'POST',
+        redirect: 'error',
+        headers: {
+          authorization: `Bearer ${apiKey}`,
+          'content-type': 'application/json',
+          accept: 'application/json',
+          'user-agent': USER_AGENT,
+        },
+        body: JSON.stringify({
+          model: options.model,
+          input: request.query,
+          max_output_tokens: options.maxTokens,
+          tools: [{ type: options.searchTool ?? DEFAULT_RESPONSES_TOOL }],
+        }),
+        ...signal !== undefined ? { signal } : {},
+      })
+    } catch (error) {
+      if (is_abort(error)) throw new WebError('Responses search aborted', 'WEB_ABORTED', { cause: error })
+      return this.search_fallback(request, options, signal, error)
+    }
+    if (!response.ok) {
+      return this.search_fallback(request, options, signal,
+        new Error(`Responses search API error (HTTP ${response.status})`))
+    }
+    const body = await response.json()
+    const sources = []
+    for (const item of body.output ?? []) {
+      for (const content of item.content ?? []) {
+        for (const citation of content.annotations ?? []) {
+          const url = citation.url ?? citation.uri
+          if (url) sources.push({ url: String(url), title: citation.title ? String(citation.title) : undefined })
+        }
+      }
+    }
+    return {
+      ...(body.output_text ? { content: String(body.output_text) } : {}),
+      sources,
+      truncated: false,
+    }
+  }
+  /** 首选 Responses 失活时，使用配置的千问搜索作为同一查询的兜底。 */
+  async search_fallback(request, options, signal, cause) {
+    if (!options.fallbackBaseURL || !options.resolveFallbackApiKey) {
+      throw new WebError(`Responses search unavailable: ${String(cause)}`, 'WEB_PROVIDER_ERROR', { cause })
+    }
+    const key = await options.resolveFallbackApiKey()
+    if (!key) throw new WebError('Fallback Qwen search credential missing', 'WEB_PROVIDER_CREDENTIAL_MISSING', { cause })
+    const response = await fetch(`${options.fallbackBaseURL}/chat/completions`, {
+      method: 'POST',
+      redirect: 'error',
+      headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({
+        model: options.fallbackModel,
+        max_tokens: options.maxTokens,
+        stream: false,
+        messages: [{ role: 'user', content: request.query }],
+        enable_search: true,
+        search_options: { forced_search: true },
+      }),
+      ...signal !== undefined ? { signal } : {},
+    })
+    if (!response.ok) throw new WebError(`Fallback Qwen search API error (HTTP ${response.status})`, 'WEB_PROVIDER_ERROR', { cause })
+    return map_response(await response.json())
+  }
 }
 
 /** Cordis 插件名，供加载器诊断识别。 */
@@ -146,6 +220,11 @@ const Config = z.object({
   baseURL: z.string(),
   model: z.string().default(QWEN_DEFAULT_MODEL),
   maxTokens: z.number().step(1).min(1).default(QWEN_DEFAULT_MAX_TOKENS),
+  protocol: z.string().default('chat-completions'),
+  searchTool: z.string().default(DEFAULT_RESPONSES_TOOL),
+  fallbackBaseURL: z.string().optional(),
+  fallbackModel: z.string().optional(),
+  fallbackApiKeyEnv: z.string().role('credential-ref').optional(),
 })
 
 /**
@@ -167,6 +246,16 @@ function resolve_options(ctx, config) {
     baseURL: config.baseURL ?? launchEnvironmentOf(ctx).get('DASHSCOPE_BASE_URL')?.value ?? QWEN_DEFAULT_BASE_URL,
     model: config.model ?? QWEN_DEFAULT_MODEL,
     maxTokens: config.maxTokens ?? QWEN_DEFAULT_MAX_TOKENS,
+    protocol: config.protocol ?? 'chat-completions',
+    searchTool: config.searchTool ?? DEFAULT_RESPONSES_TOOL,
+    fallbackBaseURL: config.fallbackBaseURL,
+    fallbackModel: config.fallbackModel ?? QWEN_DEFAULT_MODEL,
+    resolveFallbackApiKey: config.fallbackApiKeyEnv === undefined ? undefined : async () => {
+      const credentials = ctx.get('credentials')
+      if (credentials !== undefined) return (await credentials.resolve(credentialRef(config.fallbackApiKeyEnv)))?.value
+      const ambient = launchEnvironmentOf(ctx).get(config.fallbackApiKeyEnv)
+      return ambient !== undefined ? ambient.value : undefined
+    },
   }
 }
 

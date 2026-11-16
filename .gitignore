@@ -6,6 +6,8 @@ config/modelConfig.json.bak*
 config/weixinProfile.patch.yml
 config/console.env
 config/serviceConfig.json
+config/voiceIdentity.json
+/assets/voice/
 config/backendService.json
 config/*Profile.patch.yml
 config/modelOnly.patch.yml
@@ -73,4 +75,5 @@ kugou/config/state.json
 # 进程号与队列状态
 *.pid
 kugou-player-state.json
+/config/nightlyMaintenance.json
 

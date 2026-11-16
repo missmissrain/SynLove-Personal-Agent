@@ -380,7 +380,7 @@ export class WeixinStateStore {
         return this.db.prepare("SELECT outbound_id, sequence, text, created_at FROM outbox " + "WHERE turn IS NULL AND status IN ('pending','failed_retryable','failed_terminal') " + 'ORDER BY sequence LIMIT ?').all(limit);
     }
     prune_parked_results(max_age_ms, now = Date.now()) {
-        const removed = this.db.prepare("DELETE FROM outbox WHERE turn IS NULL AND status IN ('pending','failed_retryable','failed_terminal') " + 'AND created_at < ?').run(now - max_age_ms).changes;
+        const removed = this.db.prepare("DELETE FROM outbox WHERE turn IS NULL AND status IN ('pending','failed_retryable','failed_terminal') " + "AND client_id NOT LIKE 'task-%' AND created_at < ?").run(now - max_age_ms).changes;
         if (removed > 0) probe('state', 'parked.pruned', {
             removed,
             max_age_ms
@@ -388,7 +388,7 @@ export class WeixinStateStore {
         return Number(removed);
     }
     trim_pending_notices(session_id, keep = 3) {
-        const removed = this.db.prepare("DELETE FROM outbox WHERE outbound_id IN (" + "  SELECT outbound_id FROM outbox WHERE session_id = ? AND status = 'pending' AND turn IS NULL " + '  ORDER BY sequence DESC LIMIT -1 OFFSET ?)').run(session_id, keep).changes;
+        const removed = this.db.prepare("DELETE FROM outbox WHERE outbound_id IN (" + "  SELECT outbound_id FROM outbox WHERE session_id = ? AND status = 'pending' AND turn IS NULL AND client_id NOT LIKE 'task-%' " + '  ORDER BY sequence DESC LIMIT -1 OFFSET ?)').run(session_id, keep).changes;
         if (removed > 0) probe('state', 'outbox.notices_trimmed', {
             session_id,
             removed,

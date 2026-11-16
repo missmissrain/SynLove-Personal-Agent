@@ -289,6 +289,7 @@ export class TaskRuntime {
     const id = typeof args.taskId === 'string' ? args.taskId : ''
     if (name === 'task_status' && !id)
       return this.store.list_tasks(scope).map(task => ({ taskId: task.id, state: task.state, kind: task.kind,
+        notification: this.bridge.delivery.get_delivery(task.id),
         progressCount: this.progress.count(task.id), updatedAt: task.updated }))
     let task: any
     if (presentation) {
@@ -297,6 +298,7 @@ export class TaskRuntime {
       task = this.store.get_task(id, this.bridge.active.get(owner.session).owner)
     } else task = this.store.get_task(id, scope)
     if (name === 'task_status') return { taskId: id, state: task.state, workerSessionId: task.worker,
+      notification: this.bridge.delivery.get_delivery(id),
       timeoutMs: task.timeoutMs ?? this.config.taskTimeoutMs,
       deadlineAt: this.active.get(id)?.deadlineAt,
       progressCount: this.progress.count(id), updatedAt: task.updated }
@@ -313,6 +315,7 @@ export class TaskRuntime {
       const report = reports.report_info(id)
       const excerpt = report.exists && offset === 0 ? reports.read_report(id, 0, 1500).text : undefined
       return { taskId: id, state: task.state, summary: result.slice(offset, offset + 10000),
+        notification: this.bridge.delivery.get_delivery(id),
         nextOffset: offset + 10000 < result.length ? offset + 10000 : null,
         reportPath: report.exists ? report.path : undefined,
         reportCharacters: report.exists ? report.characters : undefined,

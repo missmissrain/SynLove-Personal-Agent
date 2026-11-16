@@ -75,6 +75,21 @@ def run_once(config, dry_run=False, since_hours=None, notify=True):
     抢不到锁时返回 ok=True + skipped=locked，这样计划任务不会被判成"失败"。
     """
     cfg = config
+    iteration = ROOT / "config/nightlyMaintenance.json"
+    if iteration.is_file() and not json.loads(iteration.read_text(encoding="utf-8-sig")).get("skillEnabled", True):
+        return {"ok": True, "skipped": "disabled_in_gui"}
+    if since_hours is None and not dry_run:
+        previous = load_state(cfg.get("stateFile"))
+        last_run = previous.get("last_run_at")
+        interval_hours = max(1, int(cfg.get("intervalHours", 72)))
+        if last_run:
+            try:
+                elapsed = time.time() - time.mktime(time.strptime(last_run, "%Y-%m-%d %H:%M:%S"))
+                if elapsed < interval_hours * 3600:
+                    return {"ok": True, "skipped": "interval",
+                            "nextAfterHours": round(interval_hours - elapsed / 3600, 2)}
+            except (TypeError, ValueError, OverflowError):
+                log(cfg.get("logFile"), "旧的复盘时间格式无效，本轮按可执行处理")
     lock = runLock(cfg.get("lockFile"), stale_seconds=int(cfg.get("lockStaleSeconds", 6 * 3600)))
     if not lock.acquire():
         holder = lock.holder()
@@ -85,13 +100,21 @@ def run_once(config, dry_run=False, since_hours=None, notify=True):
         write_heartbeat(cfg, dry_run)
         return _review_once(cfg, dry_run=dry_run, since_hours=since_hours, notify=notify)
     finally:
+        if not dry_run:
+            FILE_WRITER.write_text(cfg.get("heartbeatFile"), json.dumps({
+                "pid": os.getpid(), "running": False,
+                "finished_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            }, ensure_ascii=False))
         lock.release()
 
 
 def write_heartbeat(config, dry_run):
     """写一份"正在跑"的心跳（pid + 开始时刻），给人排查用，不影响主流程。"""
+    if dry_run:
+        return
     payload = json.dumps({
         "pid": os.getpid(),
+        "running": True,
         "started_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "dry_run": bool(dry_run),
     }, ensure_ascii=False, indent=2)
@@ -110,23 +133,42 @@ def _review_once(cfg, dry_run=False, since_hours=None, notify=True):
     state = load_state(cfg.get("stateFile"))
     now = int(time.time() * 1000)
     if since_hours is not None:
-        since = now - int(since_hours) * 3600 * 1000
+        since = now - int(float(since_hours) * 3600 * 1000)
     elif state.get("last_review_ts"):
         since = int(state["last_review_ts"])
+        if state.get("cursorVersion") != 2:
+            # 旧版本只保留窗口尾部；首次升级回看一天，补回已确认可能漏读的素材。
+            since -= int(cfg.get("firstRunLookbackHours", 24)) * 3600 * 1000
     else:
         since = now - int(cfg.get("firstRunLookbackHours", 24)) * 3600 * 1000
-
-    transcript = transcriptBuilder(session_root).build(
-        since, now, max_chars=int(cfg.get("transcriptChars", 14000)))
-    log(log_path, f"窗口 {time.strftime('%m-%d %H:%M', time.localtime(since/1000))} → "
-                  f"{time.strftime('%m-%d %H:%M', time.localtime(now/1000))}，"
-                  f"{transcript['turns']} 轮用户发言，素材 {len(transcript['text'])} 字")
 
     store = skillStore(cfg.get("skillsDir"),
                        auto_create=bool(cfg.get("autoCreate", True)),
                        stage_updates=bool(cfg.get("stageUpdates", True)))
-    llm = llmClient(cfg.section("model"), cfg.section("fallback"))
-    result = skillReviewer(cfg, store, llm).review(transcript, dry_run=dry_run)
+    if cfg.get("engine", "codex") == "codex":
+        from skills.review.CodexReviewClient import CodexReviewClient
+        llm = CodexReviewClient(ROOT, store)
+    else:
+        llm = llmClient(cfg.section("model"), cfg.section("fallback"))
+    cursor, collected, pending, fallback = since, [], [], False
+    result = {}
+    transcript = {}
+    for batch in range(max(1, int(cfg.get("maxBatchesPerRun", 6)))):
+        transcript = transcriptBuilder(session_root).build(
+            cursor, now, max_chars=int(cfg.get("transcriptChars", 14000)))
+        log(log_path, f"批次{batch + 1}：{transcript['turns']}轮，{len(transcript['text'])}字，后续={transcript['truncated']}")
+        reviewer = skillReviewer(cfg, store, llm)
+        reviewer.max_skills = max(1, int(cfg.get("maxSkillsPerRun", 3)) - len(collected) - len(pending))
+        result = reviewer.review(transcript, dry_run=dry_run)
+        collected.extend(result.get("saved") or [])
+        pending.extend(result.get("staged") or [])
+        fallback = fallback or bool(result.get("fallback"))
+        if result.get("error") or (result.get("skipped") and transcript["text"]):
+            break
+        cursor = transcript.get("processed_until", now)
+        if not transcript["truncated"] or len(collected) + len(pending) >= int(cfg.get("maxSkillsPerRun", 3)):
+            break
+    result.update({"saved": collected, "staged": pending, "fallback": fallback})
 
     saved = result.get("saved") or []
     staged = result.get("staged") or []
@@ -140,15 +182,24 @@ def _review_once(cfg, dry_run=False, since_hours=None, notify=True):
             "runs": int(state.get("runs") or 0) + 1,
             "last_saved": saved,
             "last_staged": staged,
+            "last_execution": result.get("execution"),
         })
         if failed:
             # 模型挂了就别推进水位：这段素材还没被消化，留给下一轮（与兜底补跑）重试，
             # 否则失败一次就永久丢掉这个窗口，等于"没跑"。只记错误信息。
             state["last_error"] = str(result.get("error"))
             state["last_error_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            if cursor > since:
+                state["last_review_ts"] = cursor
+                state["backlog"] = True
             log(log_path, "本轮模型出错，水位不推进；下一轮会重新覆盖这段素材")
+        elif result.get("skipped") and transcript["text"]:
+            log(log_path, "素材不足，保留水位，下一轮合并处理")
         else:
-            state["last_review_ts"] = now
+            state["cursorVersion"] = 2
+            state["last_review_ts"] = cursor
+            state["backlog"] = cursor < now
+            state["last_window"] = {"since": since, "until": state["last_review_ts"]}
             state.pop("last_error", None)
         save_state(cfg.get("stateFile"), state)
 

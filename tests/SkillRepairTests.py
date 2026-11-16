@@ -108,12 +108,13 @@ class SkillRepairTests(unittest.TestCase):
                 """messages、tools 为真实复盘接口；先保存，再结束。"""
                 self.count += 1
                 name = "save_skill" if self.count == 1 else "finish"
-                args = {"name":"network-check","content":SKILL} if self.count == 1 else {"summary":"完成"}
+                args = {"name":"network-check","content":SKILL + "\n## 依据\n> 测试接口已返回真实健康协议并确认返回状态正常。\n"} if self.count == 1 else {"summary":"完成"}
                 return {"message":{"tool_calls":[{"id":str(self.count),"type":"function",
                     "function":{"name":name,"arguments":json.dumps(args)}}]}}
         with tempfile.TemporaryDirectory() as temp:
             store = skillStore(temp)
-            transcript = {"turns":4,"text":"用户要求测试接口；执行者验证了健康协议，并说明失败不可重提。"}
+            transcript = {"turns":4,"text":"用户要求测试接口；执行者验证了健康协议，并说明失败不可重提。",
+                          "evidence":["status=returned 测试接口已返回真实健康协议并确认返回状态正常。"]}
             result = skillReviewer({"minTurns":4},store,Fixture()).review(transcript,dry_run=True)
             self.assertIsNone(store.read_skill("network-check"))
             result = skillReviewer({"minTurns":4},store,Fixture()).review(transcript)

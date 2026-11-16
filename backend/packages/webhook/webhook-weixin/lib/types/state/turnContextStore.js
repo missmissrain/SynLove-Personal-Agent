@@ -91,9 +91,10 @@ export class TurnContextStore {
             }
         };
     }
-    async latest_token_if_fresh_async(session_id, max_age_ms = 10 * 60_000) {
+    async latest_token_if_fresh_async(session_id, max_age_ms = 10 * 60_000, user_id) {
         const fallback = await this.store.latest_delivery_for_session(session_id);
         if (fallback === undefined || Date.now() - fallback.received_at > max_age_ms) return undefined;
+        if (user_id !== undefined && fallback.user_id !== user_id) return undefined;
         return fallback.context_token;
     }
     async bind_async(session_id, turn, context) {

@@ -392,6 +392,11 @@ export class WeixinConnector {
       register_bridge_session_tools(child)
     }
     this.host.tasks?.register_channel('weixin', {
+      delivery_status: async (receipt: string) => {
+        const row = await this.store.get_outbox?.(receipt)
+        return { status: row && /等待新入站凭据|会话窗口已关闭/.test(row.last_error ?? '')
+          ? 'waiting_context' : row?.status ?? 'missing', error: row?.last_error }
+      },
       resolve: async (origin: any) => {
         const session = await this.store.get_session_id(origin.userId) ?? origin.sessionId
         const agent = this.host.get_agent(brandString<SessionId>(session))
@@ -402,7 +407,7 @@ export class WeixinConnector {
       send: async (task: any, text: string) => {
         if (!await this.lease.is_held()) throw new Error('微信消费者所有权已丢失，结果保留待投递')
         const session = await this.store.get_session_id(task.origin.userId) ?? task.origin.sessionId
-        const token = await this.turn_context.latest_token_if_fresh_async(session)
+        const token = await this.turn_context.latest_token_if_fresh_async(session, Number.MAX_SAFE_INTEGER, task.origin.userId)
         const row = await this.store.enqueue_outbox({
           session_id: session, user_id: task.origin.userId, kind: 'assistant', text,
           client_id: `task-${task.id}`, ...(token ? { context_token: token } : {}),
@@ -525,7 +530,12 @@ export class WeixinConnector {
         probe('outbound', 'weixin.send_image', { user_id, bytes: data.byteLength })
       },
       on_agent_ready: agent => { this.bind_agent_stream(agent) },
-      on_user_message: (session_id, user_id, text) => { this.remember_user_message(session_id, user_id, text) },
+      on_user_message: (session_id, user_id, text) => {
+        this.remember_user_message(session_id, user_id, text)
+        void this.outbound.resume_parked_notices(session_id, user_id)
+          .then(() => this.outbound.drain())
+          .catch(error => probe('outbound', 'notice.resume_failed', { error: String(error).slice(0,160) }))
+      },
       // 用户说"停止"：除了取消模型那一轮，还要**真的把外部任务杀掉**
       // （桥里的任务 + 模型用工具起的 opencode/codex 进程）。
       on_cancel: async user_id => {
