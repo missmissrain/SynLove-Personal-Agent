@@ -86,8 +86,11 @@ def run_once(config, dry_run=False, since_hours=None, notify=True):
             try:
                 elapsed = time.time() - time.mktime(time.strptime(last_run, "%Y-%m-%d %H:%M:%S"))
                 if elapsed < interval_hours * 3600:
+                    remaining = round((interval_hours * 3600 - elapsed) / 3600, 1)
+                    log(cfg.get("logFile"),
+                        f"未到复盘间隔（{interval_hours} 小时），本轮跳过，还需 {remaining} 小时")
                     return {"ok": True, "skipped": "interval",
-                            "nextAfterHours": round(interval_hours - elapsed / 3600, 2)}
+                            "nextAfterHours": remaining}
             except (TypeError, ValueError, OverflowError):
                 log(cfg.get("logFile"), "旧的复盘时间格式无效，本轮按可执行处理")
     lock = runLock(cfg.get("lockFile"), stale_seconds=int(cfg.get("lockStaleSeconds", 6 * 3600)))

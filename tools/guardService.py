@@ -618,6 +618,7 @@ def skill_config():
     defaults = {
         "enabled": True,
         "scheduleHour": 3,
+        "intervalHours": 72,
         "catchUpGraceMinutes": 10,
         "retryCooldownMinutes": 30,
         "lockStaleSeconds": 21600,
@@ -648,6 +649,13 @@ def skill_review_due(config, last_review_ts, now=None):
     水位早于这个界 = 这一轮没跑成；刚过界的前 grace 分钟留给计划任务先跑，巡检不抢。
     """
     now = time.time() if now is None else now
+    # 复盘服务自身按 intervalHours 限流，没到间隔时它一定跳过；巡检不能补跑，
+    # 否则会和日计划任务一起空转，把日志刷成"每半小时一次失败"。
+    interval_hours = max(1, int(config.get("intervalHours", 72)))
+    if last_review_ts:
+        elapsed_hours = (now - last_review_ts / 1000.0) / 3600.0
+        if elapsed_hours < interval_hours:
+            return False, f"未到复盘间隔（{interval_hours} 小时，已过 {elapsed_hours:.1f} 小时）"
     hour = max(0, min(23, int(config.get("scheduleHour", 3))))
     grace = max(0, int(config.get("catchUpGraceMinutes", 10))) * 60
     today = datetime.datetime.now().replace(hour=hour, minute=0, second=0, microsecond=0)
