@@ -79,12 +79,9 @@ export class PresenterEventBridge {
   }
   /** agent 为主人格，task 为不可变结果；使用空历史的同人格会话，失败草稿不进入主聊天。 */
   async present_result(agent: any, task: any): Promise<string> {
-    let handle: any
-    try {
-      if (this.runtime.host_context().agents)
-        handle = await new PresentationSessionFactory(this.runtime).create_session(agent, task)
-      return await this.render_result(handle?.agent ?? agent, task)
-    } finally { await handle?.dispose() }
+    // 结果由主人格在主会话里整理：子任务结果写进主人格上下文，润色后再投递。
+    // 不再另起隔离会话，否则主人格对任务结果一无所知。
+    return await this.render_result(agent, task)
   }
   /** agent 为专用表达会话，task 为持久结果；只有正常结束的完整正文才可入队。 */
   async render_result(agent: any, task: any): Promise<string> {

@@ -103,13 +103,8 @@ export class PresenterEventBridge {
         await this.pumping;
     }
     async present_result(agent, task) {
-        let handle;
-        try {
-            if (this.runtime.host_context().agents) handle = await new PresentationSessionFactory(this.runtime).create_session(agent, task);
-            return await this.render_result(handle?.agent ?? agent, task);
-        } finally{
-            await handle?.dispose();
-        }
+        // 结果由主人格在主会话里整理，润色后再投递；不再另起隔离会话。
+        return await this.render_result(agent, task);
     }
     async render_result(agent, task) {
         const artifacts = task.deadlineNotice ? undefined : new TaskReportStore(this.runtime.root).persist_result(task);

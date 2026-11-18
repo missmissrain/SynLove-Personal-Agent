@@ -33,6 +33,7 @@ from skills.review.transcriptBuilder import transcriptBuilder, find_session_root
 from skills.store.durableFile import durableFile  # noqa: E402
 from skills.store.runLock import runLock  # noqa: E402
 from skills.store.skillStore import skillStore  # noqa: E402
+from tools.RuntimeTelemetry import RuntimeTelemetry  # noqa: E402
 
 FILE_WRITER = durableFile()
 
@@ -170,6 +171,13 @@ def _review_once(cfg, dry_run=False, since_hours=None, notify=True):
     for batch in range(max(1, int(cfg.get("maxBatchesPerRun", 6)))):
         transcript = transcriptBuilder(session_root).build(
             cursor, now, max_chars=int(cfg.get("transcriptChars", 14000)))
+        # 把工具/模型调度监测摘要一并作为素材，便于复盘反复失败的工具调用与切换。
+        try:
+            telemetry = RuntimeTelemetry(ROOT, hours=int(cfg.get("telemetryHours", 72))).build()
+            if telemetry:
+                transcript["text"] = (transcript.get("text") or "") + "\n\n" + telemetry
+        except Exception as error:  # 监测失败不影响复盘
+            log(log_path, f"运行监测摘要生成失败：{type(error).__name__}: {error}")
         log(log_path, f"批次{batch + 1}：{transcript['turns']}轮，{len(transcript['text'])}字，后续={transcript['truncated']}")
         reviewer = skillReviewer(cfg, store, llm)
         reviewer.max_skills = max(1, int(cfg.get("maxSkillsPerRun", 3)) - len(collected) - len(pending))

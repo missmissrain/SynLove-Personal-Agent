@@ -13,6 +13,8 @@ import ast
 from datetime import date
 from pathlib import Path
 
+from tools.RuntimeTelemetry import RuntimeTelemetry
+
 from maintenance.RepositoryWorkspace import RepositoryWorkspace
 from maintenance.SoftwareCommandResolver import SoftwareCommandResolver
 from skills.store.durableFile import durableFile
@@ -63,6 +65,9 @@ class NightlyMaintenance:
         evidence = self.home / "recentEvidence.txt"
         text = evidence.read_text(encoding="utf-8") if evidence.exists() else "本轮没有新增运行证据，检查明显缺陷；没有可靠问题就不改。"
         prompt += "\n仓库：" + row["name"] + "\n近期脱敏证据：\n" + text[:18000]
+        telemetry = RuntimeTelemetry(self.root, hours=72).build()
+        if telemetry:
+            prompt += "\n\n" + telemetry
         checks = row.get("checks", [])
         if not checks:
             raise RuntimeError("仓库没有登记验收命令，不允许自动维护")
