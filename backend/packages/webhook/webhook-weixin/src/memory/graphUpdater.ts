@@ -1,5 +1,5 @@
 /**
- * 用本地 Gemma 从聊天记录里更新知识图谱。
+ * 用主模型从聊天记录里更新知识图谱与用户画像。
  *
  * ## 为什么要分成"小块 + 多次小调用"，而不是"一次读一大段"
  *
@@ -24,6 +24,8 @@
  */
 
 import { probe } from '../diagnostics/probe.ts'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { KnowledgeGraphStore } from './graphStore.ts'
 import type { MemoryRemoteClient } from './memoryRemoteClient.ts'
 import {
@@ -114,7 +116,7 @@ export interface GraphUpdateResult {
  * 同一份测试的召回率也从 1.25/3 提升到 2.25/3。
  */
 const EXTRACT_RULES = [
-  '你在把聊天记录整理成"人物事实"，用于维护一份家人/朋友关系图。',
+  '你在把聊天记录整理成"人物事实"，用于维护人物关系和用户画像。',
   '',
   '【输出格式】每行一条，各欄用竖线分隔。行首标签只允许这几种：',
   '第一种是"人物"，后面依次跟：人名、别名（多个用逗号隔开，没有就留空）。',
@@ -208,6 +210,10 @@ export async function update_graph_from_records(
   records: readonly UpdateRecord[],
 ): Promise<GraphUpdateResult> {
   const graph = options.graph
+  // 独立提示词文件缺失时直接失败，保留增量水位，避免悄悄退回不更新画像的旧行为。
+  const profile_rules = readFileSync(join(
+    process.env.DSH_WEIXIN_WORKSPACE ?? process.cwd(), 'prompts', 'GraphProfile.md',
+  ), 'utf8')
   const chunk_chars = options.chunk_chars
     ?? Number(process.env.DSH_GRAPH_CHUNK_CHARS ?? '8000')
   // 提示词的硬上限（字符）。按实测的中文比例（约 1.26 字符/token）折算，
@@ -235,6 +241,7 @@ export async function update_graph_from_records(
     // 把"前文提要"按需裁剪：先丢最旧的提要，再丢最旧的事实，直到整段装得下。
     const build = async (gist_list: readonly string[], fact_list: readonly string[]): Promise<string> => [
       EXTRACT_RULES,
+      profile_rules,
       '',
       '【已知人物名单（指代词只能从中选择，或用 未绑定）】',
       render_candidates(await candidate_names(graph)),
@@ -250,7 +257,7 @@ export async function update_graph_from_records(
     // 超限时：**把"旧压缩块 + 当前块"合并压缩成一个新块**，而不是丢掉旧提要。
     // 压缩是"信息变短"，丢弃是"信息消失"——前者可接受，后者会让长期记忆缺块。
     if (prompt.length > max_prompt_chars && (gists.length > 0 || facts_carried.length > 0)) {
-      const merge_prompt = build_merge(gists, facts_carried, chunk)
+      const merge_prompt = profile_rules + '\n' + build_merge(gists, facts_carried, chunk)
       if (merge_prompt.length <= max_prompt_chars) {
         const merged = parse_facts(await options.complete(merge_prompt))
         bad_lines += merged.bad_lines.length
@@ -354,6 +361,7 @@ export async function update_graph_from_records(
     ? (await graph.nodes()).map(node => node.name)
     : [...touched]
   const updated: string[] = []
+  const reviewed = new Map<string, Set<string>>()
   for (const name of to_review) {
     const node = await graph.find(name)
     if (node === undefined) continue
@@ -363,6 +371,7 @@ export async function update_graph_from_records(
     if (related.length === 0 && options.full_scan !== true) continue
     const prompt = [
       REVIEW_RULES,
+      profile_rules,
       '',
       `【人物】${node.name}`,
       `【现有档案】${describe_current(node)}`,
@@ -382,6 +391,7 @@ export async function update_graph_from_records(
       evidence: { date: all_facts[0]?.date ?? '', note: '逐节点审核' },
     })
     updated.push(node.name)
+    reviewed.set(node.id, new Set(Object.keys(patch)))
     probe('graph', 'update.node_reviewed', { name: node.name, fields: Object.keys(patch).length })
   }
 
@@ -391,6 +401,14 @@ export async function update_graph_from_records(
     const patch = patch_from_updates([{ field: item.fact.field, value: item.fact.value }])
     if (Object.keys(patch).length === 0) continue
     const existing = await graph.find(item.fact.name)
+    // 审核后的完整备注不能再被原始的单条偏好覆盖，其他审核字段也遵循同一规则。
+    for (const key of Object.keys(patch)) {
+      if (existing !== undefined && reviewed.get(existing.id)?.has(key)) delete patch[key]
+    }
+    if (Object.keys(patch).length === 0) continue
+    if (typeof patch.notes === 'string' && existing?.notes) {
+      patch.notes = [...new Set([...existing.notes.split('\n'), ...patch.notes.split('\n')])].join('\n')
+    }
     await graph.upsert_person({
       name: item.fact.name, ...patch,
       // 只有"要改姓名"时才带 id（改名走就地改名 + 旧名转别名）。

@@ -5,10 +5,17 @@ from pathlib import Path
 from unittest.mock import patch
 
 from skills.review.transcriptBuilder import transcriptBuilder
+from skills.skillReviewService import append_unique
 
 
 class SkillCursorTests(unittest.TestCase):
     """保证截断窗口不会永久遗失早期素材。"""
+
+    def test_review_batch_results_are_unique(self):
+        """跨批次聚合复盘结果时，同名技能只保留第一次出现的位置。"""
+        found = ["first-skill"]
+        append_unique(found, ["second-skill", "first-skill", "second-skill"])
+        self.assertEqual(found, ["first-skill", "second-skill"])
 
     def test_every_row_is_eventually_processed(self):
         """长窗口从最早记录分批处理，同毫秒记录必须在同一批。"""

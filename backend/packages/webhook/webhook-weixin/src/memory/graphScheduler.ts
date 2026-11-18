@@ -25,7 +25,7 @@ import type { TimelineStore } from './timelineStore.ts'
 export interface GraphSchedulerOptions {
   readonly graph: KnowledgeGraphStore | MemoryRemoteClient
   readonly timeline: TimelineStore | MemoryRemoteClient
-  /** 调用模型（Gemma）的入口。 */
+  /** 调用主模型的入口；与时间线摘要的本地引擎独立。 */
   readonly complete: (prompt: string) => Promise<string>
   /** 空闲阈值，默认复用 DSH_TIMELINE_IDLE_HOURS（3 小时）。 */
   readonly idle_ms?: number

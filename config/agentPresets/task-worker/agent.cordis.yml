@@ -6,6 +6,10 @@
 - id: tool-pwsh
   name: '@deepseek-ai/dsh-tool-pwsh'
   disabled: !!js process.platform !== 'win32'
+- id: tool-jobs
+  name: '@deepseek-ai/dsh-tool-jobs'
+  config:
+    completionDelivery: quiet
 - id: tool-fs
   name: '@deepseek-ai/dsh-tool-fs'
 - id: tool-fs-search
@@ -18,6 +22,9 @@
   name: '@deepseek-ai/dsh-tool-codex'
 - id: tool-web
   name: '@deepseek-ai/dsh-tool-web'
+  config:
+    searchTimeoutMs: 130000
+    searchMaxResults: 16
 - id: skills
   name: cordis:group
   group: true

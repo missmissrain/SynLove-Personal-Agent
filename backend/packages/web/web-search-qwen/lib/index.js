@@ -1,5 +1,5 @@
 /**
- * 千问自带联网搜索的 provider：走百炼 OpenAI 兼容 Chat Completions，带 enable_search + forced_search。
+ * 千问联网搜索provider：官方新模型走原生流式接口，其他兼容端点保留Chat Completions。
  * 参数：apiKeyEnv 默认 DASHSCOPE_API_KEY（走凭据服务解析），baseURL 默认百炼兼容地址，model 默认 qwen3.8-flash。
  * 它只注册到 ctx.web 的搜索注册表，不拥有 web 服务；请求格式与原生 fetch 都留在本包内。
  */
@@ -15,7 +15,7 @@ const QWEN_DEFAULT_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1
 /** 默认搜索模型：flash 已支持联网搜索。 */
 const QWEN_DEFAULT_MODEL = 'qwen3.8-flash'
 /** 默认答案长度上限，避免一次搜索烧掉太多 token。 */
-const QWEN_DEFAULT_MAX_TOKENS = 1024
+const QWEN_DEFAULT_MAX_TOKENS = 4096
 /** 默认凭据名，与模型通道使用同一把百炼密钥。 */
 const DEFAULT_API_KEY_ENV = 'DASHSCOPE_API_KEY'
 /** Responses 协议的默认搜索工具名。 */
@@ -41,13 +41,17 @@ function map_result(result) {
  * 参数 response 为已解析的 chat-completions 响应；有来源就给来源，没有只给正文。
  */
 function map_response(response) {
-  const content = response.choices?.[0]?.message?.content
-  const raw = response.search_info?.search_results ?? response.search_results ?? response.citations ?? []
-  const sources = raw.map(row => typeof row === 'string' ? { url: row } : map_result(row)).filter(row => row.url)
+  const choice = response.output?.choices?.[0] ?? response.choices?.[0]
+  const value = choice?.message?.content ?? response.output?.text
+  const content = Array.isArray(value) ? value.map(block => block.text ?? '').join('') : value
+  const raw = response.output?.search_info?.search_results ?? response.search_info?.search_results ?? response.search_results ?? response.citations ?? []
+  const sources = (Array.isArray(raw) ? raw : []).map(row => typeof row === 'string' ? { url: row } : map_result(row)).filter(row => {
+    try { const url = new URL(row.url); return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password } catch { return false }
+  })
   return {
     ...content != null && String(content).length > 0 ? { content: String(content) } : {},
     sources,
-    truncated: false,
+    truncated: choice?.finish_reason === 'length',
   }
 }
 
@@ -90,34 +94,50 @@ class QwenSearchProvider {
   /** request 至少含 query；signal 用于取消。返回正文与来源。 */
   async search(request, signal) {
     const options = this.resolveOptions()
+    const deadline = AbortSignal.timeout(options.timeoutMs ?? 120000)
+    signal = signal ? AbortSignal.any([signal, deadline]) : deadline
     const apiKey = await this.resolve_key(options, signal)
     if (options.protocol === 'responses') {
-      return this.search_responses(request, options, apiKey, signal)
+      return this.search_responses(request, options, apiKey, signal, deadline)
     }
+    // 阿里云新多模态模型使用原生流式接口，才能可靠返回 search_info 来源。
+    // 自定义兼容网关保留原协议，不能擅自改写第三方主机或转发密钥。
+    const url = new URL(options.baseURL)
+    const native = url.hostname.endsWith('.aliyuncs.com') && /^qwen3\.[5-9]/.test(options.model)
+    const endpoint = native
+      ? `${url.origin}/api/v1/services/aigc/multimodal-generation/generation`
+      : `${options.baseURL.replace(/\/$/, '')}/chat/completions`
+    const parameters = { max_tokens: options.maxTokens, enable_thinking: false, enable_search: true,
+      search_options: { forced_search: true, enable_source: true, enable_citation: true } }
     let response
     try {
-      response = await fetch(`${options.baseURL}/chat/completions`, {
+      response = await fetch(endpoint, {
         method: 'POST',
         redirect: 'error',
         headers: {
           authorization: `Bearer ${apiKey}`,
           'content-type': 'application/json',
-          accept: 'application/json',
+          accept: native ? 'text/event-stream' : 'application/json',
           'user-agent': USER_AGENT,
+          ...(native ? { 'X-DashScope-SSE': 'enable' } : {}),
         },
-        body: JSON.stringify({
+        body: JSON.stringify(native ? {
           model: options.model,
-          max_tokens: options.maxTokens,
+          input: { messages: [{ role: 'user', content: [{ text: request.query }] }] },
+          parameters: { ...parameters, incremental_output: true, result_format: 'message' },
+        } : {
+          model: options.model,
+          ...parameters,
           stream: false,
           messages: [{ role: 'user', content: request.query }],
           // 千问自带搜索的两个开关：enable_search 打开搜索，forced_search 保证真的去搜。
           enable_search: true,
-          search_options: { forced_search: true },
+          search_options: parameters.search_options,
         }),
         ...signal !== undefined ? { signal } : {},
       })
     } catch (error) {
-      if (is_abort(error)) throw new WebError('Qwen search aborted', 'WEB_ABORTED', { cause: error })
+      if (signal.aborted) throw new WebError(deadline.aborted ? '千问搜索超过120秒请求期限' : 'Qwen search aborted', deadline.aborted ? 'WEB_SEARCH_TIMEOUT' : 'WEB_ABORTED', { cause: error })
       throw new WebError(`Qwen search request failed: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
     }
     if (!response.ok) {
@@ -133,14 +153,14 @@ class QwenSearchProvider {
       throw new WebError(message, 'WEB_PROVIDER_ERROR')
     }
     try {
-      return map_response(await response.json())
+      return native ? await this.read_stream(response, signal) : map_response(await response.json())
     } catch (error) {
-      if (is_abort(error)) throw new WebError('Qwen search aborted', 'WEB_ABORTED', { cause: error })
+      if (signal.aborted) throw new WebError(deadline.aborted ? '千问搜索超过120秒请求期限' : 'Qwen search aborted', deadline.aborted ? 'WEB_SEARCH_TIMEOUT' : 'WEB_ABORTED', { cause: error })
       throw new WebError(`Qwen returned an unprocessable response body: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
     }
   }
   /** 通过 Responses + web_search 调用兼容网关的服务端搜索。 */
-  async search_responses(request, options, apiKey, signal) {
+  async search_responses(request, options, apiKey, signal, deadline) {
     let response
     try {
       response = await fetch(`${options.baseURL}/responses`, {
@@ -158,10 +178,11 @@ class QwenSearchProvider {
           max_output_tokens: options.maxTokens,
           tools: [{ type: options.searchTool ?? DEFAULT_RESPONSES_TOOL }],
         }),
-        ...signal !== undefined ? { signal } : {},
+        signal,
       })
     } catch (error) {
-      if (is_abort(error)) throw new WebError('Responses search aborted', 'WEB_ABORTED', { cause: error })
+      if (signal.aborted) throw new WebError(deadline.aborted ? '搜索超过请求期限' : 'Responses search aborted',
+        deadline.aborted ? 'WEB_SEARCH_TIMEOUT' : 'WEB_ABORTED', { cause: error })
       return this.search_fallback(request, options, signal, error)
     }
     if (!response.ok) {
@@ -178,13 +199,9 @@ class QwenSearchProvider {
         }
       }
     }
-    return {
-      ...(body.output_text ? { content: String(body.output_text) } : {}),
-      sources,
-      truncated: false,
-    }
+    return { ...(body.output_text ? { content: String(body.output_text) } : {}), sources, truncated: false }
   }
-  /** 首选 Responses 失活时，使用配置的千问搜索作为同一查询的兜底。 */
+  /** 首选 Responses 失活时，使用配置的千问搜索兜底。 */
   async search_fallback(request, options, signal, cause) {
     if (!options.fallbackBaseURL || !options.resolveFallbackApiKey) {
       throw new WebError(`Responses search unavailable: ${String(cause)}`, 'WEB_PROVIDER_ERROR', { cause })
@@ -203,10 +220,42 @@ class QwenSearchProvider {
         enable_search: true,
         search_options: { forced_search: true },
       }),
-      ...signal !== undefined ? { signal } : {},
+      signal,
     })
     if (!response.ok) throw new WebError(`Fallback Qwen search API error (HTTP ${response.status})`, 'WEB_PROVIDER_ERROR', { cause })
     return map_response(await response.json())
+  }
+  /** response为原生SSE响应，signal为总期限；合并增量正文和全部来源，拒绝缺少终态的半截响应。 */
+  async read_stream(response, signal) {
+    const reader = response.body.getReader(), decoder = new TextDecoder()
+    let buffer = '', content = '', bytes = 0, finished = false, truncated = false
+    const sources = new Map()
+    try {
+      while (true) {
+        signal.throwIfAborted()
+        const part = await reader.read()
+        bytes += part.value?.byteLength ?? 0
+        if (bytes > 2000000) throw Error('千问搜索响应超过2MB上限')
+        buffer += part.done ? decoder.decode() + '\n' : decoder.decode(part.value, { stream: true })
+        let end
+        while ((end = buffer.indexOf('\n')) >= 0) {
+          const line = buffer.slice(0, end).trim(); buffer = buffer.slice(end + 1)
+          if (!line.startsWith('data:')) continue
+          const data = line.slice(5).trim()
+          if (data === '[DONE]') continue
+          const raw = JSON.parse(data)
+          if (raw.code && !raw.output) throw Error(`千问搜索返回错误：${raw.code}`)
+          const result = map_response(raw)
+          content += result.content ?? ''
+          for (const item of result.sources) sources.set(item.url, item)
+          const reason = raw.output?.choices?.[0]?.finish_reason ?? raw.choices?.[0]?.finish_reason
+          if (reason && reason !== 'null') { finished = true; truncated ||= result.truncated }
+        }
+        if (part.done) break
+      }
+      if (!finished) throw Error('千问搜索未返回正式终态，不能把半截响应当完整结果')
+      return { content, sources: [...sources.values()], truncated }
+    } finally { await reader.cancel().catch(() => {}); reader.releaseLock() }
   }
 }
 

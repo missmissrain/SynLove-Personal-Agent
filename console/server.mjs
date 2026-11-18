@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Agent 控制台 · 本地服务。
  *
  * 只绑 127.0.0.1，不对外网开放；零第三方依赖（Node 内置模块）。
@@ -34,6 +34,7 @@ import { ServiceProxy } from './ServiceProxy.mjs'
 import { TerminalConnectionStore as RemoteConnectionStore } from './remote/TerminalConnectionStore.mjs'
 import { RemoteConnectionHeartbeat } from './remote/RemoteConnectionHeartbeat.mjs'
 import { TerminalConnectionRoutes as RemoteConnectionRoutes } from './remote/TerminalConnectionRoutes.mjs'
+import { PairingQrRenderer } from './remote/PairingQrRenderer.mjs'
 import { RelayTrust } from './remote/RelayTrust.mjs'
 import { PersonaStore } from './PersonaStore.mjs'
 import { AgentReasoningStore } from './AgentReasoningStore.mjs'
@@ -55,7 +56,7 @@ const PORT = Number(process.argv[2] ?? process.env.CONSOLE_PORT ?? '3082')
 const remote_connections = new RemoteConnectionStore({
   project: PROJECT, python: process.env.PYTHON || join(PROJECT, '.venv', 'Scripts', 'python.exe'),
 })
-const remote_routes = new RemoteConnectionRoutes(remote_connections, PORT)
+const remote_routes = new RemoteConnectionRoutes(remote_connections, PORT, new PairingQrRenderer(resolve_python))
 const remote_heartbeat = new RemoteConnectionHeartbeat(remote_connections)
 const serviceReadiness = new ServiceReadiness({ project: PROJECT })
 const observations = service_proxy.mode === 'external' ? null : new ObservationStore({

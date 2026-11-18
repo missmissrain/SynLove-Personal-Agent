@@ -122,7 +122,9 @@ class TerminalDevices {
     this.supported = supported
     $('remote-parent-label').hidden = transport === 'direct'
     const device = this.devices.find(row => row.id === this.selected)
-    $('remote-save').textContent = device ? '保存设置' : supported ? '生成接入文件' : '预登记设备'
+    $('remote-save').textContent = device ? '保存设置' : supported ?
+      (kind === 'android' && transport === 'direct' ? '生成配对二维码' : '生成接入文件') : '预登记设备'
+    $('remote-pair').textContent = kind === 'android' && transport === 'direct' ? '生成配对二维码' : '生成接入文件'
     $('remote-pair').hidden = !device || device.identityReady || !supported
     $('remote-test').disabled = !this.available || !device?.online || !device?.capabilities?.includes('device.probe')
   }
@@ -148,6 +150,38 @@ class TerminalDevices {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
+  /** reply为接入响应；Android显示限时二维码，其他终端继续下载文件，不写浏览器存储。 */
+  present_pair(reply) {
+    if (reply.bundle?.kind !== 'android') { this.download_bundle(reply.bundle); return }
+    if (!reply.qrImage?.startsWith('data:image/png;base64,')) throw new Error('未能生成二维码')
+    const dialog = document.createElement('dialog')
+    dialog.style.cssText = 'border:1px solid #f0e7ec;border-radius:24px;padding:28px;background:#fcf9fb;color:#453640;max-width:min(90vw,620px);text-align:center'
+    const title = document.createElement('h3')
+    title.textContent = '用手机 SynLove 扫码连接'
+    const image = document.createElement('img')
+    image.alt = 'SynLove 私有配对二维码'
+    image.style.cssText = 'display:block;width:min(72vw,520px);max-width:100%;height:auto;margin:20px auto'
+    image.src = reply.qrImage
+    const hint = document.createElement('p')
+    hint.textContent = '配对码十分钟有效。二维码含私有连接配置，请勿转发。'
+    const close = document.createElement('button')
+    close.type = 'button'
+    close.textContent = '关闭'
+    close.addEventListener('click', () => dialog.close())
+    dialog.append(title, image, hint, close)
+    document.body.append(dialog)
+    const timer = setTimeout(() => {
+      image.removeAttribute('src')
+      hint.textContent = '二维码已过期，请关闭后重新生成。'
+    }, 600000)
+    dialog.addEventListener('close', () => {
+      clearTimeout(timer)
+      image.removeAttribute('src')
+      dialog.remove()
+    }, { once: true })
+    dialog.showModal()
+  }
+
   /** 无参数；新设备登记或生成接入文件，已登记设备只更新允许编辑的设置。 */
   async save_device() {
     $('remote-save').disabled = true
@@ -159,7 +193,7 @@ class TerminalDevices {
         const reply = await post(this.supported ? '/api/remote/pair' : '/api/remote/reserve', data)
         id = reply.bundle?.deviceId ?? reply.device.id
         this.selected = id
-        if (reply.bundle) this.download_bundle(reply.bundle)
+        if (reply.bundle) this.present_pair(reply)
         await post('/api/remote/device', { id, name: data.name || id, enabled: data.enabled, settings: data.settings })
       }
       this.dirty = false
@@ -177,8 +211,9 @@ class TerminalDevices {
     $('remote-pair').disabled = true
     try {
       const reply = await post('/api/remote/pair', this.read_form())
-      this.download_bundle(reply.bundle)
-      this.show_result('接入文件已生成，有效期十分钟，请私下交付目标设备。', 'ok')
+      this.present_pair(reply)
+      this.show_result(reply.qrImage ? '请在手机 SynLove 内扫码连接。' :
+        '接入文件已生成，有效期十分钟，请私下交付目标设备。', 'ok')
     } catch (error) { this.show_result(error.message, 'error') }
     finally { $('remote-pair').disabled = false }
   }

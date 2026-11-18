@@ -3,7 +3,8 @@
   "presenterPreset": "presenter",
   "workerPreset": "task-worker",
   "maxConcurrent": 4,
-  "taskTimeoutMs": 1800000,
+  "taskTimeoutMs": 3600000,
   "presentationTimeoutMs": 180000,
-  "workerModel": {}
+  "workerModel": {},
+  "deadlineLeadMs": 300000
 }

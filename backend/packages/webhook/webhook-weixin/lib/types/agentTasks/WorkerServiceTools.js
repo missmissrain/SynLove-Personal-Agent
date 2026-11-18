@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import * as McpClient from '@deepseek-ai/dsh-mcp-client';
+import { WorkerDesktopTools } from './WorkerDesktopTools.js';
 export class WorkerServiceTools {
     root;
     constructor(root){
@@ -61,11 +62,12 @@ export class WorkerServiceTools {
         ];
     }
     async mount_tools(child) {
-        if (!existsSync(join(this.root, 'config', 'terminalConnection.json')) && !existsSync(join(this.root, 'microServices', 'ServiceMcpBridge.py'))) return 0;
+        const desktop = await new WorkerDesktopTools(this.root).mount_tools(child);
+        if (!existsSync(join(this.root, 'config', 'terminalConnection.json')) && !existsSync(join(this.root, 'microServices', 'ServiceMcpBridge.py'))) return desktop;
         const python = process.env.SYNLOVE_WORKER_PYTHON || join(this.root, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
         if (!existsSync(python)) throw Error('后台MCP解释器不存在，请配置SYNLOVE_WORKER_PYTHON');
         const specs = this.service_specs();
-        let count = 0;
+        let count = desktop;
         const unavailable = [];
         for (const [name, file, args, timeout] of specs){
             try {

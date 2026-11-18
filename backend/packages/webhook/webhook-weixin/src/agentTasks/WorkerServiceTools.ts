@@ -5,6 +5,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import * as McpClient from '@deepseek-ai/dsh-mcp-client'
+import { WorkerDesktopTools } from './WorkerDesktopTools.ts'
 
 export class WorkerServiceTools {
   /** root为所属个人实例目录；不使用模型或任务文本指定连接端点。 */
@@ -33,14 +34,15 @@ export class WorkerServiceTools {
 
   /** child为独立执行上下文；返回本轮成功挂载的MCP数量，服务离线仍如实说明。 */
   async mount_tools(child: any): Promise<number> {
+    const desktop = await new WorkerDesktopTools(this.root).mount_tools(child)
     // 仅正式安装有桥接入口；隔离测试可以仅提供任务运行器，不要求整套生产目录。
     if (!existsSync(join(this.root, 'config', 'terminalConnection.json')) &&
-        !existsSync(join(this.root, 'microServices', 'ServiceMcpBridge.py'))) return 0
+        !existsSync(join(this.root, 'microServices', 'ServiceMcpBridge.py'))) return desktop
     const python = process.env.SYNLOVE_WORKER_PYTHON ||
       join(this.root, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python')
     if (!existsSync(python)) throw Error('后台MCP解释器不存在，请配置SYNLOVE_WORKER_PYTHON')
     const specs = this.service_specs()
-    let count = 0
+    let count = desktop
     const unavailable: string[] = []
     for (const [name, file, args, timeout] of specs) {
       try {

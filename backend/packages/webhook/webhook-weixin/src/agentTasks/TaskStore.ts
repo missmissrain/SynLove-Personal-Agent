@@ -76,17 +76,18 @@ export class TaskStore {
     this.db.prepare(`UPDATE agentTasks SET ${fields.map(key => `${key}=?`).join(',')},updated=? WHERE id=?`)
       .run(...fields.map(key => patch[key]), Date.now(), id)
   }
-  /** id、deadline为任务和期限；返回对应的持久提醒。 */
+  /** id、deadline 为宿主任务和当前截止时间；读取该期限的持久提醒，重试不重复润色。 */
   get_deadline_notice(id: string, deadline: number): any {
     return this.db.prepare('SELECT * FROM taskDeadlineNotices WHERE taskId=? AND deadlineAt=?').get(id, deadline)
   }
-  /** id、deadline、text为已核验的提醒内容；重试不覆盖已保存正文。 */
+  /** id、deadline、text 为已核验任务和主人格完整回复；同一截止时间只保存一次。 */
   save_deadline_notice(id: string, deadline: number, text: string): void {
-    this.db.prepare('INSERT OR IGNORE INTO taskDeadlineNotices(taskId,deadlineAt,text) VALUES(?,?,?)').run(id,deadline,text)
+    this.db.prepare('INSERT OR IGNORE INTO taskDeadlineNotices(taskId,deadlineAt,text) VALUES(?,?,?)')
+      .run(id, deadline, text)
   }
-  /** id、deadline为提醒身份；只标记入队，最终任务通知独立去重。 */
+  /** id、deadline 为原提醒身份；仅在原通道已接收入队后标记，最终结果去重独立。 */
   queue_deadline_notice(id: string, deadline: number): void {
-    this.db.prepare('UPDATE taskDeadlineNotices SET queued=1 WHERE taskId=? AND deadlineAt=?').run(id,deadline)
+    this.db.prepare('UPDATE taskDeadlineNotices SET queued=1 WHERE taskId=? AND deadlineAt=?').run(id, deadline)
   }
   /** 无参数；运行中的旧进程不可安全重放，改为中断并产生持久通知待办。 */
   recover_tasks(): void {

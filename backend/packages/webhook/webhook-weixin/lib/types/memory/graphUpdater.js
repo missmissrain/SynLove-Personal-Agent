@@ -1,4 +1,6 @@
 import { probe } from '../diagnostics/probe.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { is_known_attribute_field, map_attribute_field, parse_facts, render_candidates, render_pending } from './graphProtocol.js';
 import { GRAPH_ASSISTANT_NAME, GRAPH_USER_NAME } from './graphTypes.js';
 const SELF_ALIASES = [
@@ -21,7 +23,7 @@ export function canonical_person_name(name) {
     return value;
 }
 const EXTRACT_RULES = [
-    '你在把聊天记录整理成"人物事实"，用于维护一份家人/朋友关系图。',
+    '你在把聊天记录整理成"人物事实"，用于维护人物关系和用户画像。',
     '',
     '【输出格式】每行一条，各欄用竖线分隔。行首标签只允许这几种：',
     '第一种是"人物"，后面依次跟：人名、别名（多个用逗号隔开，没有就留空）。',
@@ -92,6 +94,7 @@ const NEW_PERSON_RULES = [
 ].join('\n');
 export async function update_graph_from_records(options, records) {
     const graph = options.graph;
+    const profile_rules = readFileSync(join(process.env.DSH_WEIXIN_WORKSPACE ?? process.cwd(), 'prompts', 'GraphProfile.md'), 'utf8');
     const chunk_chars = options.chunk_chars ?? Number(process.env.DSH_GRAPH_CHUNK_CHARS ?? '8000');
     const max_prompt_chars = options.max_prompt_chars ?? Number(process.env.DSH_GRAPH_MAX_PROMPT_CHARS ?? '30000');
     await graph.ensure_center();
@@ -108,6 +111,7 @@ export async function update_graph_from_records(options, records) {
         const date = chunk[chunk.length - 1]?.date ?? '';
         const build = async (gist_list, fact_list)=>[
                 EXTRACT_RULES,
+                profile_rules,
                 '',
                 '【已知人物名单（指代词只能从中选择，或用 未绑定）】',
                 render_candidates(await candidate_names(graph)),
@@ -123,7 +127,7 @@ export async function update_graph_from_records(options, records) {
             ].join('\n');
         let prompt = await build(gists, facts_carried);
         if (prompt.length > max_prompt_chars && (gists.length > 0 || facts_carried.length > 0)) {
-            const merge_prompt = build_merge(gists, facts_carried, chunk);
+            const merge_prompt = profile_rules + '\n' + build_merge(gists, facts_carried, chunk);
             if (merge_prompt.length <= max_prompt_chars) {
                 const merged = parse_facts(await options.complete(merge_prompt));
                 bad_lines += merged.bad_lines.length;
@@ -246,6 +250,7 @@ export async function update_graph_from_records(options, records) {
         ...touched
     ];
     const updated = [];
+    const reviewed = new Map();
     for (const name of to_review){
         const node = await graph.find(name);
         if (node === undefined) continue;
@@ -253,6 +258,7 @@ export async function update_graph_from_records(options, records) {
         if (related.length === 0 && options.full_scan !== true) continue;
         const prompt = [
             REVIEW_RULES,
+            profile_rules,
             '',
             `【人物】${node.name}`,
             `【现有档案】${describe_current(node)}`,
@@ -275,6 +281,7 @@ export async function update_graph_from_records(options, records) {
             }
         });
         updated.push(node.name);
+        reviewed.set(node.id, new Set(Object.keys(patch)));
         probe('graph', 'update.node_reviewed', {
             name: node.name,
             fields: Object.keys(patch).length
@@ -290,6 +297,18 @@ export async function update_graph_from_records(options, records) {
         ]);
         if (Object.keys(patch).length === 0) continue;
         const existing = await graph.find(item.fact.name);
+        for (const key of Object.keys(patch)){
+            if (existing !== undefined && reviewed.get(existing.id)?.has(key)) delete patch[key];
+        }
+        if (Object.keys(patch).length === 0) continue;
+        if (typeof patch.notes === 'string' && existing?.notes) {
+            patch.notes = [
+                ...new Set([
+                    ...existing.notes.split('\n'),
+                    ...patch.notes.split('\n')
+                ])
+            ].join('\n');
+        }
         await graph.upsert_person({
             name: item.fact.name,
             ...patch,

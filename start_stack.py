@@ -1,4 +1,4 @@
-﻿"""微信 Harness 统一启动器：从 config/modelConfig.json 加载模型、密钥与访问地址，拉起后台服务。
+"""微信 Harness 统一启动器：从 config/modelConfig.json 加载模型、密钥与访问地址，拉起后台服务。
 
 运行参数：无。
 - 模型/密钥/地址的唯一来源是 config/modelConfig.json（明文，便于后续脱敏；迁移时只改这一个文件）。

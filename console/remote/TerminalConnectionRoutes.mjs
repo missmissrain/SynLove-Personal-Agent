@@ -4,7 +4,7 @@
  */
 export class TerminalConnectionRoutes {
   /** store/port为桥接客户端与GUI本机端口。 */
-  constructor(store, port = 3082) { this.store = store; this.port = port }
+  constructor(store, port = 3082, qr = null) { this.store = store; this.port = port; this.qr = qr }
 
   /** req为请求；拒绝非本机Host、跨站Origin及非JSON写请求。 */
   check_request(req) {
@@ -43,7 +43,13 @@ export class TerminalConnectionRoutes {
         if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('请求必须为对象')
         let result
         if (url.pathname === '/api/remote/device') result = await this.store.save_device(data)
-        else if (url.pathname === '/api/remote/pair') result = await this.store.register_device(data, true)
+        else if (url.pathname === '/api/remote/pair') {
+          result = await this.store.register_device(data, true)
+          if (result.bundle?.kind === 'android' && result.bundle?.transport === 'direct') {
+            if (!this.qr) throw new Error('二维码渲染器未注册')
+            result = { ...result, qrImage: this.qr.render_qr(result.bundle), expiresSeconds: 600 }
+          }
+        }
         else if (url.pathname === '/api/remote/reserve') result = await this.store.register_device(data, false)
         else if (url.pathname === '/api/remote/probe') result = await this.store.probe_device(data.id)
         else { send(404, { error: '接口不存在' }); return }
