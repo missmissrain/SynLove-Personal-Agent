@@ -228,6 +228,9 @@ export class TaskRuntime {
       // 它们不是真实用户输入，没有 taskOriginId，必须跳过（否则任务工具永远被拒）。
       if (source?.kind === 'plugin' && source.form === 'snapshot'
         && ['time-context','system-prompt'].includes(source.plugin)) continue
+      // 模型切换、时间、系统提示等非渠道插件的通知不是用户输入，必须跳过；
+      // 否则这些 notice 会让整轮被判成“没有可信来源”，任务将永远提交不了。
+      if (source?.kind === 'plugin' && source.plugin !== 'dsh-webhook-weixin') continue
       const key = source?.taskOriginId
       if (!key) throw new Error('当前消息没有可信通道来源，拒绝后台操作')
       const origin = this.store.get_origin(key, owner.session)

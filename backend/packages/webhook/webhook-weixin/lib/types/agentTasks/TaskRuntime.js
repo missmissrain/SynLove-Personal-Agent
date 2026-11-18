@@ -276,6 +276,8 @@ export class TaskRuntime {
                 'time-context',
                 'system-prompt'
             ].includes(source.plugin)) continue;
+            // 非渠道插件的通知（如模型切换）不是用户输入，跳过。
+            if (source?.kind === 'plugin' && source.plugin !== 'dsh-webhook-weixin') continue;
             const key = source?.taskOriginId;
             if (!key) throw new Error('当前消息没有可信通道来源，拒绝后台操作');
             const origin = this.store.get_origin(key, owner.session);
