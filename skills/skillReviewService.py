@@ -37,6 +37,17 @@ from skills.store.skillStore import skillStore  # noqa: E402
 FILE_WRITER = durableFile()
 
 
+def append_unique(target, values):
+    """将 values 中尚未出现的技能名称按原顺序追加到 target。
+
+    参数 target 是已经聚合的技能名称列表；values 是当前批次返回的技能名称列表。
+    方法用于跨批次聚合结果，避免同一技能在一次复盘通知中重复出现。
+    """
+    for value in values or []:
+        if value not in target:
+            target.append(value)
+
+
 def log(path, message):
     """带时间戳写日志并打印。
 
@@ -163,8 +174,8 @@ def _review_once(cfg, dry_run=False, since_hours=None, notify=True):
         reviewer = skillReviewer(cfg, store, llm)
         reviewer.max_skills = max(1, int(cfg.get("maxSkillsPerRun", 3)) - len(collected) - len(pending))
         result = reviewer.review(transcript, dry_run=dry_run)
-        collected.extend(result.get("saved") or [])
-        pending.extend(result.get("staged") or [])
+        append_unique(collected, result.get("saved"))
+        append_unique(pending, result.get("staged"))
         fallback = fallback or bool(result.get("fallback"))
         if result.get("error") or (result.get("skipped") and transcript["text"]):
             break
