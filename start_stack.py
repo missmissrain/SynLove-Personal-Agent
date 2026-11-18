@@ -1015,6 +1015,18 @@ def main() -> int:
         return 0
     startup = StartupState(PROJECT_ROOT)
     startup.record_stage("requested")
+    # 开机延时任务入口：只补拉起可选服务（微服务、语音网关、守护等），不重复启动 harness。
+    if "--ensure-services" in sys.argv:
+        config = load_model_config()
+        env = os.environ.copy()
+        apply_environment(config, env)
+        load_console_env(env)
+        ServiceRegistry().apply_environment(env)
+        ServiceRegistry().apply_model_config(config, env)
+        startup.record_stage("ensure_services")
+        pid = StartupServices(PROJECT_ROOT).detach_start(env)
+        print("optional_services_pid=" + str(pid))
+        return 0
     if not HARNESS_SCRIPT.exists():
         raise FileNotFoundError("启动文件不存在: " + str(HARNESS_SCRIPT))
     # 幂等：已经在跑就直接返回，避免守护/自启动/手动同时拉起造成多实例互抢
@@ -1066,14 +1078,14 @@ def main() -> int:
     print("dsh_harness_pid=" + str(harness.pid))
     print("harness service started (silent, log=runtime/harness-run.log)")
     # 等真正就绪再返回：自启动脚本/守护据此判断成功与否（失败会重试，而不是"看起来启动了"）
-    if wait_harness_ready(120, startup) and not startup.was_stopped():
+    if wait_harness_ready(240, startup) and not startup.was_stopped():
         startup.complete_start()
         startup.record_stage("core_ready")
         print("optional_services_pid=" + str(StartupServices(PROJECT_ROOT).detach_start(env)))
         print("harness_ready=1")
         return 0
     startup.record_stage("cancelled" if startup.was_stopped() else "core_timeout")
-    print("harness_ready=0（120 秒内 3080/3081 未就绪，详见 runtime/harness-run.log）")
+    print("harness_ready=0（240 秒内 3080/3081 未就绪，详见 runtime/harness-run.log）")
     return 1
 
 
