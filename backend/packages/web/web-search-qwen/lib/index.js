@@ -271,9 +271,9 @@ const Config = z.object({
   maxTokens: z.number().step(1).min(1).default(QWEN_DEFAULT_MAX_TOKENS),
   protocol: z.string().default('chat-completions'),
   searchTool: z.string().default(DEFAULT_RESPONSES_TOOL),
-  fallbackBaseURL: z.string().optional(),
-  fallbackModel: z.string().optional(),
-  fallbackApiKeyEnv: z.string().role('credential-ref').optional(),
+  fallbackBaseURL: z.string(),
+  fallbackModel: z.string(),
+  fallbackApiKeyEnv: z.string().role('credential-ref'),
 })
 
 /**
