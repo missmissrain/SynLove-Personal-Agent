@@ -15,6 +15,8 @@
  * @module dsh-webhook-weixin/graph-scheduler
  */
 
+import { existsSync, readFileSync, unlinkSync } from 'node:fs'
+import { join } from 'node:path'
 import { probe } from '../diagnostics/probe.ts'
 import type { KnowledgeGraphStore } from './graphStore.ts'
 import type { MemoryRemoteClient } from './memoryRemoteClient.ts'
@@ -66,9 +68,22 @@ export function start_graph_scheduler(options: GraphSchedulerOptions): GraphSche
     }
     busy = true
     try {
-      const since = await options.graph.last_update_ms() ?? 0
+      // 回溯重跑：存在 runtime/graph-backfill.request 时，从 0 号游标重扫指定天数，
+      // 用于把历史对话里的偏好补进图谱，跑完删除该文件。
+      const marker = join(process.env.DSH_HOME ?? join(process.cwd(), 'runtime', 'dsh'), 'graph-backfill.request')
+      let backfill = false
+      let backfill_days = max_days
+      try {
+        if (existsSync(marker)) {
+          const raw = JSON.parse(readFileSync(marker, 'utf8')) as { days?: number }
+          backfill = true
+          backfill_days = Math.max(1, Math.min(90, Number(raw.days ?? 30)))
+          probe('graph', 'backfill.requested', { days: backfill_days })
+        }
+      } catch { backfill = false }
+      const since = backfill ? 0 : await options.graph.last_update_ms() ?? 0
       const done_ids = new Set(await options.graph.last_update_ids())
-      const days = (await options.timeline.list_days()).slice(-max_days)
+      const days = (await options.timeline.list_days()).slice(-(backfill ? backfill_days : max_days))
       const all = (await Promise.all(days.map(day => options.timeline.read_day(day.date)))).flatMap(day => day.entries)
       // **复合水位**：比 since 新，或者"同一毫秒但还没处理过"。
       // 只比时间戳会永久跳过同毫秒新增的记录（审计复现过）。
@@ -82,13 +97,17 @@ export function start_graph_scheduler(options: GraphSchedulerOptions): GraphSche
       const last_ts = Math.max(...all.map(item => item.ts), since)
       const ids_at_watermark = all.filter(item => item.ts === last_ts).map(item => item.id)
       // 还没空闲够久：等对话真正停下来再更新（避免边聊边改图）。
-      if (now - last_ts < idle_ms) return undefined
+      if (!backfill && now - last_ts < idle_ms) return undefined
 
       probe('graph', 'scheduler.started_update', { records: records.length, since })
       const result = await update_graph_from_records(
         { graph: options.graph, complete: options.complete },
         records,
       )
+      if (backfill) {
+        try { unlinkSync(marker) } catch { /* 删不掉就下轮再试 */ }
+        probe('graph', 'backfill.done', { ...result })
+      }
       await options.graph.set_last_update(last_ts, ids_at_watermark)
       options.on_update?.(result)
       return result

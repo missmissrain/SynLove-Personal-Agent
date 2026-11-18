@@ -1,3 +1,5 @@
+import { existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { join } from 'node:path';
 import { probe } from '../diagnostics/probe.js';
 import { update_graph_from_records } from './graphUpdater.js';
 export function start_graph_scheduler(options) {
@@ -13,9 +15,21 @@ export function start_graph_scheduler(options) {
         }
         busy = true;
         try {
-            const since = await options.graph.last_update_ms() ?? 0;
+            // 回溯重跑：存在 runtime/graph-backfill.request 时，从 0 号游标重扫指定天数。
+            const marker = join(process.env.DSH_HOME ?? join(process.cwd(), 'runtime', 'dsh'), 'graph-backfill.request');
+            let backfill = false;
+            let backfill_days = max_days;
+            try {
+                if (existsSync(marker)) {
+                    const raw = JSON.parse(readFileSync(marker, 'utf8'));
+                    backfill = true;
+                    backfill_days = Math.max(1, Math.min(90, Number(raw.days ?? 30)));
+                    probe('graph', 'backfill.requested', { days: backfill_days });
+                }
+            } catch { backfill = false; }
+            const since = backfill ? 0 : await options.graph.last_update_ms() ?? 0;
             const done_ids = new Set(await options.graph.last_update_ids());
-            const days = (await options.timeline.list_days()).slice(-max_days);
+            const days = (await options.timeline.list_days()).slice(-(backfill ? backfill_days : max_days));
             const all = (await Promise.all(days.map((day)=>options.timeline.read_day(day.date)))).flatMap((day)=>day.entries);
             const fresh = all.filter((item)=>item.ts > since || item.ts === since && !done_ids.has(item.id)).sort((a, b)=>a.ts - b.ts);
             const records = fresh.map((item)=>({
@@ -26,7 +40,7 @@ export function start_graph_scheduler(options) {
             if (records.length === 0) return undefined;
             const last_ts = Math.max(...all.map((item)=>item.ts), since);
             const ids_at_watermark = all.filter((item)=>item.ts === last_ts).map((item)=>item.id);
-            if (now - last_ts < idle_ms) return undefined;
+            if (!backfill && now - last_ts < idle_ms) return undefined;
             probe('graph', 'scheduler.started_update', {
                 records: records.length,
                 since
@@ -35,6 +49,10 @@ export function start_graph_scheduler(options) {
                 graph: options.graph,
                 complete: options.complete
             }, records);
+            if (backfill) {
+                try { unlinkSync(marker); } catch { }
+                probe('graph', 'backfill.done', { ...result });
+            }
             await options.graph.set_last_update(last_ts, ids_at_watermark);
             options.on_update?.(result);
             return result;
