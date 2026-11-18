@@ -116,7 +116,7 @@ async function ensure_server() {
   // 用户看到的就是"GUI 总是崩溃、反复弹同一个错误"。这里只把原因写进
   // electron.log + runtime/console-startup-error.log，然后正常退出，让看护/用户排查。
   try {
-    const check = spawnSync(command, ['--check', server], { encoding: 'utf8', timeout: 20_000, windowsHide: true })
+    const check = spawnSync(command, ['--check', server], { encoding: 'utf8', timeout: 120_000, windowsHide: true })
     if (check.status !== 0) {
       const detail = String(check.stderr || check.stdout || check.error || '语法检查未通过').slice(0, 1500)
       return { ok: false, detail: `server.mjs 语法检查失败：${detail}` }
