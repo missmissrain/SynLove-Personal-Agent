@@ -19,11 +19,13 @@ export function start_graph_scheduler(options) {
             const marker = join(process.env.DSH_HOME ?? join(process.cwd(), 'runtime', 'dsh'), 'graph-backfill.request');
             let backfill = false;
             let backfill_days = max_days;
+            let backfill_full = false;
             try {
                 if (existsSync(marker)) {
                     const raw = JSON.parse(readFileSync(marker, 'utf8'));
                     backfill = true;
                     backfill_days = Math.max(1, Math.min(90, Number(raw.days ?? 30)));
+                    backfill_full = raw.full_scan === true;
                     probe('graph', 'backfill.requested', { days: backfill_days });
                 }
             } catch { backfill = false; }
@@ -47,7 +49,8 @@ export function start_graph_scheduler(options) {
             });
             const result = await update_graph_from_records({
                 graph: options.graph,
-                complete: options.complete
+                complete: options.complete,
+                ...(backfill && backfill_full ? { full_scan: true } : {})
             }, records);
             if (backfill) {
                 try { unlinkSync(marker); } catch { }

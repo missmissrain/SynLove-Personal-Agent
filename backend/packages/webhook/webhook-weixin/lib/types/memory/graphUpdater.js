@@ -44,7 +44,7 @@ const EXTRACT_RULES = [
     '0.1 "主人"只是**称呼**，不是主人的姓名——**他的姓名还不知道**。',
     '   除非记录里明确说出姓名（"我叫张三"），否则不要写 属性|主人|姓名|…，也不要猜。',
     '   如果记录里说了以后怎么称呼（"以后叫我老板"），写成：关系|欣爱|主人|老板。',
-    '1. 只写记录里明确出现的信息。禁止推断、禁止补常识、禁止编造。',
+    '1. 人物与关系只写记录里明确出现的信息，禁止推断、补常识、编造；主人的画像按画像规则从行为里推断。',
     '1.1 "用户""助手"这类词是说话人标记，**不是人名**，绝不要写成 人物 行，也不要据此编造职业/身份。',
     '2. "关系"的方向是**称呼者怎么称呼被称呼者**：记录里说"我妈王丽"，就写：关系|主人|王丽|妈妈。',
     '3. 指代词（他/她/那个人/之前那个/我同事）**必须换成名单里的具体姓名**才能写成 人物/属性/关系。',
@@ -76,7 +76,7 @@ const REVIEW_RULES = [
     '没有需要更新就输出：无',
     '',
     '【硬性规则】',
-    '1. 只能根据下面给出的"本次事实"来更新，不能凭印象补充。',
+    '1. 人物字段只能根据「本次事实」更新；主人的「备注」可结合现有档案、本次事实和对话片段推断画像，但不能补档案里没有的具体型号、金额、日期。',
     '2. 字段名只能用：姓名/别名/出生日期/年龄/性别/状态/联系方式/所在地/职业/家庭情况/重要日期/备注。',
     '3. 事实与现有档案冲突时，以本次事实为准并更新；没有提到的字段不要动。',
     '4. 不确定就不输出。'
@@ -258,7 +258,14 @@ export async function update_graph_from_records(options, records) {
         const node = await graph.find(name);
         if (node === undefined) continue;
         const related = all_facts.filter((item)=>item.fact.kind === 'attribute' && item.fact.name === name || item.fact.kind === 'person' && item.fact.name === name);
-        if (related.length === 0 && options.full_scan !== true) continue;
+        // 回溯时只强制审核主人：其它节点没有本轮事实就不动，避免无谓的模型调用。
+        if (related.length === 0 && !(options.full_scan === true && name === '主人')) continue;
+        // 画像回溯：把最近的原始对话一起给模型，便于从行为里推断。
+        const excerpt = options.full_scan === true && name === '主人' ? [
+            '',
+            '【本轮对话片段（用于推断画像，不是逐字事实来源）】',
+            records.slice(-80).map((item)=>format_line(item)).join('\n').slice(-6000)
+        ] : [];
         const prompt = [
             REVIEW_RULES,
             profile_rules,
@@ -267,7 +274,8 @@ export async function update_graph_from_records(options, records) {
             `【现有档案】${describe_current(node)}`,
             '',
             '【本次事实】',
-            related.length === 0 ? '（无）' : related.map((item)=>render_fact(item.fact)).join('\n')
+            related.length === 0 ? '（无）' : related.map((item)=>render_fact(item.fact)).join('\n'),
+            ...excerpt,
         ].join('\n');
         const parsed = parse_facts_review(await options.complete(prompt));
         bad_lines += parsed.bad_lines.length;
@@ -305,12 +313,7 @@ export async function update_graph_from_records(options, records) {
         }
         if (Object.keys(patch).length === 0) continue;
         if (typeof patch.notes === 'string' && existing?.notes) {
-            patch.notes = [
-                ...new Set([
-                    ...existing.notes.split('\n'),
-                    ...patch.notes.split('\n')
-                ])
-            ].join('\n');
+        patch.notes = merge_profile_notes(existing.notes, patch.notes);
         }
         await graph.upsert_person({
             name: item.fact.name,
@@ -557,6 +560,26 @@ function parse_facts_review(text) {
         bad_lines
     };
 }
+/**
+ * 合并画像备注：按“标签”去重，新值覆盖同标签旧值，其余旧条目保留。
+ *
+ * @param existing - 现有备注。
+ * @param incoming - 本轮新备注。
+ * @returns 合并后的单行备注（用中文分号分隔）。
+ */
+function merge_profile_notes(existing, incoming) {
+    const split = (text)=>text.split(/[;；\n]/).map((item)=>item.trim()).filter((item)=>item !== '');
+    const key_of = (item)=>item.split(/[：:]/)[0].trim();
+    const merged = new Map();
+    for (const item of [
+        ...split(existing),
+        ...split(incoming)
+    ]) merged.set(key_of(item), item);
+    return [
+        ...merged.values()
+    ].join('；');
+}
+
 function patch_from_updates(updates) {
     const patch = {};
     for (const { field, value } of updates){
