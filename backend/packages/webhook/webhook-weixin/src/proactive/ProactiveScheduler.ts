@@ -64,6 +64,7 @@ export class ProactiveScheduler {
     try {
       const notes = await this.read_profile()
       if (notes !== '') {
+        this.options.rhythm.update_from_notes(notes)
         const hash = ProactiveStore.hash(notes)
         if (this.options.store.state().profile_hash !== hash) {
           const topics = this.options.store.sync_profile(notes)

@@ -30,17 +30,32 @@ function inside(now, start, end) {
 export class ProfileRhythm {
     constructor(config_path) {
         this.config_path = config_path;
+        this.notes_override = {};
+    }
+    /** 从画像备注里读作息；只认明确写出的时间。 */
+    update_from_notes(notes) {
+        const rules = [
+            ['sleep_start', 'sleep_end', /(?:睡眠|睡觉)[^0-9]{0,8}(\d{1,2}:\d{2})\s*[-~到至]\s*(\d{1,2}:\d{2})/],
+            ['work_start', 'work_end', /(?:上班|工作)[^0-9]{0,8}(\d{1,2}:\d{2})\s*[-~到至]\s*(\d{1,2}:\d{2})/],
+            ['lunch_start', 'lunch_end', /午休[^0-9]{0,8}(\d{1,2}:\d{2})\s*[-~到至]\s*(\d{1,2}:\d{2})/]
+        ];
+        for (const [start_key, end_key, pattern] of rules) {
+            const match = pattern.exec(notes);
+            if (match === null) continue;
+            if (minutes_of(match[1]) === undefined || minutes_of(match[2]) === undefined) continue;
+            this.notes_override = { ...this.notes_override, [start_key]: match[1], [end_key]: match[2] };
+        }
     }
     /** 读取作息配置；文件不存在或损坏时返回默认值。 */
     load() {
         try {
-            if (!existsSync(this.config_path)) return DEFAULT_RHYTHM;
+            if (!existsSync(this.config_path)) return { ...DEFAULT_RHYTHM, ...this.notes_override };
             const raw = JSON.parse(readFileSync(this.config_path, 'utf8'));
             const pick = (key)=>{
                 const value = typeof raw[key] === 'string' ? String(raw[key]) : '';
                 return minutes_of(value) === undefined ? DEFAULT_RHYTHM[key] : value;
             };
-            return {
+            const file_config = {
                 sleep_start: pick('sleep_start'),
                 sleep_end: pick('sleep_end'),
                 work_start: pick('work_start'),
@@ -48,8 +63,9 @@ export class ProfileRhythm {
                 lunch_start: pick('lunch_start'),
                 lunch_end: pick('lunch_end')
             };
+            return { ...file_config, ...this.notes_override };
         } catch  {
-            return DEFAULT_RHYTHM;
+            return { ...DEFAULT_RHYTHM, ...this.notes_override };
         }
     }
     /** 首次运行时写一份默认配置。 */
