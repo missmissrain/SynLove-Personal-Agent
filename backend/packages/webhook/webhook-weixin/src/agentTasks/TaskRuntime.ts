@@ -172,7 +172,7 @@ export class TaskRuntime {
   /** 无参数；返回主人格获准的任务管理与只读记忆工具名，不包含控制和记忆写入。 */
   presenter_tool_names(): string[] {
     return [...this.mcp.list_tools().map(tool => `mcp__synlove-task__${tool.name}`),
-      'timeline_days', 'timeline_search', 'timeline_read', 'relation_query',
+      'timeline_days', 'timeline_search', 'timeline_read', 'relation_query', 'notebook_query',
       'mcp__remote-cmd__terminal_devices', 'mcp__remote-cmd__remote_cmd_list',
       'web_search', 'web_fetch']
   }

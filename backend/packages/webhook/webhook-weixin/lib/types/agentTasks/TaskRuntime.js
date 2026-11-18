@@ -199,6 +199,7 @@ export class TaskRuntime {
             'timeline_search',
             'timeline_read',
             'relation_query',
+            'notebook_query',
             'mcp__remote-cmd__terminal_devices',
             'mcp__remote-cmd__remote_cmd_list',
             'web_search',
