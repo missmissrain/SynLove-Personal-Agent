@@ -25,6 +25,8 @@ export interface ProactiveState {
   readonly day: string
   readonly searches: number
   readonly profile_hash?: string
+  /** 上次成功播报的时间；用于两条之间留冷却。 */
+  readonly last_delivery_at?: number
 }
 
 /** 本地日期（YYYY-MM-DD）。 */
@@ -132,6 +134,7 @@ export class ProactiveStore {
         day: typeof raw.day === 'string' ? raw.day : local_day(Date.now()),
         searches: Number(raw.searches ?? 0),
         ...typeof raw.profile_hash === 'string' ? { profile_hash: raw.profile_hash } : {},
+        ...typeof raw.last_delivery_at === 'number' ? { last_delivery_at: raw.last_delivery_at } : {},
       }
     } catch {
       return { version: 1, day: local_day(Date.now()), searches: 0 }

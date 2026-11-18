@@ -1126,6 +1126,7 @@ export class WeixinConnector {
         store,
         send: text => this.send_proactive_text(text),
         rhythm,
+        gap_ms: Math.max(1, Number(process.env.DSH_PROACTIVE_DELIVERY_GAP_MINUTES ?? '120')) * 60_000,
       })
       this.proactive_scheduler = new ProactiveScheduler({
         store,

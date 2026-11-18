@@ -12,6 +12,8 @@ export interface ProactiveDeliveryOptions {
   readonly send: (text: string) => Promise<boolean>
   readonly rhythm: ProfileRhythm
   readonly active_window_ms?: number
+  /** 两条播报之间至少隔多久；默认 2 小时。 */
+  readonly gap_ms?: number
 }
 
 /** 主动播报器。 */
@@ -30,6 +32,12 @@ export class ProactiveDelivery {
       .filter(card => card.status === 'pending')
       .sort((a, b) => a.created_at - b.created_at)
     if (pending.length === 0) return
+    const gap = this.options.gap_ms ?? 2 * 3_600_000
+    const last = this.options.store.state().last_delivery_at
+    if (!force && last !== undefined && now - last < gap) {
+      probe('proactive', 'delivery.cooldown', { left_ms: gap - (now - last) })
+      return
+    }
     if (!force && this.options.rhythm.is_sleeping(new Date(now))) {
       probe('proactive', 'delivery.sleep')
       return
@@ -49,6 +57,7 @@ export class ProactiveDelivery {
       return
     }
     this.options.store.mark_sent(card.id, now)
+    this.options.store.set_state({ last_delivery_at: now })
     probe('proactive', 'delivery.sent', { card: card.id, topic: card.topic_id, chars: card.text.length })
   }
 }

@@ -114,6 +114,9 @@ export class ProactiveStore {
                 searches: Number(raw.searches ?? 0),
                 ...typeof raw.profile_hash === 'string' ? {
                     profile_hash: raw.profile_hash
+                } : {},
+                ...typeof raw.last_delivery_at === 'number' ? {
+                    last_delivery_at: raw.last_delivery_at
                 } : {}
             };
         } catch  {
