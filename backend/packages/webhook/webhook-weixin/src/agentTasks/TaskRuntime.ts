@@ -237,7 +237,10 @@ export class TaskRuntime {
     if (!origins.length) throw new Error('尚未绑定用户输入')
     if (id !== undefined) {
       const origin = origins.find(item => item.key === id)
-      if (!origin) throw new Error('originId 不属于本轮可信入站消息')
+      // 模型偶尔会臆造 originId（旧值或占位符）；本轮只有一个可信来源时没有歧义，直接用它，
+      // 否则整条任务会被拒，用户看到的就是“没有可信来源”。
+      if (!origin && origins.length === 1) return origins[0]
+      if (!origin) throw new Error('originId 不属于本轮可信入站消息，可选：' + JSON.stringify(origins.map(item => item.key)))
       return origin
     }
     if (unique && new Set(origins.map(item => `${item.channel}:${item.userId ?? ''}:${JSON.stringify(item.target)}`)).size > 1)

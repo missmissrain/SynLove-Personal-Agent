@@ -149,11 +149,11 @@ export class TaskMcpServer {
                     description: '可选任务总时限，单位毫秒；不填使用系统默认值。'
                 },
                 originId: {
-                    type: 'string',
-                    minLength: 1,
-                    maxLength: 512,
-                    description: '仅当工具提示本轮有多个通道来源时，从返回的可信候选中选择对应原消息。不能填写用户或回调地址。'
-                }
+                type: 'string',
+                minLength: 1,
+                maxLength: 512,
+                description: '平时留空，默认使用本轮唯一来源；仅当工具返回“本轮有多个消息来源”时，才从候选 originId 中选一个，不能填写用户或回调地址。'
+            }
             }, [
                 'request'
             ]),

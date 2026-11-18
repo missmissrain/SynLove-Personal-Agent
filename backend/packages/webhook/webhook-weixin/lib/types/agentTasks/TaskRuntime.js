@@ -288,7 +288,9 @@ export class TaskRuntime {
         if (!origins.length) throw new Error('尚未绑定用户输入');
         if (id !== undefined) {
             const origin = origins.find((item)=>item.key === id);
-            if (!origin) throw new Error('originId 不属于本轮可信入站消息');
+            // 模型偶尔会臆造 originId；本轮只有一个可信来源时直接采用。
+            if (!origin && origins.length === 1) return origins[0];
+            if (!origin) throw new Error('originId 不属于本轮可信入站消息，可选：' + JSON.stringify(origins.map((item)=>item.key)));
             return origin;
         }
         if (unique && new Set(origins.map((item)=>`${item.channel}:${item.userId ?? ''}:${JSON.stringify(item.target)}`)).size > 1) throw new Error('本轮有多个消息来源，请用 originId 指定原消息：' + JSON.stringify(origins.map((item)=>({
