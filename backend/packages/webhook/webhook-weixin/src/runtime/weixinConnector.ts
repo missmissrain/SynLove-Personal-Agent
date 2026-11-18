@@ -1499,7 +1499,23 @@ export class WeixinConnector {
       this.current_model = { provider: next.provider, model: next.model }
 
       // ② 写回默认模型（控制台显示 + 下次启动器同步都跟着变）
-      this.persist_default_model(config_path, config, next)
+      // 冷却结束后自动回到配置里的默认模型：一次上游过载不该把默认模型永久换掉。
+      const preferred = config.defaultModel as { provider?: string, model?: string } | undefined
+      if (preferred?.provider && preferred.model && preferred.model !== next.model) {
+        const wait = cooldown_ms(reason, failover) + 3000
+        setTimeout(() => {
+          const active = this.current_model
+          if (active.provider !== next.provider || active.model !== next.model) return
+          const ctrl = (this.ctx as any).get('sessionController')
+          if (ctrl?.selectModel === undefined) return
+          void ctrl.selectModel({ sessionId: brandString<SessionId>(session_id), provider: preferred.provider, model: preferred.model })
+            .then(() => {
+              this.current_model = { provider: preferred.provider!, model: preferred.model! }
+              probe('failover', 'model.restored', { provider: preferred.provider, model: preferred.model })
+            })
+            .catch(() => {})
+        }, wait).unref?.()
+      }
 
       probe('failover', 'model.switched', {
         from: `${current.provider}/${current.model}`, to: `${next.provider}/${next.model}`, reason,
@@ -1511,7 +1527,7 @@ export class WeixinConnector {
         const session_key = await this.store.get_session_id(user_id) ?? session_id
         this.queue_notice({
           session_id: session_key, user_id, kind: 'assistant',
-          text: `「${current.model}」这个接口用不了了（${reason === 'quota' ? '额度用完' : reason === 'auth' ? 'key 失效' : '模型下线'}），`
+          text: `「${current.model}」这个接口用不了了（${reason === 'quota' ? '额度用完' : reason === 'auth' ? 'key 失效' : '接口临时过载或被限流'}），`
             + `我先换成「${next.model}」，把你刚才那条重做一遍。`,
         })
         await this.outbound.drain()
