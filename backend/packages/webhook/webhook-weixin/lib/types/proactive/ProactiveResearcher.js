@@ -77,7 +77,7 @@ export class ProactiveResearcher {
             return;
         }
         const prompt = [
-            this.guidance,
+            this.load_guidance(),
             '',
             `【本次主题】${topic.title}`,
             '【搜索正文】',
@@ -126,6 +126,14 @@ export class ProactiveResearcher {
             topic: topic.id,
             chars: text.length
         });
+    }
+    /** 每次现读提示词，改了不用重启。 */
+    load_guidance() {
+        try {
+            return existsSync(this.options.prompt_path) ? readFileSync(this.options.prompt_path, 'utf8') : this.guidance;
+        } catch  {
+            return this.guidance;
+        }
     }
     /** 记录本次检查时间，可选记录内容哈希。 */
     touch(topic, now, hash) {
