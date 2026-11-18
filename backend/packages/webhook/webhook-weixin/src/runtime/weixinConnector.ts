@@ -55,6 +55,9 @@ import { ProactiveStore } from '../proactive/ProactiveStore.ts'
 import { ProactiveResearcher, type ProactiveWebLike } from '../proactive/ProactiveResearcher.ts'
 import { ProactiveDelivery } from '../proactive/ProactiveDelivery.ts'
 import { ProactiveScheduler } from '../proactive/ProactiveScheduler.ts'
+import { NotebookNudge } from '../notebook/NotebookNudge.ts'
+import { register_notebook_tools } from '../notebook/NotebookTools.ts'
+import { shared_notebook } from '../notebook/NotebookStore.ts'
 import { create_gemma_gate, type GemmaGate } from '../memory/gemmaGate.ts'
 import { create_notify_settings, type NotifySettings } from '../coordination/notifySettings.ts'
 import { register_notify_tools } from '../coordination/notifyTools.ts'
@@ -404,6 +407,7 @@ export class WeixinConnector {
     if (this.host.tasks) this.host.tasks.worker_setup = (child: any, task: any) => {
       if (this.timeline !== undefined) register_timeline_tools(child, this.timeline as TimelineStore)
       register_graph_tools(child, this.graph)
+      register_notebook_tools(child)
       register_notify_tools(child, this.notify)
       register_bridge_result_tools(child, this.store)
       register_bridge_session_tools(child)
@@ -896,6 +900,7 @@ export class WeixinConnector {
       if (this.timeline !== undefined) {
         register_timeline_tools(agent.ctx, this.timeline)
         register_graph_tools(agent.ctx, this.graph)
+        register_notebook_tools(agent.ctx)
       }
       this.bind_agent_stream(agent)
       this.bind_agent_stream(agent)
@@ -1097,6 +1102,7 @@ export class WeixinConnector {
    * 启动主动研究：静默查资料，按画像作息挑时机播报。
    * 参数：无。
    */
+  /** 启动主动研究：静默查资料，结果记进记事簿，隔几天再轻提一句。 */
   private start_proactive_scheduler(): void {
     try {
       const home = process.env.DSH_HOME ?? join(process.cwd(), 'runtime', 'dsh')
@@ -1104,9 +1110,10 @@ export class WeixinConnector {
       const store = new ProactiveStore(dir)
       const rhythm = new ProfileRhythm(join(dir, 'rhythm.json'))
       rhythm.ensure_file()
-      const prompt_path = join(
-        process.env.DSH_WEIXIN_WORKSPACE ?? process.cwd(), 'prompts', 'ProactiveDigest.md',
-      )
+      const notebook = shared_notebook()
+      const workspace = process.env.DSH_WEIXIN_WORKSPACE ?? process.cwd()
+      const prompt_path = join(workspace, 'prompts', 'ProactiveDigest.md')
+      const nudge_prompt = join(workspace, 'prompts', 'NotebookNudge.md')
       const config_path = find_model_config(PROJECT_CONFIG_DIR)
         ?? join(PROJECT_CONFIG_DIR, 'config', 'modelConfig.json')
       const model = create_memory_model({
@@ -1116,17 +1123,24 @@ export class WeixinConnector {
       })
       const researcher = new ProactiveResearcher({
         store,
+        notebook,
         web: this.ctx.get('web') as ProactiveWebLike | undefined,
         complete: (prompt, max_tokens) =>
           this.gemma.run('proactive', () => model.complete(prompt, max_tokens)),
         prompt_path,
-        max_per_day: Math.max(1, Number(process.env.DSH_PROACTIVE_MAX_PER_DAY ?? '6')),
+        max_per_day: Math.max(1, Number(process.env.DSH_PROACTIVE_MAX_PER_DAY ?? '3')),
+        min_gap_ms: Math.max(1, Number(process.env.DSH_PROACTIVE_GAP_HOURS_MIN ?? '48')) * 3_600_000,
+        max_gap_ms: Math.max(1, Number(process.env.DSH_PROACTIVE_GAP_HOURS_MAX ?? '72')) * 3_600_000,
       })
-      const delivery = new ProactiveDelivery({
-        store,
-        send: text => this.send_proactive_text(text),
+      const delivery = new NotebookNudge({
+        store: notebook,
         rhythm,
-        gap_ms: Math.max(1, Number(process.env.DSH_PROACTIVE_DELIVERY_GAP_MINUTES ?? '120')) * 60_000,
+        complete: (prompt, max_tokens) =>
+          this.gemma.run('notebook-nudge', () => model.complete(prompt, max_tokens)),
+        prompt_path: nudge_prompt,
+        send: text => this.send_proactive_text(text),
+        min_gap_ms: 48 * 3_600_000,
+        max_gap_ms: 72 * 3_600_000,
       })
       this.proactive_scheduler = new ProactiveScheduler({
         store,
@@ -1297,6 +1311,7 @@ export class WeixinConnector {
       agent.ctx.effect(() => {
         register_timeline_tools(agent.ctx, this.timeline as TimelineStore)
         register_graph_tools(agent.ctx, this.graph)
+        register_notebook_tools(agent.ctx)
         if (!this.host.tasks) {
         register_notify_tools(agent.ctx, this.notify)
         register_bridge_result_tools(agent.ctx, this.store)

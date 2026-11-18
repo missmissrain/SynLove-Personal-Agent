@@ -36,6 +36,7 @@ export class ProactiveScheduler {
         this.busy = true;
         const now = Date.now();
         const force = this.options.store.force_requested();
+        const force_nudge = this.options.store.force_nudge_requested();
         try {
             const notes = await this.read_profile();
             if (notes !== '') {
@@ -53,13 +54,14 @@ export class ProactiveScheduler {
             }
             const last_user_at = await this.last_user_at();
             await this.options.researcher.run_due(now, force);
-            await this.options.delivery.flush(now, last_user_at, force);
+            await this.options.delivery.flush(now, last_user_at, force_nudge);
         } catch (error) {
             probe('proactive', 'tick.failed', {
                 error: String(error).slice(0, 180)
             });
         } finally{
             if (force) this.options.store.clear_force();
+            if (force_nudge) this.options.store.clear_force_nudge();
             this.busy = false;
         }
     }

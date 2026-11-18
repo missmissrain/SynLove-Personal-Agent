@@ -117,6 +117,9 @@ export class ProactiveStore {
                 } : {},
                 ...typeof raw.last_delivery_at === 'number' ? {
                     last_delivery_at: raw.last_delivery_at
+                } : {},
+                ...typeof raw.next_research_at === 'number' ? {
+                    next_research_at: raw.next_research_at
                 } : {}
             };
         } catch  {
@@ -150,6 +153,17 @@ export class ProactiveStore {
     /** 是否存在强制跑一次的标记。 */
     force_requested() {
         return existsSync(this.file('force-once'));
+    }
+    /** 是否存在“强制提醒一次”的标记。 */
+    force_nudge_requested() {
+        return existsSync(this.file('force-nudge'));
+    }
+    /** 删除强制提醒标记。 */
+    clear_force_nudge() {
+        try {
+            unlinkSync(this.file('force-nudge'));
+        } catch  {
+        }
     }
     /** 删除强制标记。 */
     clear_force() {

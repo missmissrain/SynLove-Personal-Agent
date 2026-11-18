@@ -5,12 +5,12 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 const DEFAULT_RHYTHM = {
-    sleep_start: '23:30',
-    sleep_end: '08:00',
+    sleep_start: '23:00',
+    sleep_end: '08:30',
     work_start: '09:00',
-    work_end: '18:00',
-    lunch_start: '12:00',
-    lunch_end: '13:00'
+    work_end: '18:15',
+    lunch_start: '11:45',
+    lunch_end: '13:15'
 };
 /** 把 "HH:MM" 换成当天分钟数；非法返回 undefined。 */
 function minutes_of(text) {

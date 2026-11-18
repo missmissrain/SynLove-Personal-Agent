@@ -5,7 +5,6 @@
 import { probe } from '../diagnostics/probe.ts'
 import { ProactiveStore } from './ProactiveStore.ts'
 import type { ProactiveResearcher } from './ProactiveResearcher.ts'
-import type { ProactiveDelivery } from './ProactiveDelivery.ts'
 import type { ProfileRhythm } from './ProfileRhythm.ts'
 
 /** 画像只读接口。 */
@@ -19,11 +18,16 @@ export interface ProactiveTimelineLike {
   read_day(date: string): Promise<{ readonly entries: ReadonlyArray<{ readonly ts: number; readonly role: string }> }>
 }
 
+/** 任何能按时间播报的组件。 */
+export interface ProactiveFlusher {
+  flush(now: number, last_user_at: number | undefined, force: boolean): Promise<void>
+}
+
 /** 构造参数。 */
 export interface ProactiveSchedulerOptions {
   readonly store: ProactiveStore
   readonly researcher: ProactiveResearcher
-  readonly delivery: ProactiveDelivery
+  readonly delivery: ProactiveFlusher
   readonly rhythm: ProfileRhythm
   readonly graph: ProactiveGraphLike
   readonly timeline: ProactiveTimelineLike
@@ -61,6 +65,7 @@ export class ProactiveScheduler {
     this.busy = true
     const now = Date.now()
     const force = this.options.store.force_requested()
+    const force_nudge = this.options.store.force_nudge_requested()
     try {
       const notes = await this.read_profile()
       if (notes !== '') {
@@ -74,11 +79,12 @@ export class ProactiveScheduler {
       }
       const last_user_at = await this.last_user_at()
       await this.options.researcher.run_due(now, force)
-      await this.options.delivery.flush(now, last_user_at, force)
+      await this.options.delivery.flush(now, last_user_at, force_nudge)
     } catch (error) {
       probe('proactive', 'tick.failed', { error: String(error).slice(0, 180) })
     } finally {
       if (force) this.options.store.clear_force()
+      if (force_nudge) this.options.store.clear_force_nudge()
       this.busy = false
     }
   }

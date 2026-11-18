@@ -2,11 +2,11 @@
  * 主动研究：到期主题联网搜索，让模型只挑“值得说”的变化写成卡片。
  * 参数：store 为本地状态，web 为 ctx.web 搜索服务，complete 为模型调用。
  */
-import { randomBytes } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { probe } from '../diagnostics/probe.ts'
-import { topic_due, type ProactiveTopic } from './ProactiveTopic.ts'
+import { fresh_hours_of, topic_due, type ProactiveTopic } from './ProactiveTopic.ts'
 import { ProactiveStore } from './ProactiveStore.ts'
+import type { NotebookStore } from '../notebook/NotebookStore.ts'
 
 /** 搜索结果（只取用得到的字段）。 */
 export interface ProactiveSearchResult {
@@ -25,12 +25,18 @@ export interface ProactiveWebLike {
 /** 构造参数。 */
 export interface ProactiveResearcherOptions {
   readonly store: ProactiveStore
+  /** 结果写进记事簿，不再直接推给主人。 */
+  readonly notebook: NotebookStore
   readonly web: ProactiveWebLike | undefined
   readonly complete: (prompt: string, max_tokens?: number) => Promise<string>
   readonly prompt_path: string
   readonly max_per_day?: number
   readonly search_timeout_ms?: number
   readonly card_ttl_ms?: number
+  /** 两次主动搜索之间至少隔多久；默认 48 小时。 */
+  readonly min_gap_ms?: number
+  /** 两次主动搜索之间最多隔多久；默认 72 小时。 */
+  readonly max_gap_ms?: number
 }
 
 /** 主动研究器。 */
@@ -50,6 +56,16 @@ export class ProactiveResearcher {
    * @param force - 是否忽略到期时间与每日额度（调试用）。
    */
   async run_due(now: number, force: boolean): Promise<void> {
+    let next = this.options.store.state().next_research_at
+    if (next === undefined) {
+      next = this.next_time(now)
+      this.options.store.set_state({ next_research_at: next })
+      probe('proactive', 'research.scheduled', { next_at: next })
+    }
+    if (!force && now < next) {
+      probe('proactive', 'research.wait', { left_ms: next - now })
+      return
+    }
     const due = this.options.store.topics()
       .filter(topic => force || topic_due(topic, now))
       .sort((a, b) => (a.last_checked_ms ?? 0) - (b.last_checked_ms ?? 0))
@@ -59,6 +75,19 @@ export class ProactiveResearcher {
       return
     }
     await this.research(due[0]!, now)
+    this.schedule_next(now)
+  }
+
+  /** 安排下一次搜索：48-72 小时之间随机。 */
+  private schedule_next(now: number): void {
+    this.options.store.set_state({ next_research_at: this.next_time(now) })
+  }
+
+  /** 下一次搜索的时间点。 */
+  private next_time(now: number): number {
+    const min = this.options.min_gap_ms ?? 48 * 3_600_000
+    const max = this.options.max_gap_ms ?? 72 * 3_600_000
+    return now + min + Math.floor(Math.random() * Math.max(1, max - min))
   }
 
   /** 查一个主题并落卡片。 */
@@ -116,18 +145,17 @@ export class ProactiveResearcher {
       this.touch(topic, now, hash)
       return
     }
-    this.options.store.append_card({
-      id: `proactive-${now}-${randomBytes(3).toString('hex')}`,
+    this.options.notebook.append({
       topic_id: topic.id,
+      kind: topic.kind,
       title: topic.title,
-      text: text.slice(0, 1200),
+      summary: text,
       sources: sources.map(item => item.url).slice(0, 3),
+      fresh_hours: fresh_hours_of(topic.kind),
       created_at: now,
-      status: 'pending',
     })
-    this.options.store.expire(this.options.card_ttl_ms ?? 72 * 3_600_000, now)
     this.touch(topic, now, hash)
-    probe('proactive', 'card.created', { topic: topic.id, chars: text.length })
+    probe('notebook', 'entry.created', { topic: topic.id, chars: text.length })
   }
 
   /** 记录本次检查时间，可选记录内容哈希。 */

@@ -29,7 +29,10 @@ import { ProfileRhythm } from '../proactive/ProfileRhythm.js';
 import { ProactiveStore } from '../proactive/ProactiveStore.js';
 import { ProactiveResearcher } from '../proactive/ProactiveResearcher.js';
 import { ProactiveDelivery } from '../proactive/ProactiveDelivery.js';
-import { ProactiveScheduler } from '../proactive/ProactiveScheduler.js';
+import { ProactiveScheduler } from '../proactive/ProactiveScheduler.js'
+import { NotebookNudge } from '../notebook/NotebookNudge.js'
+import { register_notebook_tools } from '../notebook/NotebookTools.js'
+import { shared_notebook } from '../notebook/NotebookStore.js';
 import { create_gemma_gate } from '../memory/gemmaGate.js';
 import { create_notify_settings } from '../coordination/notifySettings.js';
 import { register_notify_tools } from '../coordination/notifyTools.js';
@@ -245,6 +248,7 @@ export class WeixinConnector {
         if (this.host.tasks) this.host.tasks.worker_setup = (child, task)=>{
             if (this.timeline !== undefined) register_timeline_tools(child, this.timeline);
             register_graph_tools(child, this.graph);
+            register_notebook_tools(child);
             register_notify_tools(child, this.notify);
             register_bridge_result_tools(child, this.store);
             register_bridge_session_tools(child);
@@ -704,7 +708,8 @@ export class WeixinConnector {
             const agent = await this.host.create_agent(brandString(probe_id));
             if (this.timeline !== undefined) {
                 register_timeline_tools(agent.ctx, this.timeline);
-                register_graph_tools(agent.ctx, this.graph);
+                register_graph_tools(agent.ctx, this.graph)
+                register_notebook_tools(agent.ctx)
             }
             this.bind_agent_stream(agent);
             this.bind_agent_stream(agent);
@@ -893,7 +898,7 @@ export class WeixinConnector {
             probe('graph', 'scheduler.deferred_mixed_memory_backend');
         }
     }
-    /** 启动主动研究：静默后台查资料，合适时再播报。 */
+    /** 启动主动研究：静默查资料，结果记进记事簿，隔几天再轻提一句。 */
     start_proactive_scheduler() {
         try {
             const home = process.env.DSH_HOME ?? join(process.cwd(), 'runtime', 'dsh');
@@ -901,7 +906,10 @@ export class WeixinConnector {
             const store = new ProactiveStore(dir);
             const rhythm = new ProfileRhythm(join(dir, 'rhythm.json'));
             rhythm.ensure_file();
-            const prompt_path = join(process.env.DSH_WEIXIN_WORKSPACE ?? process.cwd(), 'prompts', 'ProactiveDigest.md');
+            const notebook = shared_notebook();
+            const workspace = process.env.DSH_WEIXIN_WORKSPACE ?? process.cwd();
+            const prompt_path = join(workspace, 'prompts', 'ProactiveDigest.md');
+            const nudge_prompt = join(workspace, 'prompts', 'NotebookNudge.md');
             const config_path = find_model_config(PROJECT_CONFIG_DIR) ?? join(PROJECT_CONFIG_DIR, 'config', 'modelConfig.json');
             const model = create_memory_model({
                 engine: 'cloud',
@@ -910,16 +918,22 @@ export class WeixinConnector {
             });
             const researcher = new ProactiveResearcher({
                 store,
+                notebook,
                 web: this.ctx.get('web'),
                 complete: (prompt, max_tokens)=>this.gemma.run('proactive', ()=>model.complete(prompt, max_tokens)),
                 prompt_path,
-                max_per_day: Math.max(1, Number(process.env.DSH_PROACTIVE_MAX_PER_DAY ?? '6'))
+                max_per_day: Math.max(1, Number(process.env.DSH_PROACTIVE_MAX_PER_DAY ?? '3')),
+                min_gap_ms: Math.max(1, Number(process.env.DSH_PROACTIVE_GAP_HOURS_MIN ?? '48')) * 3_600_000,
+                max_gap_ms: Math.max(1, Number(process.env.DSH_PROACTIVE_GAP_HOURS_MAX ?? '72')) * 3_600_000
             });
-            const delivery = new ProactiveDelivery({
-                store,
-                send: (text)=>this.send_proactive_text(text),
+            const delivery = new NotebookNudge({
+                store: notebook,
                 rhythm,
-                gap_ms: Math.max(1, Number(process.env.DSH_PROACTIVE_DELIVERY_GAP_MINUTES ?? '120')) * 60_000
+                complete: (prompt, max_tokens)=>this.gemma.run('notebook-nudge', ()=>model.complete(prompt, max_tokens)),
+                prompt_path: nudge_prompt,
+                send: (text)=>this.send_proactive_text(text),
+                min_gap_ms: 48 * 3_600_000,
+                max_gap_ms: 72 * 3_600_000
             });
             this.proactive_scheduler = new ProactiveScheduler({
                 store,
@@ -935,6 +949,7 @@ export class WeixinConnector {
             probe('proactive', 'scheduler.failed', { error: String(error).slice(0, 180) });
         }
     }
+
     /** 把一条发现送到主人：优先 QQ 后台通知，没有目标时退回微信。 */
     async send_proactive_text(text) {
         const home = process.env.DSH_HOME ?? join(process.cwd(), 'runtime', 'dsh');
@@ -1098,6 +1113,7 @@ export class WeixinConnector {
             agent.ctx.effect(()=>{
                 register_timeline_tools(agent.ctx, this.timeline);
                 register_graph_tools(agent.ctx, this.graph);
+                register_notebook_tools(agent.ctx);
                 if (!this.host.tasks) {
                     register_notify_tools(agent.ctx, this.notify);
                     register_bridge_result_tools(agent.ctx, this.store);

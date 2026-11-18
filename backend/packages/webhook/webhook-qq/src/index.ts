@@ -25,7 +25,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { HarnessSessionHost, probe, get_shared_memory, register_timeline_tools, register_graph_tools } from '@deepseek-ai/dsh-webhook-weixin'
+import { HarnessSessionHost, probe, get_shared_memory, register_timeline_tools, register_graph_tools, register_notebook_tools } from '@deepseek-ai/dsh-webhook-weixin'
 import { QqGateway } from './gateway.ts'
 import { send_qq_media, send_qq_text, type QqSendTarget } from './send.ts'
 import { QqTokenProvider } from './token.ts'
@@ -153,6 +153,7 @@ export function apply(ctx: Context, config: Config): void {
     if (suite === undefined) return
     register_timeline_tools(ctx as never, suite.timeline)
     register_graph_tools(ctx as never, suite.graph)
+    register_notebook_tools(ctx as never)
   }
 
   /** 一轮结束（或被取消）时把积累的正文发回 QQ。 */

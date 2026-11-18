@@ -28,28 +28,28 @@ const RULES: readonly TopicRule[] = [
     test: /伊斯坦布尔|土耳其|欧洲|机票|旅行|春节/,
     topic: {
       id: 'flight-istanbul', title: '伊斯坦布尔机票', kind: 'flight',
-      query: '伊斯坦布尔 往返 机票 含税价格 2027年2月', interval_hours: 24,
+      query: '伊斯坦布尔 往返 机票 含税价格 2027年2月', interval_hours: 72,
     },
   },
   {
     test: /显卡|3090|3060|GPU|算力/,
     topic: {
       id: 'price-gpu', title: '二手显卡价格', kind: 'price',
-      query: 'RTX 3090 24G 二手显卡 价格 行情', interval_hours: 12,
+      query: 'RTX 3090 24G 二手显卡 价格 行情', interval_hours: 72,
     },
   },
   {
     test: /MiniMax|本地部署|视频生成/,
     topic: {
       id: 'tech-minimax', title: 'MiniMax 本地部署', kind: 'tech',
-      query: 'MiniMax 本地部署 最新版本 显存要求', interval_hours: 72,
+      query: 'MiniMax 本地部署 最新版本 显存要求', interval_hours: 168,
     },
   },
   {
     test: /漫剧|AI短剧|短剧/,
     topic: {
       id: 'custom-comic', title: 'AI 漫剧动态', kind: 'custom',
-      query: 'AI 漫剧 平台 最新 分成', interval_hours: 72,
+      query: 'AI 漫剧 平台 最新 分成', interval_hours: 168,
     },
   },
 ]
@@ -110,4 +110,19 @@ export function topic_due(topic: ProactiveTopic, now: number): boolean {
   if (!topic.enabled) return false
   if (topic.last_checked_ms === undefined) return true
   return now - topic.last_checked_ms >= topic.interval_hours * 3_600_000
+}
+
+/**
+ * 不同主题的结果能保鲜多久。
+ *
+ * @param kind - 主题类型。
+ * @returns 小时数；机票 72、显卡 48、技术和漫剧 168。
+ */
+export function fresh_hours_of(kind: TopicKind): number {
+  switch (kind) {
+    case 'flight': return 72
+    case 'price': return 48
+    case 'tech': return 168
+    default: return 168
+  }
 }

@@ -27,6 +27,8 @@ export interface ProactiveState {
   readonly profile_hash?: string
   /** 上次成功播报的时间；用于两条之间留冷却。 */
   readonly last_delivery_at?: number
+  /** 下次主动搜索的时间；用来把频率压到 2-3 天一次。 */
+  readonly next_research_at?: number
 }
 
 /** 本地日期（YYYY-MM-DD）。 */
@@ -135,6 +137,7 @@ export class ProactiveStore {
         searches: Number(raw.searches ?? 0),
         ...typeof raw.profile_hash === 'string' ? { profile_hash: raw.profile_hash } : {},
         ...typeof raw.last_delivery_at === 'number' ? { last_delivery_at: raw.last_delivery_at } : {},
+        ...typeof raw.next_research_at === 'number' ? { next_research_at: raw.next_research_at } : {},
       }
     } catch {
       return { version: 1, day: local_day(Date.now()), searches: 0 }
@@ -159,6 +162,20 @@ export class ProactiveStore {
   /** 是否存在强制跑一次的标记。 */
   force_requested(): boolean {
     return existsSync(this.file('force-once'))
+  }
+
+  /** 是否存在“强制提醒一次”的标记。 */
+  force_nudge_requested(): boolean {
+    return existsSync(this.file('force-nudge'))
+  }
+
+  /** 删除强制提醒标记。 */
+  clear_force_nudge(): void {
+    try {
+      unlinkSync(this.file('force-nudge'))
+    } catch {
+      // 已经删掉就没事。
+    }
   }
 
   /** 删除强制标记。 */

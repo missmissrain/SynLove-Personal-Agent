@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { brandString } from '@deepseek-ai/dsh-brand';
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
 import { defineTool } from '@deepseek-ai/dsh-tools';
-import { HarnessSessionHost, probe, get_shared_memory, register_timeline_tools, register_graph_tools } from '@deepseek-ai/dsh-webhook-weixin';
+import { HarnessSessionHost, probe, get_shared_memory, register_timeline_tools, register_graph_tools, register_notebook_tools } from '@deepseek-ai/dsh-webhook-weixin';
 import { QqGateway } from './gateway.js';
 import { send_qq_media, send_qq_text } from './send.js';
 import { QqTokenProvider } from './token.js';
@@ -93,6 +93,7 @@ export function apply(ctx, config) {
         if (suite === undefined) return;
         register_timeline_tools(ctx, suite.timeline);
         register_graph_tools(ctx, suite.graph);
+        register_notebook_tools(ctx);
     };
     const flush = async (session_id)=>{
         const item = pending.get(session_id);

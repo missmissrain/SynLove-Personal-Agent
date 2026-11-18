@@ -20,12 +20,12 @@ export type DayMoment = 'sleep' | 'work' | 'lunch' | 'free'
 
 /** 默认作息：23:30 睡、08:00 起、09:00-18:00 上班、12:00-13:00 午休。 */
 const DEFAULT_RHYTHM: RhythmConfig = {
-  sleep_start: '23:30',
-  sleep_end: '08:00',
+  sleep_start: '23:00',
+  sleep_end: '08:30',
   work_start: '09:00',
-  work_end: '18:00',
-  lunch_start: '12:00',
-  lunch_end: '13:00',
+  work_end: '18:15',
+  lunch_start: '11:45',
+  lunch_end: '13:15',
 }
 
 /**

@@ -25,3 +25,5 @@ export * from './memory/graphTools.js';
 export * from './memory/memoryRemoteClient.js';
 export * from './memory/sharedMemory.js';
 export * from './agentTasks/TaskRuntime.js';
+export * from './notebook/NotebookStore.js'
+export * from './notebook/NotebookTools.js'
