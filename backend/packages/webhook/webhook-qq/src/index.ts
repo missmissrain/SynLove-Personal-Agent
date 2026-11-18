@@ -232,6 +232,15 @@ export function apply(ctx: Context, config: Config): void {
       ? shared
       : `qq-${group === undefined ? openid : `g-${group}-${openid}`}`)
     const target: QqSendTarget = group === undefined ? { userOpenid: openid } : { groupOpenid: group }
+    if (group === undefined) {
+      // 记下最近一个单聊用户：后台主动消息用它当默认收件人（同一个机器人，openid 才有效）。
+      try {
+        const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
+        writeFileSync(join(home, 'qq-owner.json'), JSON.stringify({ userOpenid: openid, at: Date.now() }), 'utf8')
+      } catch {
+        // 写不了不影响正常回复。
+      }
+    }
     probe('inbound', 'qq.message', { kind, session_id: String(session_id), chars: content.length, group: group !== undefined })
     if (msg_id !== undefined) await record_memory(String(session_id), 'user', content, `qq-${msg_id}`)
 

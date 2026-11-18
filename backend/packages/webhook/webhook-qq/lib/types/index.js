@@ -162,6 +162,14 @@ export function apply(ctx, config) {
         } : {
             groupOpenid: group
         };
+    if (group === undefined) {
+        // 记下最近一个单聊用户：后台主动消息用它当默认收件人。
+        try {
+            const home = process.env.DSH_HOME ?? join(homedir(), '.dsh');
+            writeFileSync(join(home, 'qq-owner.json'), JSON.stringify({ userOpenid: openid, at: Date.now() }), 'utf8');
+        } catch  {
+        }
+    }
         probe('inbound', 'qq.message', {
             kind,
             session_id: String(session_id),

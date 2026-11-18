@@ -1,4 +1,4 @@
-import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -25,6 +25,11 @@ import { register_timeline_tools } from '../memory/timelineTools.js';
 import { KnowledgeGraphStore } from '../memory/graphStore.js';
 import { register_graph_tools } from '../memory/graphTools.js';
 import { start_graph_scheduler } from '../memory/graphScheduler.js';
+import { ProfileRhythm } from '../proactive/ProfileRhythm.js';
+import { ProactiveStore } from '../proactive/ProactiveStore.js';
+import { ProactiveResearcher } from '../proactive/ProactiveResearcher.js';
+import { ProactiveDelivery } from '../proactive/ProactiveDelivery.js';
+import { ProactiveScheduler } from '../proactive/ProactiveScheduler.js';
 import { create_gemma_gate } from '../memory/gemmaGate.js';
 import { create_notify_settings } from '../coordination/notifySettings.js';
 import { register_notify_tools } from '../coordination/notifyTools.js';
@@ -123,6 +128,8 @@ export class WeixinConnector {
     notify;
     timeline_scheduler;
     graph_scheduler;
+    /** 主动研究：静默在后台查资料，合适时再播报。 */
+    proactive_scheduler;
     memory;
     /** 云端兜底模型。 */
     memory_backup;
@@ -881,9 +888,75 @@ export class WeixinConnector {
                         ...result
                     })
             });
+            if ((process.env.DSH_PROACTIVE_ENABLED ?? '1') !== '0') this.start_proactive_scheduler();
         } else {
             probe('graph', 'scheduler.deferred_mixed_memory_backend');
         }
+    }
+    /** 启动主动研究：静默后台查资料，合适时再播报。 */
+    start_proactive_scheduler() {
+        try {
+            const home = process.env.DSH_HOME ?? join(process.cwd(), 'runtime', 'dsh');
+            const dir = join(home, 'proactive');
+            const store = new ProactiveStore(dir);
+            const rhythm = new ProfileRhythm(join(dir, 'rhythm.json'));
+            rhythm.ensure_file();
+            const prompt_path = join(process.env.DSH_WEIXIN_WORKSPACE ?? process.cwd(), 'prompts', 'ProactiveDigest.md');
+            const config_path = find_model_config(PROJECT_CONFIG_DIR) ?? join(PROJECT_CONFIG_DIR, 'config', 'modelConfig.json');
+            const model = create_memory_model({
+                engine: 'cloud',
+                cloud_model: process.env.DSH_PROACTIVE_MODEL ?? 'qwen/qwen3.8-flash',
+                config_path
+            });
+            const researcher = new ProactiveResearcher({
+                store,
+                web: this.ctx.get('web'),
+                complete: (prompt, max_tokens)=>this.gemma.run('proactive', ()=>model.complete(prompt, max_tokens)),
+                prompt_path,
+                max_per_day: Math.max(1, Number(process.env.DSH_PROACTIVE_MAX_PER_DAY ?? '6'))
+            });
+            const delivery = new ProactiveDelivery({
+                store,
+                send: (text)=>this.send_proactive_text(text),
+                rhythm
+            });
+            this.proactive_scheduler = new ProactiveScheduler({
+                store,
+                researcher,
+                delivery,
+                rhythm,
+                graph: this.graph,
+                timeline: this.timeline,
+                tick_ms: Math.max(15, Number(process.env.DSH_PROACTIVE_TICK_SECONDS ?? '60')) * 1000
+            });
+            this.proactive_scheduler.start();
+        } catch (error) {
+            probe('proactive', 'scheduler.failed', { error: String(error).slice(0, 180) });
+        }
+    }
+    /** 把一条发现送到主人：优先 QQ 后台通知，没有目标时退回微信。 */
+    async send_proactive_text(text) {
+        const home = process.env.DSH_HOME ?? join(process.cwd(), 'runtime', 'dsh');
+        const openid = read_news_push_openid();
+        if (openid !== undefined) {
+            try {
+                const id = createHash('sha256').update(text).digest('hex');
+                const dir = join(home, 'backendNotifications');
+                mkdirSync(dir, { recursive: true });
+                writeFileSync(join(dir, id + '.json'), JSON.stringify({ id, text, target: { userOpenid: openid } }), 'utf8');
+                probe('proactive', 'delivery.qq_queued', { chars: text.length });
+                return true;
+            } catch (error) {
+                probe('proactive', 'delivery.qq_failed', { error: String(error).slice(0, 160) });
+            }
+        }
+        const user_id = this.store.latest_user_id();
+        if (user_id === undefined) return false;
+        const session_id = this.store.get_session_id(user_id) ?? 'main';
+        this.queue_notice({ session_id, user_id, kind: 'assistant', text });
+        void this.outbound.drain();
+        probe('proactive', 'delivery.weixin_queued', { chars: text.length });
+        return true;
     }
     async ensure_gemma_running() {
         if (process.env.SYNLOVE_LLM_MANAGEMENT === 'external') return;
@@ -1559,6 +1632,8 @@ export class WeixinConnector {
         }
         this.graph_scheduler?.stop();
         this.graph_scheduler = undefined;
+        this.proactive_scheduler?.stop();
+        this.proactive_scheduler = undefined;
         for (const dispose of this.stream_disposers.values())dispose();
         this.stream_disposers.clear();
         this.stream_agents.clear();
@@ -1605,4 +1680,31 @@ export function install_weixin_connector(ctx, options) {
         return ()=>connector.stop();
     }, 'webhook-weixin.lifecycle()');
     return connector;
+}
+
+/** 读 QQ 推送目标：newsDigest 的本机配置里有 userOpenid，不进仓库。 */
+function read_news_push_openid() {
+    const base = process.env.DSH_WEIXIN_WORKSPACE ?? process.cwd();
+    for (const rel of [['newsDigest', 'config', 'newsDigest.json'], ['config', 'newsDigest.json']]) {
+        const path = join(base, ...rel);
+        try {
+            // 优先用 QQ 入站记下的主用户；没有再用新闻推送配置里的 openid。
+            const home = process.env.DSH_HOME ?? join(process.cwd(), 'runtime', 'dsh');
+            const owner_path = join(home, 'qq-owner.json');
+            try {
+                if (existsSync(owner_path)) {
+                    const owner = JSON.parse(readFileSync(owner_path, 'utf8'));
+                    const id = String(owner.userOpenid ?? '').trim();
+                    if (id !== '') return id;
+                }
+            } catch {
+            }
+            if (!existsSync(path)) continue;
+            const data = JSON.parse(readFileSync(path, 'utf8'));
+            const id = String(data?.push?.userOpenid ?? '').trim();
+            if (id !== '') return id;
+        } catch {
+        }
+    }
+    return undefined;
 }

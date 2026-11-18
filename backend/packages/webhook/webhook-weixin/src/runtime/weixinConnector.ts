@@ -11,7 +11,7 @@
  * @module dsh-webhook-weixin/connector
  */
 
-import { copyFileSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createHash, randomBytes } from 'node:crypto'
 import { spawn } from 'node:child_process'
@@ -50,6 +50,11 @@ import { register_timeline_tools } from '../memory/timelineTools.ts'
 import { KnowledgeGraphStore } from '../memory/graphStore.ts'
 import { register_graph_tools } from '../memory/graphTools.ts'
 import { start_graph_scheduler, type GraphScheduler } from '../memory/graphScheduler.ts'
+import { ProfileRhythm } from '../proactive/ProfileRhythm.ts'
+import { ProactiveStore } from '../proactive/ProactiveStore.ts'
+import { ProactiveResearcher, type ProactiveWebLike } from '../proactive/ProactiveResearcher.ts'
+import { ProactiveDelivery } from '../proactive/ProactiveDelivery.ts'
+import { ProactiveScheduler } from '../proactive/ProactiveScheduler.ts'
 import { create_gemma_gate, type GemmaGate } from '../memory/gemmaGate.ts'
 import { create_notify_settings, type NotifySettings } from '../coordination/notifySettings.ts'
 import { register_notify_tools } from '../coordination/notifyTools.ts'
@@ -268,6 +273,8 @@ export class WeixinConnector {
   private timeline_scheduler: TimelineScheduler | undefined
   /** 知识图谱的空闲增量更新调度器。 */
   private graph_scheduler: GraphScheduler | undefined
+  /** 主动研究：静默在后台查资料，合适时再播报。 */
+  private proactive_scheduler: ProactiveScheduler | undefined
   /**
    * 记忆更新的模型客户端：本地 Gemma 或云端模型（由 `DSH_MEMORY_ENGINE` 决定）。
    *
@@ -1057,16 +1064,28 @@ export class WeixinConnector {
       summarizer: request => this.gemma.run('timeline-summary', () => summarize(request)),
       on_update: dates => probe('timeline', 'summary.updated_days', { dates }),
     })
-    // 知识图谱：同一个"空闲 N 小时"触发，读时间线做增量更新。
-    complete: prompt => this.gemma.run('graph-extract', async () => {
-      try {
-        return await this.memory.complete(prompt)
-      } catch (error) {
-        if (this.memory_backup === undefined) throw error
-        probe('graph', 'model.fallback', { error: String(error).slice(0, 160) })
-        return await this.memory_backup.complete(prompt)
-      }
-    }),
+    // 知识图谱：同“空闲 N 小时”触发，读时间线做增量更新。
+    if ((this.timeline instanceof TimelineStore && this.graph instanceof KnowledgeGraphStore)
+      || (this.timeline instanceof MemoryRemoteClient && this.graph instanceof MemoryRemoteClient)) {
+      this.graph_scheduler = start_graph_scheduler({
+        graph: this.graph,
+        timeline: this.timeline,
+        complete: prompt => this.gemma.run('graph-extract', async () => {
+          try {
+            return await this.memory.complete(prompt)
+          } catch (error) {
+            if (this.memory_backup === undefined) throw error
+            probe('graph', 'model.fallback', { error: String(error).slice(0, 160) })
+            return await this.memory_backup.complete(prompt)
+          }
+        }),
+        on_update: result => probe('graph', 'updated', { ...result }),
+      })
+      if ((process.env.DSH_PROACTIVE_ENABLED ?? '1') !== '0') this.start_proactive_scheduler()
+    } else {
+      probe('graph', 'scheduler.deferred_mixed_memory_backend')
+    }
+  }
 
   /**
    * 确保本地 Gemma 服务在跑（运行期按需补拉）。
@@ -1074,6 +1093,87 @@ export class WeixinConnector {
    * 启动时如果显存被占用，启动器会跳过拉起；等显存空出来之后由这里补拉，
    * 路径/端口都从启动器注入的环境变量读取（**不在这里重新猜路径**，避免两处不一致）。
    */
+  /**
+   * 启动主动研究：静默查资料，按画像作息挑时机播报。
+   * 参数：无。
+   */
+  private start_proactive_scheduler(): void {
+    try {
+      const home = process.env.DSH_HOME ?? join(process.cwd(), 'runtime', 'dsh')
+      const dir = join(home, 'proactive')
+      const store = new ProactiveStore(dir)
+      const rhythm = new ProfileRhythm(join(dir, 'rhythm.json'))
+      rhythm.ensure_file()
+      const prompt_path = join(
+        process.env.DSH_WEIXIN_WORKSPACE ?? process.cwd(), 'prompts', 'ProactiveDigest.md',
+      )
+      const config_path = find_model_config(PROJECT_CONFIG_DIR)
+        ?? join(PROJECT_CONFIG_DIR, 'config', 'modelConfig.json')
+      const model = create_memory_model({
+        engine: 'cloud',
+        cloud_model: process.env.DSH_PROACTIVE_MODEL ?? 'qwen/qwen3.8-flash',
+        config_path,
+      })
+      const researcher = new ProactiveResearcher({
+        store,
+        web: this.ctx.get('web') as ProactiveWebLike | undefined,
+        complete: (prompt, max_tokens) =>
+          this.gemma.run('proactive', () => model.complete(prompt, max_tokens)),
+        prompt_path,
+        max_per_day: Math.max(1, Number(process.env.DSH_PROACTIVE_MAX_PER_DAY ?? '6')),
+      })
+      const delivery = new ProactiveDelivery({
+        store,
+        send: text => this.send_proactive_text(text),
+        rhythm,
+      })
+      this.proactive_scheduler = new ProactiveScheduler({
+        store,
+        researcher,
+        delivery,
+        rhythm,
+        graph: this.graph,
+        timeline: this.timeline,
+        tick_ms: Math.max(15, Number(process.env.DSH_PROACTIVE_TICK_SECONDS ?? '60')) * 1000,
+      })
+      this.proactive_scheduler.start()
+    } catch (error) {
+      probe('proactive', 'scheduler.failed', { error: String(error).slice(0, 180) })
+    }
+  }
+
+  /**
+   * 把一条发现送到主人：优先 QQ 后台通知，没有目标时退回微信。
+   *
+   * @param text - 要发送的正文。
+   * @returns 是否成功入队。
+   */
+  private async send_proactive_text(text: string): Promise<boolean> {
+    const home = process.env.DSH_HOME ?? join(process.cwd(), 'runtime', 'dsh')
+    const openid = read_news_push_openid()
+    if (openid !== undefined) {
+      try {
+        const id = createHash('sha256').update(text).digest('hex')
+        const dir = join(home, 'backendNotifications')
+        mkdirSync(dir, { recursive: true })
+        writeFileSync(join(dir, id + '.json'), JSON.stringify({
+          id, text, target: { userOpenid: openid },
+        }), 'utf8')
+        probe('proactive', 'delivery.qq_queued', { chars: text.length })
+        return true
+      } catch (error) {
+        probe('proactive', 'delivery.qq_failed', { error: String(error).slice(0, 160) })
+      }
+    }
+    const user_id = this.store.latest_user_id()
+    if (user_id === undefined) return false
+    const session_id = this.store.get_session_id(user_id) ?? 'main'
+    this.queue_notice({ session_id, user_id, kind: 'assistant', text })
+    void this.outbound.drain()
+    probe('proactive', 'delivery.weixin_queued', { chars: text.length })
+    return true
+  }
+
   private async ensure_gemma_running(): Promise<void> {
     // 外部服务的生命周期由部署方负责，不探测或补拉本机进程。
     if (process.env.SYNLOVE_LLM_MANAGEMENT === 'external') return
@@ -1834,4 +1934,37 @@ export function install_weixin_connector(ctx: Context, options: WeixinConnectorO
     return () => connector.stop()
   }, 'webhook-weixin.lifecycle()')
   return connector
+}
+
+/**
+ * 读 QQ 推送目标：newsDigest 的本机配置里有 userOpenid，不进仓库。
+ *
+ * @returns QQ 用户 openid；没配置返回 undefined。
+ */
+function read_news_push_openid(): string | undefined {
+  const base = process.env.DSH_WEIXIN_WORKSPACE ?? process.cwd()
+  for (const rel of [['newsDigest', 'config', 'newsDigest.json'], ['config', 'newsDigest.json']]) {
+    const path = join(base, ...rel)
+    try {
+      // 优先用 QQ 入站记下的主用户；没有再用新闻推送配置里的 openid。
+      const home = process.env.DSH_HOME ?? join(process.cwd(), 'runtime', 'dsh')
+      const owner_path = join(home, 'qq-owner.json')
+      try {
+        if (existsSync(owner_path)) {
+          const owner = JSON.parse(readFileSync(owner_path, 'utf8')) as { userOpenid?: string }
+          const id = String(owner.userOpenid ?? '').trim()
+          if (id !== '') return id
+        }
+      } catch {
+        // 读不到就继续用新闻推送的 openid。
+      }
+      if (!existsSync(path)) continue
+      const data = JSON.parse(readFileSync(path, 'utf8')) as { push?: { userOpenid?: string } }
+      const id = String(data.push?.userOpenid ?? '').trim()
+      if (id !== '') return id
+    } catch {
+      // 配置缺失或损坏就换下一个候选。
+    }
+  }
+  return undefined
 }

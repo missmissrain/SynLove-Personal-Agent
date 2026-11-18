@@ -1,0 +1,121 @@
+/**
+ * 画像作息：把睡眠、上班、午休换算成一天里的可播报时段。
+ * 参数：config_path 指向 runtime/dsh/proactive/rhythm.json；文件缺失时使用内置默认值。
+ */
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
+
+/** 作息配置（24 小时制 HH:MM）。 */
+export interface RhythmConfig {
+  readonly sleep_start: string
+  readonly sleep_end: string
+  readonly work_start: string
+  readonly work_end: string
+  readonly lunch_start: string
+  readonly lunch_end: string
+}
+
+/** 一天中的时段。 */
+export type DayMoment = 'sleep' | 'work' | 'lunch' | 'free'
+
+/** 默认作息：23:30 睡、08:00 起、09:00-18:00 上班、12:00-13:00 午休。 */
+const DEFAULT_RHYTHM: RhythmConfig = {
+  sleep_start: '23:30',
+  sleep_end: '08:00',
+  work_start: '09:00',
+  work_end: '18:00',
+  lunch_start: '12:00',
+  lunch_end: '13:00',
+}
+
+/**
+ * 把 "HH:MM" 换成当天分钟数。
+ *
+ * @param text - 形如 "08:30" 的时间。
+ * @returns 0~1439 的分钟数；格式非法返回 undefined。
+ */
+function minutes_of(text: string): number | undefined {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(text.trim())
+  if (match === null) return undefined
+  const hour = Number(match[1])
+  const minute = Number(match[2])
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return undefined
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return undefined
+  return hour * 60 + minute
+}
+
+/**
+ * 判断某一分钟是否落在 [start, end) 内。
+ *
+ * @param now - 当前分钟数。
+ * @param start - 区间起点。
+ * @param end - 区间终点；小于起点时按跨午夜处理。
+ */
+function inside(now: number, start: number, end: number): boolean {
+  return start <= end ? now >= start && now < end : now >= start || now < end
+}
+
+/** 画像作息。 */
+export class ProfileRhythm {
+  constructor(private readonly config_path: string) {}
+
+  /** 读取作息配置；文件不存在或损坏时返回默认值。 */
+  load(): RhythmConfig {
+    try {
+      if (!existsSync(this.config_path)) return DEFAULT_RHYTHM
+      const raw = JSON.parse(readFileSync(this.config_path, 'utf8')) as Partial<RhythmConfig>
+      const pick = (key: keyof RhythmConfig): string => {
+        const value = typeof raw[key] === 'string' ? String(raw[key]) : ''
+        return minutes_of(value) === undefined ? DEFAULT_RHYTHM[key] : value
+      }
+      return {
+        sleep_start: pick('sleep_start'),
+        sleep_end: pick('sleep_end'),
+        work_start: pick('work_start'),
+        work_end: pick('work_end'),
+        lunch_start: pick('lunch_start'),
+        lunch_end: pick('lunch_end'),
+      }
+    } catch {
+      return DEFAULT_RHYTHM
+    }
+  }
+
+  /** 首次运行时写一份默认配置，方便主人直接改时间。 */
+  ensure_file(): void {
+    if (existsSync(this.config_path)) return
+    try {
+      mkdirSync(dirname(this.config_path), { recursive: true })
+      writeFileSync(this.config_path, JSON.stringify(DEFAULT_RHYTHM, null, 2), 'utf8')
+    } catch {
+      // 写不了就用内存里的默认值，不阻断调度。
+    }
+  }
+
+  /** 判断当前时段：sleep / lunch / work / free。 */
+  moment(now: Date): DayMoment {
+    const config = this.load()
+    const minute = now.getHours() * 60 + now.getMinutes()
+    const sleep_start = minutes_of(config.sleep_start) ?? 23 * 60 + 30
+    const sleep_end = minutes_of(config.sleep_end) ?? 8 * 60
+    if (inside(minute, sleep_start, sleep_end)) return 'sleep'
+    const lunch_start = minutes_of(config.lunch_start) ?? 12 * 60
+    const lunch_end = minutes_of(config.lunch_end) ?? 13 * 60
+    if (inside(minute, lunch_start, lunch_end)) return 'lunch'
+    const work_start = minutes_of(config.work_start) ?? 9 * 60
+    const work_end = minutes_of(config.work_end) ?? 18 * 60
+    if (inside(minute, work_start, work_end)) return 'work'
+    return 'free'
+  }
+
+  /** 当前是否在睡觉。 */
+  is_sleeping(now: Date): boolean {
+    return this.moment(now) === 'sleep'
+  }
+
+  /** 是否适合主动播报：午休或自由时间。 */
+  is_good_moment(now: Date): boolean {
+    const moment = this.moment(now)
+    return moment === 'lunch' || moment === 'free'
+  }
+}
