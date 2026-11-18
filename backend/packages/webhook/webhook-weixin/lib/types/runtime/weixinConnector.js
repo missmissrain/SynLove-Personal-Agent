@@ -1307,18 +1307,9 @@ export class WeixinConnector {
                 to: `${next.provider}/${next.model}`,
                 reason
             });
-            const user_id = await this.store.latest_user_id();
-            if (user_id !== undefined) {
-                const session_key = await this.store.get_session_id(user_id) ?? session_id;
-                this.queue_notice({
-                    session_id: session_key,
-                    user_id,
-                    kind: 'assistant',
-                    text: `「${current.model}」这个接口用不了了（${reason === 'quota' ? '额度用完' : reason === 'auth' ? 'key 失效' : '接口临时过载或被限流'}），` + `我先换成「${next.model}」，把你刚才那条重做一遍。`
-                });
-                await this.outbound.drain();
-                await this.retry_last_message(session_id, user_id);
-            }
+            // 切换模型不通知用户，静默重做。
+            const retry_user_id = await this.store.latest_user_id();
+            if (retry_user_id !== undefined) await this.retry_last_message(session_id, retry_user_id);
         } catch (error) {
             probe('failover', 'failed', {
                 error: String(error).slice(0, 200)
