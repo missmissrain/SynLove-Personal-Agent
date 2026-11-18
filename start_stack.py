@@ -392,6 +392,13 @@ def render_settings(config: dict) -> str:
             lines.append("      api: " + yaml_string(str(provider["api"])))
         if provider.get("baseURL"):
             lines.append("      baseURL: " + yaml_string(str(provider["baseURL"])))
+        # 单次请求与流空闲超时：慢响应不要过早判成故障（毫秒）。
+        if provider.get("timeoutMs"):
+            lines.append("      timeoutMs: " + str(int(provider["timeoutMs"])))
+        if provider.get("streamIdleTimeoutMs"):
+            lines.append("      streamIdleTimeoutMs: " + str(int(provider["streamIdleTimeoutMs"])))
+        if provider.get("websocketConnectTimeoutMs"):
+            lines.append("      websocketConnectTimeoutMs: " + str(int(provider["websocketConnectTimeoutMs"])))
         # 模型容量：GUI 里改的"上下文窗口"落到这里（harness 用它算压缩阈值）
         if provider.get("defaultContextWindow"):
             lines.append("      defaultContextWindow: " + str(int(provider["defaultContextWindow"])))
