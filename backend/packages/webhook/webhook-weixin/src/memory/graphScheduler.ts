@@ -120,6 +120,8 @@ export function start_graph_scheduler(options: GraphSchedulerOptions): GraphSche
   }
 
   const timer = setInterval(() => { void run_once() }, interval_ms)
+  // 启动先跑一次：有回溯标记时立刻生效，不用等第一个 5 分钟。
+  void run_once()
   timer.unref?.()
   probe('graph', 'scheduler.started', { interval_ms, idle_ms, max_days })
 

@@ -68,6 +68,8 @@ export function start_graph_scheduler(options) {
     const timer = setInterval(()=>{
         void run_once();
     }, interval_ms);
+    // 启动先跑一次：有回溯标记时立刻生效。
+    void run_once();
     timer.unref?.();
     probe('graph', 'scheduler.started', {
         interval_ms,
