@@ -124,6 +124,8 @@ export class WeixinConnector {
     timeline_scheduler;
     graph_scheduler;
     memory;
+    /** 云端兜底模型。 */
+    memory_backup;
     gemma;
     ctx;
     constructor(ctx, options){
@@ -196,6 +198,12 @@ export class WeixinConnector {
             },
             config_path: find_model_config(PROJECT_CONFIG_DIR) ?? join(PROJECT_CONFIG_DIR, 'config', 'modelConfig.json')
         });
+        const backup_model = process.env.DSH_MEMORY_CLOUD_FALLBACK?.trim();
+        this.memory_backup = engine === 'cloud' && backup_model ? create_memory_model({
+            engine: 'cloud',
+            cloud_model: backup_model,
+            config_path: find_model_config(PROJECT_CONFIG_DIR) ?? join(PROJECT_CONFIG_DIR, 'config', 'modelConfig.json')
+        }) : undefined;
         this.gemma = create_gemma_gate({
             min_free_vram_mb: engine === 'gemma' && process.env.SYNLOVE_LLM_MANAGEMENT !== 'external' ? Number(process.env.DSH_GEMMA_MIN_FREE_VRAM_MB ?? '5200') : 0,
             ...engine === 'gemma' && process.env.SYNLOVE_LLM_MANAGEMENT !== 'external' ? {
@@ -860,7 +868,15 @@ export class WeixinConnector {
             this.graph_scheduler = start_graph_scheduler({
                 graph: this.graph,
                 timeline: this.timeline,
-                complete: (prompt)=>this.gemma.run('graph-extract', ()=>this.memory.complete(prompt)),
+                complete: (prompt)=>this.gemma.run('graph-extract', async ()=>{
+                    try {
+                        return await this.memory.complete(prompt);
+                    } catch (error) {
+                        if (this.memory_backup === undefined) throw error;
+                        probe('graph', 'model.fallback', { error: String(error).slice(0, 160) });
+                        return await this.memory_backup.complete(prompt);
+                    }
+                }),
                 on_update: (result)=>probe('graph', 'updated', {
                         ...result
                     })

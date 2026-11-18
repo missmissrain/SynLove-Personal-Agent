@@ -274,6 +274,8 @@ export class WeixinConnector {
    * 本地免费但要占约 5.3GB 显存；云端不占显存但花额度。用户可在控制台切换。
    */
   private readonly memory: MemoryModel
+  /** 云端兜底模型：主模型超时/失败时静默使用（默认千问 flash）。 */
+  private readonly memory_backup: MemoryModel | undefined
   /**
    * 后台任务的闸门（摘要 / 图谱 / 图片描述共用）。
    *
@@ -360,6 +362,14 @@ export class WeixinConnector {
       // 同一个"路径要带 config/ 子目录"的坑：找不到就交给记忆模型自己回退到本地引擎
       config_path: find_model_config(PROJECT_CONFIG_DIR) ?? join(PROJECT_CONFIG_DIR, 'config', 'modelConfig.json'),
     })
+    const backup_model = process.env.DSH_MEMORY_CLOUD_FALLBACK?.trim()
+    this.memory_backup = engine === 'cloud' && backup_model
+      ? create_memory_model({
+          engine: 'cloud',
+          cloud_model: backup_model,
+          config_path: find_model_config(PROJECT_CONFIG_DIR) ?? join(PROJECT_CONFIG_DIR, 'config', 'modelConfig.json'),
+        })
+      : undefined
     this.gemma = create_gemma_gate({
       // 只有本地引擎才需要等显存（云端不占显存，等了也没意义）
       min_free_vram_mb: engine === 'gemma' && process.env.SYNLOVE_LLM_MANAGEMENT !== 'external'
@@ -1048,18 +1058,15 @@ export class WeixinConnector {
       on_update: dates => probe('timeline', 'summary.updated_days', { dates }),
     })
     // 知识图谱：同一个"空闲 N 小时"触发，读时间线做增量更新。
-    if ((this.timeline instanceof TimelineStore && this.graph instanceof KnowledgeGraphStore)
-      || (this.timeline instanceof MemoryRemoteClient && this.graph instanceof MemoryRemoteClient)) {
-      this.graph_scheduler = start_graph_scheduler({
-        graph: this.graph,
-        timeline: this.timeline,
-        complete: prompt => this.gemma.run('graph-extract', () => this.memory.complete(prompt)),
-        on_update: result => probe('graph', 'updated', { ...result }),
-      })
-    } else {
-      probe('graph', 'scheduler.deferred_mixed_memory_backend')
-    }
-  }
+    complete: prompt => this.gemma.run('graph-extract', async () => {
+      try {
+        return await this.memory.complete(prompt)
+      } catch (error) {
+        if (this.memory_backup === undefined) throw error
+        probe('graph', 'model.fallback', { error: String(error).slice(0, 160) })
+        return await this.memory_backup.complete(prompt)
+      }
+    }),
 
   /**
    * 确保本地 Gemma 服务在跑（运行期按需补拉）。
