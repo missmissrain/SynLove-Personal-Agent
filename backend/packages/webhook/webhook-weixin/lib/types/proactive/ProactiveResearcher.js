@@ -1,18 +1,25 @@
 /**
- * 主动研究：到期主题联网搜索，让模型只挑“值得说”的变化写成卡片。
- * 参数：store 为本地状态，web 为 ctx.web 搜索服务，complete 为模型调用。
+ * 主动研究：从画像推断里挑一条，先规划搜索词，再联网查，写成记事簿，并把“已调研”写回画像。
+ * 参数：store（节奏/预算）、notebook（结果）、profile（推断）、web（搜索）、complete（模型）。
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { probe } from '../diagnostics/probe.js';
-import { fresh_hours_of, topic_due } from './ProactiveTopic.js';
-import { ProactiveStore } from './ProactiveStore.js';
+import { pick_inference } from '../profile/ProfileInference.js';
+/** 本地日期 YYYY-MM-DD。 */
+function local_date(now) {
+    const date = new Date(now);
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${date.getFullYear()}-${month}-${day}`;
+}
 /** 主动研究器。 */
 export class ProactiveResearcher {
     constructor(options) {
         this.options = options;
-        this.guidance = existsSync(options.prompt_path) ? readFileSync(options.prompt_path, 'utf8') : '只输出要发给主人的话；没有实质变化就输出：无';
+        this.plan_guidance = existsSync(options.plan_prompt_path) ? readFileSync(options.plan_prompt_path, 'utf8') : '输出两行：一行搜索词，一行想回答的问题；不适合查就输出：无';
+        this.summary_guidance = existsSync(options.summary_prompt_path) ? readFileSync(options.summary_prompt_path, 'utf8') : '只输出要发给主人的话；没有有用信息就输出：无';
     }
-    /** 跑一个到期主题。 */
+    /** 跑一次主动研究。 */
     async run_due(now, force) {
         let next = this.options.store.state().next_research_at;
         if (next === undefined) {
@@ -20,17 +27,115 @@ export class ProactiveResearcher {
             this.options.store.set_state({ next_research_at: next });
             probe('proactive', 'research.scheduled', { next_at: next });
         }
-        if (!force && now < next) {
-            return;
-        }
-        const due = this.options.store.topics().filter((topic)=>force || topic_due(topic, now)).sort((a, b)=>(a.last_checked_ms ?? 0) - (b.last_checked_ms ?? 0));
-        if (due.length === 0) return;
-        if (!force && !this.options.store.bump_budget(now, this.options.max_per_day ?? 6)) {
+        if (!force && now < next) return;
+        if (!force && !this.options.store.bump_budget(now, this.options.max_per_day ?? 3)) {
             probe('proactive', 'research.budget_exhausted');
             return;
         }
-        await this.research(due[0], now);
+        const snapshot = await this.options.profile.read();
+        const candidate = pick_inference(snapshot.inferences, now);
+        if (candidate === undefined) {
+            probe('inference', 'no_candidate', { total: snapshot.inferences.length });
+            return;
+        }
+        if (this.recently_researched(candidate.key, now)) {
+            probe('inference', 'recent', { key: candidate.key });
+            return;
+        }
+        await this.research(candidate, snapshot.notes, now);
         this.schedule_next(now);
+    }
+    /** 查一条推断并落库。 */
+    async research(candidate, notes, now) {
+        const plan = await this.plan(candidate, notes);
+        if (plan === undefined) {
+            probe('inference', 'not_actionable', { key: candidate.key });
+            return;
+        }
+        const web = this.options.web;
+        if (web === undefined) {
+            probe('inference', 'web_unavailable');
+            return;
+        }
+        probe('inference', 'research.start', { key: candidate.key, query: plan.query });
+        let found;
+        try {
+            found = await web.search({ query: plan.query, maxResults: 6 }, AbortSignal.timeout(this.options.search_timeout_ms ?? 120_000));
+        } catch (error) {
+            probe('inference', 'search_failed', { key: candidate.key, error: String(error).slice(0, 160) });
+            return;
+        }
+        const content = (found.content ?? '').trim();
+        const sources = (found.sources ?? []).slice(0, 6);
+        if (content === '' && sources.length === 0) {
+            probe('inference', 'empty', { key: candidate.key });
+            return;
+        }
+        const prompt = [
+            this.summary_guidance,
+            '',
+            `【画像推断】${candidate.text}（${candidate.confidence}，${candidate.evidence_month}）`,
+            `【想回答的问题】${plan.question}`,
+            '【搜索正文】',
+            content === '' ? '（空）' : content.slice(0, 6000),
+            '',
+            '【来源】',
+            sources.map((item) => `- ${item.url}${item.title === undefined ? '' : ' ' + item.title}`).join('\n')
+        ].join('\n');
+        let text = '';
+        try {
+            text = (await this.options.complete(prompt, 900)).trim();
+        } catch (error) {
+            probe('inference', 'model_failed', { key: candidate.key, error: String(error).slice(0, 160) });
+            return;
+        }
+        if (text === '' || text === '无' || text.startsWith('无') && text.length <= 12) {
+            probe('inference', 'no_change', { key: candidate.key });
+            return;
+        }
+        this.options.notebook.append({
+            topic_id: `inference-${candidate.key}`,
+            kind: 'inference',
+            title: `推断：${candidate.key}`,
+            summary: text,
+            sources: sources.map((item) => item.url).slice(0, 3),
+            fresh_hours: 72,
+            created_at: now
+        });
+        const marked = await this.options.profile.mark_researched(candidate.key, local_date(now));
+        await this.options.on_profile_changed?.();
+        probe('inference', 'researched', { key: candidate.key, chars: text.length, marked });
+    }
+    /** 先让模型把推断变成一个可搜的问题。 */
+    async plan(candidate, notes) {
+        const recent = this.options.notebook.recent(14, Date.now(), 8).map((entry) => entry.title).join('；');
+        const prompt = [
+            this.plan_guidance,
+            '',
+            `【画像推断】${candidate.text}（${candidate.confidence}，${candidate.evidence_month}）`,
+            '【主人画像】',
+            notes.slice(0, 1200),
+            '【最近查过】',
+            recent === '' ? '（无）' : recent
+        ].join('\n');
+        let raw = '';
+        try {
+            raw = (await this.options.complete(prompt, 220)).trim();
+        } catch (error) {
+            probe('inference', 'plan_failed', { key: candidate.key, error: String(error).slice(0, 160) });
+            return undefined;
+        }
+        if (raw === '' || raw === '无' || raw.startsWith('无') && raw.length <= 6) return undefined;
+        const lines = raw.split('\n').map((line) => line.trim()).filter((line) => line !== '');
+        const clean = (line) => line.replace(/^(搜索词|搜索|查询|query|问题|想回答的问题)[：:]\s*/i, '').trim();
+        const query = clean(lines[0] ?? '').slice(0, 60);
+        const question = clean(lines[1] ?? candidate.text).slice(0, 120);
+        if (query.length < 2) return undefined;
+        return { query, question };
+    }
+    /** 七天内查过同一个推断就跳过。 */
+    recently_researched(key, now) {
+        return this.options.notebook.entries().some((entry) => entry.topic_id === `inference-${key}` && now - entry.created_at < 7 * 86_400_000);
     }
     /** 安排下一次搜索：48-72 小时之间随机。 */
     schedule_next(now) {
@@ -41,108 +146,5 @@ export class ProactiveResearcher {
         const min = this.options.min_gap_ms ?? 48 * 3_600_000;
         const max = this.options.max_gap_ms ?? 72 * 3_600_000;
         return now + min + Math.floor(Math.random() * Math.max(1, max - min));
-    }
-    /** 查一个主题并落卡片。 */
-    async research(topic, now) {
-        const web = this.options.web;
-        if (web === undefined) {
-            probe('proactive', 'research.web_unavailable');
-            return;
-        }
-        probe('proactive', 'research.start', {
-            topic: topic.id
-        });
-        let found;
-        try {
-            found = await web.search({
-                query: topic.query,
-                maxResults: 6
-            }, AbortSignal.timeout(this.options.search_timeout_ms ?? 120_000));
-        } catch (error) {
-            probe('proactive', 'research.search_failed', {
-                topic: topic.id,
-                error: String(error).slice(0, 160)
-            });
-            this.touch(topic, now);
-            return;
-        }
-        const content = (found.content ?? '').trim();
-        const sources = (found.sources ?? []).slice(0, 6);
-        if (content === '' && sources.length === 0) {
-            probe('proactive', 'research.empty', {
-                topic: topic.id
-            });
-            this.touch(topic, now);
-            return;
-        }
-        const prompt = [
-            this.load_guidance(),
-            '',
-            `【本次主题】${topic.title}`,
-            '【搜索正文】',
-            content === '' ? '（空）' : content.slice(0, 6000),
-            '',
-            '【来源】',
-            sources.map((item)=>`- ${item.url}${item.title === undefined ? '' : ' ' + item.title}`).join('\n')
-        ].join('\n');
-        let text = '';
-        try {
-            text = (await this.options.complete(prompt, 900)).trim();
-        } catch (error) {
-            probe('proactive', 'research.model_failed', {
-                topic: topic.id,
-                error: String(error).slice(0, 160)
-            });
-            this.touch(topic, now);
-            return;
-        }
-        if (text === '' || text === '无' || text.startsWith('无') && text.length <= 12) {
-            probe('proactive', 'research.no_change', {
-                topic: topic.id
-            });
-            this.touch(topic, now);
-            return;
-        }
-        const hash = ProactiveStore.hash(text);
-        if (this.options.store.topics().find((item)=>item.id === topic.id)?.last_hash === hash) {
-            probe('proactive', 'research.same', {
-                topic: topic.id
-            });
-            this.touch(topic, now, hash);
-            return;
-        }
-        this.options.notebook.append({
-            topic_id: topic.id,
-            kind: topic.kind,
-            title: topic.title,
-            summary: text,
-            sources: sources.map((item)=>item.url).slice(0, 3),
-            fresh_hours: fresh_hours_of(topic.kind),
-            created_at: now
-        });
-        this.touch(topic, now, hash);
-        probe('notebook', 'entry.created', {
-            topic: topic.id,
-            chars: text.length
-        });
-    }
-    /** 每次现读提示词，改了不用重启。 */
-    load_guidance() {
-        try {
-            return existsSync(this.options.prompt_path) ? readFileSync(this.options.prompt_path, 'utf8') : this.guidance;
-        } catch  {
-            return this.guidance;
-        }
-    }
-    /** 记录本次检查时间，可选记录内容哈希。 */
-    touch(topic, now, hash) {
-        const topics = this.options.store.topics().map((item)=>item.id === topic.id ? {
-                ...item,
-                last_checked_ms: now,
-                ...hash === undefined ? {} : {
-                    last_hash: hash
-                }
-            } : item);
-        this.options.store.save_topics(topics);
     }
 }

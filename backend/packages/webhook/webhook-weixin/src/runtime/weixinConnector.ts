@@ -58,6 +58,7 @@ import { ProactiveScheduler } from '../proactive/ProactiveScheduler.ts'
 import { NotebookNudge } from '../notebook/NotebookNudge.ts'
 import { register_notebook_tools } from '../notebook/NotebookTools.ts'
 import { ProfileContext } from '../memory/ProfileContext.ts'
+import { ProfileInferenceStore } from '../profile/ProfileInference.ts'
 import { shared_notebook } from '../notebook/NotebookStore.ts'
 import { create_gemma_gate, type GemmaGate } from '../memory/gemmaGate.ts'
 import { create_notify_settings, type NotifySettings } from '../coordination/notifySettings.ts'
@@ -1118,8 +1119,10 @@ export class WeixinConnector {
       const store = new ProactiveStore(dir)
       const rhythm = new ProfileRhythm()
       const notebook = shared_notebook()
+      const profile = new ProfileInferenceStore(this.graph)
       const workspace = process.env.DSH_WEIXIN_WORKSPACE ?? process.cwd()
-      const prompt_path = join(workspace, 'prompts', 'ProactiveDigest.md')
+      const plan_prompt_path = join(workspace, 'prompts', 'InferenceResearch.md')
+      const summary_prompt_path = join(workspace, 'prompts', 'InferenceDigest.md')
       const nudge_prompt = join(workspace, 'prompts', 'NotebookNudge.md')
       const config_path = find_model_config(PROJECT_CONFIG_DIR)
         ?? join(PROJECT_CONFIG_DIR, 'config', 'modelConfig.json')
@@ -1131,10 +1134,13 @@ export class WeixinConnector {
       const researcher = new ProactiveResearcher({
         store,
         notebook,
+        profile,
         web: this.ctx.get('web') as ProactiveWebLike | undefined,
         complete: (prompt, max_tokens) =>
           this.gemma.run('proactive', () => model.complete(prompt, max_tokens)),
-        prompt_path,
+        plan_prompt_path,
+        summary_prompt_path,
+        on_profile_changed: () => this.profile_context.refresh(),
         max_per_day: Math.max(1, Number(process.env.DSH_PROACTIVE_MAX_PER_DAY ?? '3')),
         min_gap_ms: Math.max(1, Number(process.env.DSH_PROACTIVE_GAP_HOURS_MIN ?? '48')) * 3_600_000,
         max_gap_ms: Math.max(1, Number(process.env.DSH_PROACTIVE_GAP_HOURS_MAX ?? '72')) * 3_600_000,

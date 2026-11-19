@@ -72,9 +72,8 @@ export class ProactiveScheduler {
         this.options.rhythm.update_from_notes(notes)
         const hash = ProactiveStore.hash(notes)
         if (this.options.store.state().profile_hash !== hash) {
-          const topics = this.options.store.sync_profile(notes)
           this.options.store.set_state({ profile_hash: hash })
-          probe('proactive', 'profile.synced', { topics: topics.length })
+          probe('proactive', 'profile.synced')
         }
       }
       const last_user_at = await this.last_user_at()
