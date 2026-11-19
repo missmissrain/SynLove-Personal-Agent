@@ -11,6 +11,8 @@ export class ProactiveDelivery {
     /** 尝试播一条待播卡片。 */
     async flush(now, last_user_at, force) {
         const pending = this.options.store.cards().filter((card)=>card.status === 'pending').sort((a, b)=>a.created_at - b.created_at);
+        // 图谱里没写作息就不主动打扰，不做任何默认时间推断。
+        if (!force && !this.options.rhythm.is_configured()) return
         if (pending.length === 0) return;
         const gap = this.options.gap_ms ?? 2 * 3_600_000;
         const last = this.options.store.state().last_delivery_at;

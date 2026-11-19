@@ -13,6 +13,8 @@ export class NotebookNudge {
     /** 到点就提一句。 */
     async flush(now, last_user_at, force) {
         const pending = this.options.store.unread(7, now);
+        // 图谱里没写作息就不主动打扰，不做任何默认时间推断。
+        if (!force && !this.options.rhythm.is_configured()) return
         if (pending.length === 0) return;
         if (!force && this.options.rhythm.is_sleeping(new Date(now))) return;
         const active = last_user_at !== undefined && now - last_user_at <= 10 * 60_000;

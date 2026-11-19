@@ -29,6 +29,8 @@ export class ProactiveDelivery {
    */
   async flush(now: number, last_user_at: number | undefined, force: boolean): Promise<void> {
     const pending = this.options.store.cards()
+    // 图谱里没写作息就不主动打扰，不做任何默认时间推断。
+    if (!force && !this.options.rhythm.is_configured()) return
       .filter(card => card.status === 'pending')
       .sort((a, b) => a.created_at - b.created_at)
     if (pending.length === 0) return
