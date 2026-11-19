@@ -32,6 +32,7 @@ import { ProactiveDelivery } from '../proactive/ProactiveDelivery.js';
 import { ProactiveScheduler } from '../proactive/ProactiveScheduler.js'
 import { NotebookNudge } from '../notebook/NotebookNudge.js'
 import { register_notebook_tools } from '../notebook/NotebookTools.js'
+import { ProfileContext } from '../memory/ProfileContext.js';
 import { shared_notebook } from '../notebook/NotebookStore.js';
 import { create_gemma_gate } from '../memory/gemmaGate.js';
 import { create_notify_settings } from '../coordination/notifySettings.js';

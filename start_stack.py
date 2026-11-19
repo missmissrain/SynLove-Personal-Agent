@@ -756,7 +756,7 @@ def start_harness_service(env: dict[str, str]) -> subprocess.Popen:
 # 自启动最容易踩的两个坑，全在这里兜住：
 #   1. 上一次进程被强杀后 consumer_lease 还留着它的 pid → 新实例被"已有消费者"挡回；
 #   2. 守护/手动/自启动同时拉起 → 两个实例互抢 lease 与端口，谁都起不来。
-LOCK_FILE = Path(os.environ.get("DSH_STACK_LOCK") or (PROJECT_ROOT / "runtime" / "stack.lock.v2"))
+LOCK_FILE = Path(os.environ.get("DSH_STACK_LOCK") or (PROJECT_ROOT / "runtime" / "stack.lock.v3"))
 HARNESS_PORT = int(os.environ.get("DSH_HARNESS_PORT") or "3080")
 HARNESS_INJECT_PORT = int(os.environ.get("DSH_WEIXIN_INJECT_PORT") or "3081")
 STATE_DB = DSH_HOME / "weixin-state.db"
