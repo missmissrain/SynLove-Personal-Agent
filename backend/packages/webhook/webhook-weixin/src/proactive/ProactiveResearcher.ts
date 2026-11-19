@@ -80,7 +80,8 @@ export class ProactiveResearcher {
       return
     }
     const snapshot = await this.options.profile.read()
-    const candidate = pick_inference(snapshot.inferences, now, item => this.has_fresh_research(item.key, now))
+    const candidate = pick_inference(snapshot.inferences, now,
+      item => this.has_fresh_research(item.key, now) || this.options.store.skipped(item.key, now))
     if (candidate === undefined) {
       const fresh = snapshot.inferences.filter(item => this.has_fresh_research(item.key, now)).length
       probe('inference', 'no_candidate', { total: snapshot.inferences.length, fresh })
@@ -95,6 +96,7 @@ export class ProactiveResearcher {
     const plan = await this.plan(candidate, notes)
     if (plan === undefined) {
       probe('inference', 'not_actionable', { key: candidate.key })
+      this.options.store.mark_skipped(candidate.key, now + 7 * 86_400_000)
       return
     }
     const web = this.options.web
@@ -117,6 +119,7 @@ export class ProactiveResearcher {
     const sources = (found.sources ?? []).slice(0, 6)
     if (content === '' && sources.length === 0) {
       probe('inference', 'empty', { key: candidate.key })
+      this.options.store.mark_skipped(candidate.key, now + 3 * 86_400_000)
       return
     }
     const prompt = [
@@ -139,6 +142,7 @@ export class ProactiveResearcher {
     }
     if (text === '' || text === '无' || (text.startsWith('无') && text.length <= 12)) {
       probe('inference', 'no_change', { key: candidate.key })
+      this.options.store.mark_skipped(candidate.key, now + 3 * 86_400_000)
       return
     }
     this.options.notebook.append({
@@ -150,6 +154,7 @@ export class ProactiveResearcher {
       fresh_hours: this.fresh_hours_for(candidate),
       created_at: now,
     })
+    this.options.store.mark_skipped(candidate.key, 0)
     const marked = await this.options.profile.mark_researched(candidate.key, local_date(now))
     await this.options.on_profile_changed?.()
     probe('inference', 'researched', { key: candidate.key, chars: text.length, marked })

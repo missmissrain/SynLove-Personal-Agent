@@ -165,6 +165,27 @@ export class ProactiveStore {
         } catch  {
         }
     }
+    /** 这条推断是否在跳过期内。 */
+    skipped(key, now) {
+        try {
+            const path = this.file('skip.json');
+            if (!existsSync(path)) return false;
+            const data = JSON.parse(readFileSync(path, 'utf8'));
+            return Number(data[key] ?? 0) > now;
+        } catch  {
+            return false;
+        }
+    }
+    /** 标记一条推断在一段时间内不再尝试；until 传 0 表示清除。 */
+    mark_skipped(key, until) {
+        try {
+            const path = this.file('skip.json');
+            const data = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : {};
+            data[key] = until;
+            writeFileSync(path, JSON.stringify(data, null, 2), 'utf8');
+        } catch  {
+        }
+    }
     /** 删除强制标记。 */
     clear_force() {
         try {

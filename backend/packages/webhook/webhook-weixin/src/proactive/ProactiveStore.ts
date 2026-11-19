@@ -178,6 +178,32 @@ export class ProactiveStore {
     }
   }
 
+  /** 这条推断是否在跳过期内。 */
+  skipped(key: string, now: number): boolean {
+    try {
+      const path = this.file('skip.json')
+      if (!existsSync(path)) return false
+      const data = JSON.parse(readFileSync(path, 'utf8')) as Record<string, number>
+      return Number(data[key] ?? 0) > now
+    } catch {
+      return false
+    }
+  }
+
+  /** 标记一条推断在一段时间内不再尝试；until 传 0 表示清除。 */
+  mark_skipped(key: string, until: number): void {
+    try {
+      const path = this.file('skip.json')
+      const data = existsSync(path)
+        ? JSON.parse(readFileSync(path, 'utf8')) as Record<string, number>
+        : {}
+      data[key] = until
+      writeFileSync(path, JSON.stringify(data, null, 2), 'utf8')
+    } catch {
+      // 写不了就下次再试。
+    }
+  }
+
   /** 删除强制标记。 */
   clear_force(): void {
     try {
