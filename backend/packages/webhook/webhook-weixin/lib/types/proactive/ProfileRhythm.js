@@ -1,9 +1,7 @@
 /**
- * 画像作息：把睡眠、上班、午休换算成一天里的可播报时段。
- * 参数：config_path 指向 runtime/dsh/proactive/rhythm.json；文件缺失时使用内置默认值。
+ * 画像作息：只从知识图谱的主人备注里读睡眠、上班、午休。
+ * 参数：无；备注里没写时才用内置默认值。
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
 const DEFAULT_RHYTHM = {
     sleep_start: '23:00',
     sleep_end: '08:30',
@@ -28,12 +26,10 @@ function inside(now, start, end) {
 }
 /** 画像作息。 */
 export class ProfileRhythm {
-    constructor(config_path) {
-        this.config_path = config_path;
-        this.notes_override = {};
-    }
     /** 从画像备注里读作息；只认明确写出的时间。 */
     update_from_notes(notes) {
+        // 图谱是唯一来源：先清空旧值。
+        this.notes_override = {};
         const rules = [
             ['sleep_start', 'sleep_end', /(?:睡眠|睡觉)[^0-9]{0,8}(\d{1,2}:\d{2})\s*[-~到至]\s*(\d{1,2}:\d{2})/],
             ['work_start', 'work_end', /(?:上班|工作)[^0-9]{0,8}(\d{1,2}:\d{2})\s*[-~到至]\s*(\d{1,2}:\d{2})/],
@@ -46,38 +42,9 @@ export class ProfileRhythm {
             this.notes_override = { ...this.notes_override, [start_key]: match[1], [end_key]: match[2] };
         }
     }
-    /** 读取作息配置；文件不存在或损坏时返回默认值。 */
+    /** 当前生效的作息：图谱备注覆盖内置默认值。 */
     load() {
-        try {
-            if (!existsSync(this.config_path)) return { ...DEFAULT_RHYTHM, ...this.notes_override };
-            const raw = JSON.parse(readFileSync(this.config_path, 'utf8'));
-            const pick = (key)=>{
-                const value = typeof raw[key] === 'string' ? String(raw[key]) : '';
-                return minutes_of(value) === undefined ? DEFAULT_RHYTHM[key] : value;
-            };
-            const file_config = {
-                sleep_start: pick('sleep_start'),
-                sleep_end: pick('sleep_end'),
-                work_start: pick('work_start'),
-                work_end: pick('work_end'),
-                lunch_start: pick('lunch_start'),
-                lunch_end: pick('lunch_end')
-            };
-            return { ...file_config, ...this.notes_override };
-        } catch  {
-            return { ...DEFAULT_RHYTHM, ...this.notes_override };
-        }
-    }
-    /** 首次运行时写一份默认配置。 */
-    ensure_file() {
-        if (existsSync(this.config_path)) return;
-        try {
-            mkdirSync(dirname(this.config_path), {
-                recursive: true
-            });
-            writeFileSync(this.config_path, JSON.stringify(DEFAULT_RHYTHM, null, 2), 'utf8');
-        } catch  {
-        }
+        return { ...DEFAULT_RHYTHM, ...this.notes_override };
     }
     /** 判断当前时段：sleep / lunch / work / free。 */
     moment(now) {
