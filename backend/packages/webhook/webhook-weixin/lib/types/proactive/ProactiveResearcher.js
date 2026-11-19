@@ -21,7 +21,6 @@ export class ProactiveResearcher {
             probe('proactive', 'research.scheduled', { next_at: next });
         }
         if (!force && now < next) {
-            probe('proactive', 'research.wait', { left_ms: next - now });
             return;
         }
         const due = this.options.store.topics().filter((topic)=>force || topic_due(topic, now)).sort((a, b)=>(a.last_checked_ms ?? 0) - (b.last_checked_ms ?? 0));

@@ -63,7 +63,6 @@ export class ProactiveResearcher {
       probe('proactive', 'research.scheduled', { next_at: next })
     }
     if (!force && now < next) {
-      probe('proactive', 'research.wait', { left_ms: next - now })
       return
     }
     const due = this.options.store.topics()

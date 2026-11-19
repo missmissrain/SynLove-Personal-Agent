@@ -25,7 +25,6 @@ export class NotebookNudge {
             return;
         }
         if (!force && now < next) {
-            probe('notebook', 'nudge.wait', { left_ms: next - now });
             return;
         }
         const picks = pending.slice(0, 3);

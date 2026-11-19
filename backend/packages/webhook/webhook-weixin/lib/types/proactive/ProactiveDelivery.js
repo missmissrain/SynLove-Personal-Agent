@@ -25,9 +25,6 @@ export class ProactiveDelivery {
         const user_active = last_user_at !== undefined && now - last_user_at <= (this.options.active_window_ms ?? 10 * 60_000);
         const good = this.options.rhythm.is_good_moment(new Date(now));
         if (!force && !good && !user_active) {
-            probe('proactive', 'delivery.wait', {
-                moment: this.options.rhythm.moment(new Date(now))
-            });
             return;
         }
         const card = pending[0];
