@@ -57,6 +57,7 @@ import { ProactiveDelivery } from '../proactive/ProactiveDelivery.ts'
 import { ProactiveScheduler } from '../proactive/ProactiveScheduler.ts'
 import { NotebookNudge } from '../notebook/NotebookNudge.ts'
 import { register_notebook_tools } from '../notebook/NotebookTools.ts'
+import { ProfileContext } from '../memory/ProfileContext.ts'
 import { shared_notebook } from '../notebook/NotebookStore.ts'
 import { create_gemma_gate, type GemmaGate } from '../memory/gemmaGate.ts'
 import { create_notify_settings, type NotifySettings } from '../coordination/notifySettings.ts'
@@ -268,6 +269,8 @@ export class WeixinConnector {
   private readonly timeline: TimelineStore | MemoryRemoteClient | undefined
   /** 知识图谱（社交网络）：人物 + "谁称呼谁为什么"的有向边。 */
   private readonly graph: KnowledgeGraphStore | MemoryRemoteClient
+  /** 主人画像摘要：图谱更新或上下文压缩后刷新，注入系统提示。 */
+  private readonly profile_context: ProfileContext
   /** 会话工作目录（会话落盘路径由它推导，必须与 HarnessSessionHost 一致）。 */
   private readonly workspace_path: string = process.cwd()
   /** 通知开关：codex / opencode 的完成汇报是否推送。 */
@@ -346,6 +349,8 @@ export class WeixinConnector {
           ?? process.env.DSH_GRAPH_DIR
           ?? join(process.env.DSH_HOME ?? join(process.env.USERPROFILE ?? '.', '.dsh'), 'graph'),
       })
+    // 画像摘要只缓存，不在这里读图谱。
+    this.profile_context = new ProfileContext(this.graph)
     // 把时间线+图谱共享给 QQ 等其它通道：QQ 只写记录、装查询工具，
     // 摘要/图谱更新仍由本连接器里的调度器统一做（避免双实例双写）。
     if (this.timeline !== undefined) set_shared_memory({ timeline: this.timeline, graph: this.graph })
@@ -1084,7 +1089,10 @@ export class WeixinConnector {
             return await this.memory_backup.complete(prompt)
           }
         }),
-        on_update: result => probe('graph', 'updated', { ...result }),
+        on_update: result => {
+          probe('graph', 'updated', { ...result })
+          void this.profile_context.refresh()
+        },
       })
       if ((process.env.DSH_PROACTIVE_ENABLED ?? '1') !== '0') this.start_proactive_scheduler()
     } else {
@@ -1303,6 +1311,13 @@ export class WeixinConnector {
   private bind_agent_stream(agent: Agent): void {
     const session_id = String(agent.id)
     if (this.stream_agents.get(session_id) === agent) return
+    // 画像摘要：每次请求组装提示时读缓存；刷新由图谱更新/压缩/首次绑定触发。
+    agent.ctx.systemPrompt.section({
+        name: 'synlove:profile-digest',
+        order: 99990,
+        text: () => this.profile_context.current() || '【主人画像】正在读取。',
+    })
+    if (this.profile_context.current() === '') void this.profile_context.refresh()
     this.stream_disposers.get(session_id)?.()
     // 长期记忆的读取工具装在**这个 agent 自己**的 ctx 上（用 agent.ctx.effect 保证随 agent 卸载清理）。
     // 只装"读"：写入由链路自动完成，不开放给模型，避免它把臆想的事实写进长期记忆。
@@ -1375,6 +1390,8 @@ export class WeixinConnector {
         this.compacting_sessions.delete(session_id)
         this.compact_ack_sent.delete(session_id)
         probe('lifecycle', 'compaction.resume_inbound', { session_id })
+        // 压缩后旧细节被折叠，重新读图谱把画像补回上下文。
+        void this.profile_context.refresh()
         // 压缩结束后把期间挂起的消息补处理（它们停在 received、payload 都在库里）。
         void this.inbound.recover_unfinished().then((result) => {
           if (result.recovered > 0) {

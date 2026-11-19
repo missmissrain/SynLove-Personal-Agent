@@ -127,6 +127,8 @@ export class WeixinConnector {
     inject_server;
     timeline;
     graph;
+    /** 主人画像摘要。 */
+    profile_context;
     workspace_path = process.cwd();
     notify;
     timeline_scheduler;
@@ -180,6 +182,8 @@ export class WeixinConnector {
         this.graph = remote_memory ?? new KnowledgeGraphStore({
             dir: options.graph_dir ?? process.env.DSH_GRAPH_DIR ?? join(process.env.DSH_HOME ?? join(process.env.USERPROFILE ?? '.', '.dsh'), 'graph')
         });
+        // 画像摘要只缓存，不在这里读图谱。
+        this.profile_context = new ProfileContext(this.graph);
         if (this.timeline !== undefined) set_shared_memory({
             timeline: this.timeline,
             graph: this.graph
@@ -889,9 +893,10 @@ export class WeixinConnector {
                         return await this.memory_backup.complete(prompt);
                     }
                 }),
-                on_update: (result)=>probe('graph', 'updated', {
-                        ...result
-                    })
+                on_update: (result)=>{
+                    probe('graph', 'updated', { ...result });
+                    void this.profile_context.refresh();
+                }
             });
             if ((process.env.DSH_PROACTIVE_ENABLED ?? '1') !== '0') this.start_proactive_scheduler();
         } else {
@@ -1107,6 +1112,13 @@ export class WeixinConnector {
     bind_agent_stream(agent) {
         const session_id = String(agent.id);
         if (this.stream_agents.get(session_id) === agent) return;
+        // 画像摘要：每次请求组装提示时读缓存；刷新由图谱更新/压缩/首次绑定触发。
+        agent.ctx.systemPrompt.section({
+            name: 'synlove:profile-digest',
+            order: 99990,
+            text: () => this.profile_context.current() || '【主人画像】正在读取。',
+        });
+        if (this.profile_context.current() === '') void this.profile_context.refresh();
         this.stream_disposers.get(session_id)?.();
         if (this.timeline !== undefined) {
             agent.ctx.effect(()=>{
