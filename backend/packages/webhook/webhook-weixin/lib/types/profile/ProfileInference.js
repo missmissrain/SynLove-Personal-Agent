@@ -29,14 +29,9 @@ export function actionable(inference) {
     return !/沟通|性格|习惯|厌恶|偏好|情绪|健康|作息/.test(`${inference.key}${inference.text}`);
 }
 /** 挑一条这次值得研究的推断。 */
-export function pick_inference(list, now) {
+export function pick_inference(list, now, is_fresh) {
     const rank = { 高: 3, 中: 2, 低: 1 };
-    const fresh = (item) => {
-        if (item.status === '未调研') return true;
-        if (item.researched_at === undefined) return true;
-        return now - Date.parse(item.researched_at) > 7 * 86_400_000;
-    };
-    const candidates = list.filter((item) => actionable(item) && item.confidence !== '低' && fresh(item)).sort((a, b) => {
+    const candidates = list.filter((item) => actionable(item) && item.confidence !== '低').filter((item) => !(is_fresh?.(item) ?? false)).filter((item) => item.researched_at === undefined || now - Date.parse(item.researched_at) >= 86_400_000).sort((a, b) => {
         const fresh_a = a.status === '未调研' ? 1 : 0;
         const fresh_b = b.status === '未调研' ? 1 : 0;
         if (fresh_a !== fresh_b) return fresh_b - fresh_a;
@@ -45,6 +40,7 @@ export function pick_inference(list, now) {
     });
     return candidates[0];
 }
+
 /** 画像推断存储。 */
 export class ProfileInferenceStore {
     constructor(graph) {

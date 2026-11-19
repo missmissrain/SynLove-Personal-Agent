@@ -80,13 +80,10 @@ export class ProactiveResearcher {
       return
     }
     const snapshot = await this.options.profile.read()
-    const candidate = pick_inference(snapshot.inferences, now)
+    const candidate = pick_inference(snapshot.inferences, now, item => this.has_fresh_research(item.key, now))
     if (candidate === undefined) {
-      probe('inference', 'no_candidate', { total: snapshot.inferences.length })
-      return
-    }
-    if (this.recently_researched(candidate.key, now)) {
-      probe('inference', 'recent', { key: candidate.key })
+      const fresh = snapshot.inferences.filter(item => this.has_fresh_research(item.key, now)).length
+      probe('inference', 'no_candidate', { total: snapshot.inferences.length, fresh })
       return
     }
     await this.research(candidate, snapshot.notes, now)
@@ -150,7 +147,7 @@ export class ProactiveResearcher {
       title: `推断：${candidate.key}`,
       summary: text,
       sources: sources.map(item => item.url).slice(0, 3),
-      fresh_hours: 72,
+      fresh_hours: this.fresh_hours_for(candidate),
       created_at: now,
     })
     const marked = await this.options.profile.mark_researched(candidate.key, local_date(now))
@@ -160,7 +157,13 @@ export class ProactiveResearcher {
 
   /** 先让模型把推断变成一个可搜的问题。 */
   private async plan(candidate: ProfileInference, notes: string): Promise<{ query: string, question: string } | undefined> {
-    const recent = this.options.notebook.recent(14, Date.now(), 8).map(entry => entry.title).join('；')
+    const now = Date.now()
+    const recent = this.options.notebook.recent(14, now, 8)
+      .map(entry => {
+        const fresh = now - entry.created_at < entry.fresh_hours * 3_600_000
+        return `- ${fresh ? '还有效' : '已过期'}｜${entry.title}：${entry.summary.slice(0, 120)}`
+      })
+      .join('\n')
     const prompt = [
       this.plan_guidance,
       '',
@@ -186,10 +189,21 @@ export class ProactiveResearcher {
     return { query, question }
   }
 
-  /** 七天内查过同一个推断就跳过。 */
-  private recently_researched(key: string, now: number): boolean {
-    return this.options.notebook.entries().some(entry =>
-      entry.topic_id === `inference-${key}` && now - entry.created_at < 7 * 86_400_000)
+  /** 这条推断最近查过、而且结果还在保鲜期内，就不再查。 */
+  private has_fresh_research(key: string, now: number): boolean {
+    const latest = this.options.notebook.entries()
+      .filter(entry => entry.topic_id === `inference-${key}`)
+      .sort((a, b) => b.created_at - a.created_at)[0]
+    if (latest === undefined) return false
+    return now - latest.created_at < latest.fresh_hours * 3_600_000
+  }
+
+  /** 不同推断的保鲜期：价格/出行短，项目/技术长。 */
+  private fresh_hours_for(candidate: ProfileInference): number {
+    const text = `${candidate.key}${candidate.text}`
+    if (/旅行|机票|价格|显卡|购买|酒店/.test(text)) return 72
+    if (/项目|部署|技术|学习/.test(text)) return 168
+    return 96
   }
 
   /** 安排下一次搜索：48-72 小时之间随机。 */

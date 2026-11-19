@@ -76,15 +76,17 @@ export function actionable(inference: ProfileInference): boolean {
  * @param now - 当前毫秒时间戳。
  * @returns 选中的推断；没有就返回 undefined。
  */
-export function pick_inference(list: readonly ProfileInference[], now: number): ProfileInference | undefined {
+export function pick_inference(
+  list: readonly ProfileInference[],
+  now: number,
+  is_fresh?: (item: ProfileInference) => boolean,
+): ProfileInference | undefined {
   const rank = { 高: 3, 中: 2, 低: 1 }
-  const fresh = (item: ProfileInference): boolean => {
-    if (item.status === '未调研') return true
-    if (item.researched_at === undefined) return true
-    return now - Date.parse(item.researched_at) > 7 * 86_400_000
-  }
   const candidates = list
-    .filter(item => actionable(item) && item.confidence !== '低' && fresh(item))
+    .filter(item => actionable(item) && item.confidence !== '低')
+    // 外部用记事簿判断“是不是还有效”；这里再兜一层 24 小时内不重复。
+    .filter(item => !(is_fresh?.(item) ?? false))
+    .filter(item => item.researched_at === undefined || now - Date.parse(item.researched_at) >= 86_400_000)
     .sort((a, b) => {
       const fresh_a = a.status === '未调研' ? 1 : 0
       const fresh_b = b.status === '未调研' ? 1 : 0
