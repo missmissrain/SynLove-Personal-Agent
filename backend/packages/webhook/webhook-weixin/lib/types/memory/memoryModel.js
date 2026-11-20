@@ -8,7 +8,9 @@ function default_config_path() {
 export function resolve_cloud_target(config_path, cloud_model) {
     try {
         const config = JSON.parse(readFileSync(config_path, 'utf8'));
-        const [provider_id, model_id] = cloud_model.split('/');
+        const cut = cloud_model.indexOf('/');
+        const provider_id = cut < 0 ? cloud_model : cloud_model.slice(0, cut);
+        const model_id = cut < 0 ? undefined : cloud_model.slice(cut + 1);
         const provider = config.providers?.[provider_id ?? ''];
         if (provider === undefined) return undefined;
         const model = model_id !== undefined && model_id !== '' ? model_id : provider.models?.[0]?.id;

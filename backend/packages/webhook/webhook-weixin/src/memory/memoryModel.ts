@@ -76,7 +76,10 @@ export function resolve_cloud_target(config_path: string, cloud_model: string): 
     const config = JSON.parse(readFileSync(config_path, 'utf8')) as {
       providers?: Record<string, { baseURL?: string, apiKey?: string, models?: Array<{ id: string }> }>
     }
-    const [provider_id, model_id] = cloud_model.split('/')
+    // 模型 id 可能自带 provider 前缀（例如 workbuddy/glm-5.3），只按第一个斜杠切分。
+    const cut = cloud_model.indexOf('/')
+    const provider_id = cut < 0 ? cloud_model : cloud_model.slice(0, cut)
+    const model_id = cut < 0 ? undefined : cloud_model.slice(cut + 1)
     const provider = config.providers?.[provider_id ?? '']
     if (provider === undefined) return undefined
     const model = model_id !== undefined && model_id !== ''
