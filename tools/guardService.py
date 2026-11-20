@@ -255,6 +255,37 @@ def _halt_marker_active():
         return PAUSE_MARKER.is_file()
 
 
+
+_NET_CACHE = {"at": 0.0, "ok": True}
+
+
+def network_online(timeout: float = 3.0) -> bool:
+    """参数 timeout 为单次连接超时秒数；用 TCP 443 探测出口是否连通，结果缓存 60 秒。"""
+    now = time.time()
+    if now - _NET_CACHE["at"] < 60:
+        return bool(_NET_CACHE["ok"])
+    target = [("223.5.5.5", 443), ("1.1.1.1", 443), ("www.baidu.com", 443)]
+    ok = False
+    for host, port in target:
+        sock = socket.socket()
+        sock.settimeout(timeout)
+        try:
+            sock.connect((host, port))
+            ok = True
+            break
+        except OSError:
+            continue
+        finally:
+            try:
+                sock.close()
+            except OSError:
+                pass
+    if now - _NET_CACHE["at"] >= 600 or _NET_CACHE["ok"] != ok:
+        log(f"网络连通性检查：{'通' if ok else '不通'}（{int(now)}）")
+    _NET_CACHE["at"] = now
+    _NET_CACHE["ok"] = ok
+    return ok
+
 def check_weixin_stall():
     """微信 ingress 若长时间没有任何 poll 事件，说明链路卡死，重启栈。
 
@@ -263,6 +294,8 @@ def check_weixin_stall():
     微信真卡死了也不会有人管。现在改成扫最近 800 条，并且只在「窗口里有 poll 事件」
     时才用时间戳判断（避免刚启动还没开始轮询就误杀）。
     """
+    if not network_online():
+        return
     probe = ROOT / "runtime" / "weixin-probe.log"
     if not probe.is_file():
         return
@@ -298,6 +331,8 @@ def check_weixin_stall():
 
 def check_qq_gateway():
     """无参数；核对 QQ 进程及有期限的协议心跳，不能把进程存活当连接正常。"""
+    if not network_online():
+        return
     if not QQ_LOCK.is_file():
         return
     try:
