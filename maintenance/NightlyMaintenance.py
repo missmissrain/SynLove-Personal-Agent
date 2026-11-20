@@ -89,17 +89,31 @@ class NightlyMaintenance:
                 ast.parse(file.read_text(encoding="utf-8-sig"), filename=name)
             elif file.suffix == ".json":
                 json.loads(file.read_text(encoding="utf-8-sig"))
-        for index, command in enumerate(checks):
+        # 按改动范围追加回归：例如改了 webhook 就跑记忆/主动研究门槛。
+        effective_checks = list(checks)
+        for scope in row.get("scopeChecks", []):
+            prefix = str(scope.get("prefix") or "")
+            if prefix == "" or not any(name.startswith(prefix) for name in names):
+                continue
+            for command in scope.get("checks", []):
+                if command not in effective_checks:
+                    effective_checks.append(command)
+        for index, command in enumerate(effective_checks):
             expanded = [str(part).replace("{python}", sys.executable).replace("{source}", row["path"]) for part in command]
             if self.run_process(expanded, box.work, 300, folder / f"check{index}.log") != 0:
                 raise RuntimeError("维护补丁未通过验收，未应用")
         if self.busy_state():
             return {"name": row["name"], "state": "staged_busy", "files": names}
-        auto_apply = self.config.get("autoApply", True) and row.get("autoApply", False)
+        # 默认只生成待审补丁；只有改动全部落在显式登记的低风险路径内才允许自动应用。
+        prefixes = [str(prefix) for prefix in row.get("autoApplyPrefixes", []) if str(prefix)]
+        low_risk = bool(prefixes) and all(any(name.startswith(prefix) for prefix in prefixes) for name in names)
+        auto_apply = self.config.get("autoApply", True) and row.get("autoApply", False) and low_risk
+        blocked = "" if auto_apply or not prefixes else "paths"
         if auto_apply:
             box.apply_patch(folder / "changes.patch", names)
         return {"name": row["name"], "state": "applied" if auto_apply else "staged", "files": names,
-                "device": result["device"], "jobId": result["jobId"]}
+                "device": result["device"], "jobId": result["jobId"],
+                **({} if blocked == "" else {"autoApplyBlocked": blocked})}
 
     def run_once(self, check_only=False):
         """check_only只验证配置、路径和CLI；正式运行持久锁、每日一次，错误逐仓库记录。"""

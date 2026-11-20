@@ -21,7 +21,57 @@
       "autoApply": true,
       "timeoutSec": 900,
       "checks": [
-        ["{python}", "-X", "utf8", "-m", "unittest", "discover", "-s", "tests", "-p", "NightlyMaintenanceTests.py"]
+        [
+          "{python}",
+          "-X",
+          "utf8",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "tests",
+          "-p",
+          "NightlyMaintenanceTests.py"
+        ]
+      ],
+      "autoApplyPrefixes": [
+        "docs/",
+        "tests/"
+      ],
+      "scopeChecks": [
+        {
+          "prefix": "backend/packages/webhook/",
+          "checks": [
+            [
+              "{python}",
+              "-X",
+              "utf8",
+              "tools/RunMemoryGate.py"
+            ]
+          ]
+        },
+        {
+          "prefix": "tests/",
+          "checks": [
+            [
+              "{python}",
+              "-X",
+              "utf8",
+              "tools/RunMemoryGate.py"
+            ]
+          ]
+        },
+        {
+          "prefix": "prompts/",
+          "checks": [
+            [
+              "{python}",
+              "-X",
+              "utf8",
+              "tools/RunMemoryGate.py"
+            ]
+          ]
+        }
       ]
     }
   ]
