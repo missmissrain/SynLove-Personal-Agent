@@ -38,3 +38,4 @@ VPS 转发模式：
 
 - `.github/workflows/release-gate.yml` 在 push/PR 时运行记忆与主动研究门槛。
 - 发布时先跑 `python tools/RunMemoryGate.py`，再创建 tag（例如 `v2.1.1`）和 GitHub Release；没有通过门槛不得打 tag。
+- release-gate 最近一次运行：run `44660186066`，`1fb800d`，memory 任务通过。
