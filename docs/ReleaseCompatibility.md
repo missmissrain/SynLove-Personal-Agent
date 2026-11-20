@@ -4,7 +4,7 @@
 
 | 组件 | 仓库/路径 | 版本 | 固定提交 | 部署入口 | 回滚 |
 | --- | --- | --- | --- | --- | --- |
-| 主程序 | `SynLove-Personal-Agent` | v2.1 | `56b06d7` | `server/agent-run.cmd` / `start_stack.py` | 回退到上一版 tag 或上一提交 |
+| 主程序 | `SynLove-Personal-Agent` | v2.1 | `5cf7bc2` | `server/agent-run.cmd` / `start_stack.py` | 回退到上一版 tag 或上一提交 |
 | 后台服务 | `SynLove-Backend-Service` | 2026.11 | `792cd9b` | `server/backend-boot.ps1` / `businessRuntime` | 回退到上一提交并重跑 `GpuResidencyTests.py` |
 | VPS Relay（hub/client） | `synlove-relay` | 1.0.0 | 工作副本，无 git 历史 | `deploy/synlove-relay.service` | 保留 `备份/TtsRelayRepairv1.1` |
 | 家庭服务器出站节点 | `SynLove-Backend-Service/relayNode` | 1.1.0 | `792cd9b` | `relayNode/dist/tools/startNode.js` | 回退 `relayNode` 到上一提交 |
