@@ -138,16 +138,24 @@ export class ProactiveStore {
             version: 1
         }, null, 2), 'utf8');
     }
-    /** 占用一次当日搜索额度；额度用完返回 false。 */
-    bump_budget(now, max) {
+    /** 当天还有没有搜索额度。 */
+    has_budget(now, max) {
         const state = this.state();
         const day = local_day(now);
         const searches = state.day === day ? state.searches : 0;
-        if (searches >= max) return false;
-        this.set_state({
-            day,
-            searches: searches + 1
-        });
+        return searches < max;
+    }
+    /** 消耗一次当日搜索额度。 */
+    consume_budget(now) {
+        const state = this.state();
+        const day = local_day(now);
+        const searches = state.day === day ? state.searches : 0;
+        this.set_state({ day, searches: searches + 1 });
+    }
+    /** 占用一次当日搜索额度；额度用完返回 false。 */
+    bump_budget(now, max) {
+        if (!this.has_budget(now, max)) return false;
+        this.consume_budget(now);
         return true;
     }
     /** 是否存在强制跑一次的标记。 */

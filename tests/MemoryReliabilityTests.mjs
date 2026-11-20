@@ -78,6 +78,8 @@ test('图谱远端失败不推进水位，同毫秒追加记录仍会更新',asy
     return prompt.includes('【角色')?'无':(prompt.includes('整理成')?'人物|测试小林|\n关系|主人|测试小林|朋友':'无')
   }})
   try{
+    // 先等启动轮结束：start() 会立即跑一次，不等待的话手动触发会被 busy 挡住。
+    await scheduler.ready()
     assert.equal(await scheduler.run_once(),undefined)
     assert.equal(graph.last_update_ms(),undefined)
     fail=false

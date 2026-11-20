@@ -6,14 +6,9 @@ export function start_graph_scheduler(options) {
     const idle_ms = options.idle_ms ?? Math.max(1, Number(process.env.DSH_TIMELINE_IDLE_HOURS ?? '3')) * 3_600_000;
     const interval_ms = options.interval_ms ?? Math.max(1, Number(process.env.DSH_TIMELINE_CHECK_MINUTES ?? '5')) * 60_000;
     const max_days = options.max_days ?? 7;
-    let busy = false;
+    let current;
     let stopped = false;
-    const run_once = async (now = Date.now())=>{
-        if (busy) {
-            probe('graph', 'scheduler.skipped_busy');
-            return undefined;
-        }
-        busy = true;
+    const execute = async (now)=>{
         try {
             // 回溯重跑：存在 runtime/graph-backfill.request 时，从 0 号游标重扫指定天数。
             const marker = join(process.env.DSH_HOME ?? join(process.cwd(), 'runtime', 'dsh'), 'graph-backfill.request');
@@ -64,9 +59,22 @@ export function start_graph_scheduler(options) {
                 error: String(error)
             });
             return undefined;
-        } finally{
-            busy = false;
         }
+    };
+    const run_once = async (now = Date.now())=>{
+        if (current !== undefined) {
+            probe('graph', 'scheduler.joined_busy');
+            return current;
+        }
+        current = execute(now);
+        try {
+            return await current;
+        } finally {
+            current = undefined;
+        }
+    };
+    const ready = async ()=>{
+        while (current !== undefined) await current.catch(() => undefined);
     };
     const timer = setInterval(()=>{
         void run_once();
@@ -81,6 +89,7 @@ export function start_graph_scheduler(options) {
     });
     return {
         run_once,
+        ready,
         stop () {
             if (stopped) return;
             stopped = true;

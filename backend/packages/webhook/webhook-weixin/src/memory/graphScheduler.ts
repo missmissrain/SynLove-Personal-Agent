@@ -43,6 +43,8 @@ export interface GraphSchedulerOptions {
 export interface GraphScheduler {
   /** 立即检查一次；返回本次更新结果（未到期/无新记录时为 undefined）。 */
   run_once(now?: number): Promise<GraphUpdateResult | undefined>
+  /** 等启动轮/当前轮结束；测试与优雅重启用。 */
+  ready(): Promise<void>
   stop(): void
 }
 
@@ -58,15 +60,10 @@ export function start_graph_scheduler(options: GraphSchedulerOptions): GraphSche
   const interval_ms = options.interval_ms
     ?? Math.max(1, Number(process.env.DSH_TIMELINE_CHECK_MINUTES ?? '5')) * 60_000
   const max_days = options.max_days ?? 7
-  let busy = false
+  let current: Promise<GraphUpdateResult | undefined> | undefined
   let stopped = false
 
-  const run_once = async (now = Date.now()): Promise<GraphUpdateResult | undefined> => {
-    if (busy) {
-      probe('graph', 'scheduler.skipped_busy')
-      return undefined
-    }
-    busy = true
+  const execute = async (now: number): Promise<GraphUpdateResult | undefined> => {
     try {
       // 回溯重跑：存在 runtime/graph-backfill.request 时，从 0 号游标重扫指定天数，
       // 用于把历史对话里的偏好补进图谱，跑完删除该文件。
@@ -116,9 +113,25 @@ export function start_graph_scheduler(options: GraphSchedulerOptions): GraphSche
     } catch (error) {
       probe('graph', 'scheduler.failed', { error: String(error) })
       return undefined
-    } finally {
-      busy = false
     }
+  }
+
+  const run_once = async (now = Date.now()): Promise<GraphUpdateResult | undefined> => {
+    if (current !== undefined) {
+      probe('graph', 'scheduler.joined_busy')
+      return current
+    }
+    current = execute(now)
+    try {
+      return await current
+    } finally {
+      current = undefined
+    }
+  }
+
+  /** 等启动轮/当前轮结束。 */
+  const ready = async (): Promise<void> => {
+    while (current !== undefined) await current.catch(() => undefined)
   }
 
   const timer = setInterval(() => { void run_once() }, interval_ms)
@@ -129,6 +142,7 @@ export function start_graph_scheduler(options: GraphSchedulerOptions): GraphSche
 
   return {
     run_once,
+    ready,
     stop(): void {
       if (stopped) return
       stopped = true

@@ -149,13 +149,26 @@ export class ProactiveStore {
     writeFileSync(this.file('state.json'), JSON.stringify({ ...this.state(), ...patch, version: 1 }, null, 2), 'utf8')
   }
 
-  /** 占用一次当日搜索额度；额度用完返回 false。 */
-  bump_budget(now: number, max: number): boolean {
+  /** 当天还有没有搜索额度。 */
+  has_budget(now: number, max: number): boolean {
     const state = this.state()
     const day = local_day(now)
     const searches = state.day === day ? state.searches : 0
-    if (searches >= max) return false
+    return searches < max
+  }
+
+  /** 消耗一次当日搜索额度。 */
+  consume_budget(now: number): void {
+    const state = this.state()
+    const day = local_day(now)
+    const searches = state.day === day ? state.searches : 0
     this.set_state({ day, searches: searches + 1 })
+  }
+
+  /** 占用一次当日搜索额度；额度用完返回 false。 */
+  bump_budget(now: number, max: number): boolean {
+    if (!this.has_budget(now, max)) return false
+    this.consume_budget(now)
     return true
   }
 
