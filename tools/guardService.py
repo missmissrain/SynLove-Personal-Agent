@@ -271,6 +271,7 @@ def check_weixin_stall():
     except OSError:
         return
     last_poll = 0.0
+    last_network = 0.0
     for line in lines:
         try:
             item = json.loads(line)
@@ -281,9 +282,16 @@ def check_weixin_stall():
         at = item.get("at")
         if isinstance(at, str):
             try:
-                last_poll = max(last_poll, datetime.datetime.fromisoformat(at.replace("Z", "+00:00")).timestamp())
+                stamp = datetime.datetime.fromisoformat(at.replace("Z", "+00:00")).timestamp()
             except ValueError:
-                pass
+                stamp = 0.0
+            if stamp:
+                last_poll = max(last_poll, stamp)
+                # 出口网络的错误重启整栈也没用，留 15 分钟豁免期，避免重启风暴。
+                if str(item.get("event", "")) in {"poll.network_error", "poll.long_poll_timeout"}:
+                    last_network = max(last_network, stamp)
+    if last_network and time.time() - last_network < 900:
+        return
     if last_poll >= GUARD_STARTED_AT and time.time() - last_poll > 300:
         restart_stack(f"微信 ingress 静默 {int(time.time() - last_poll)} 秒")
 
@@ -296,23 +304,35 @@ def check_qq_gateway():
         pid = int(QQ_LOCK.read_text(encoding="utf-8").strip() or 0)
     except (OSError, ValueError):
         pid = 0
-    if pid > 0 and process_alive(pid):
+    rows = []
+    try:
+        rows = (ROOT / "runtime" / "weixin-probe.log").read_text(encoding="utf-8", errors="replace").splitlines()[-400:]
+    except OSError:
+        rows = []
+    latest_health = None
+    for line in reversed(rows):
         try:
-            rows = (ROOT / "runtime" / "weixin-probe.log").read_text(encoding="utf-8", errors="replace").splitlines()
-            for line in reversed(rows):
-                try:
-                    item = json.loads(line)
-                except ValueError:
-                    continue
-                data = item.get("data", {})
-                if item.get("event") != "qq.health" or data.get("pid") != pid:
-                    continue
-                if time.time() * 1000 > float(data.get("expires_at") or 0) + 60000:
-                    restart_stack("QQ 协议心跳已过期")
-                return
-        except (OSError, ValueError):
-            pass
+            item = json.loads(line)
+        except ValueError:
+            continue
+        if item.get("event") == "qq.health":
+            latest_health = item.get("data", {})
+            break
+    if pid > 0 and process_alive(pid):
+        if latest_health is not None and latest_health.get("pid") == pid:
+            if time.time() * 1000 > float(latest_health.get("expires_at") or 0) + 60000:
+                restart_stack("QQ 协议心跳已过期")
         return
+    # 锁文件里的 pid 已退出：先看协议心跳。心跳还活着说明只是锁没刷新，改锁即可。
+    if latest_health is not None:
+        live_pid = int(latest_health.get("pid") or 0)
+        fresh = time.time() * 1000 <= float(latest_health.get("expires_at") or 0) + 60000
+        if live_pid > 0 and fresh and process_alive(live_pid):
+            try:
+                QQ_LOCK.write_text(str(live_pid), encoding="utf-8")
+            except OSError:
+                pass
+            return
     restart_stack(f"QQ 网关进程不在（pid={pid}）")
 
 
