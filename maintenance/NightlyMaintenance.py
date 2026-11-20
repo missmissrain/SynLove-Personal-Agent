@@ -108,7 +108,7 @@ class NightlyMaintenance:
         prefixes = [str(prefix) for prefix in row.get("autoApplyPrefixes", []) if str(prefix)]
         low_risk = bool(prefixes) and all(any(name.startswith(prefix) for prefix in prefixes) for name in names)
         auto_apply = self.config.get("autoApply", True) and row.get("autoApply", False) and low_risk
-        blocked = "" if auto_apply or not prefixes else "paths"
+        blocked = "paths" if prefixes and not low_risk else ""
         if auto_apply:
             box.apply_patch(folder / "changes.patch", names)
         return {"name": row["name"], "state": "applied" if auto_apply else "staged", "files": names,
