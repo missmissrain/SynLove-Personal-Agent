@@ -29,7 +29,16 @@ key 存在 VPS 的 `/etc/magpie/gateway.key`（权限 600），不要写进仓�
 
 ## 欣爱（SynLove）接入
 
-- `config/modelConfig.json`：新增 `workbuddy` provider，`baseURL` 用本机 `http://127.0.0.1:3425/v1`；默认模型 `workbuddy/workbuddy/glm-5.3`，`failover.order` 为 workbuddy → qwen3.8-flash。
-- `config/console.env`：`DSH_MEMORY_ENGINE=cloud`、`DSH_MEMORY_CLOUD_MODEL=workbuddy/workbuddy/glm-5.3`、`DSH_MEMORY_CLOUD_FALLBACK=qwen/qwen3.8-flash`，记忆更新与摘要走同一条链。
-- `resolve_cloud_target` 原来按 `/` 全量切分，模型 id 带 provider 前缀时会解析错；已改成只按第一个斜杠切分，`workbuddy/workbuddy/glm-5.3` 能正确解析到 provider=workbuddy、model=workbuddy/glm-5.3。
-- 主 Agent 的静默思考与子 Agent 都走默认模型链，因此同样享受 workbuddy → qwen 的静默切换。
+按用途拆开，避免把主对话的额度花在后台任务上：
+
+| 用途 | 模型 | 回退 |
+| --- | --- | --- |
+| 主对话（presenter） | `dahuangf/gpt-6.1-sol` | `qwen3.8-flash` |
+| 主动研究 | `dahuangf/gpt-6.1-sol` | `qwen3.8-flash` → `workbuddy/deepseek-v4.1-flash` |
+| 记忆/知识图谱更新 | `workbuddy/hy4flash-free`（免费） | `qwen3.8-flash` |
+| 自主行动（agent task worker） | `workbuddy/glm-5.3` | 主链回退 |
+
+- `config/modelConfig.json`：默认 `dahuangf/gpt-6.1-sol`，`failover.order` 为 dahuangf → qwen；另有 `workbuddy` provider 指向 `http://127.0.0.1:3425/v1`。
+- `config/agentTaskConfig.json`：`workerModel` 指向 workbuddy，子 Agent 与自主行动走它。
+- `config/console.env`：`DSH_MEMORY_CLOUD_MODEL=workbuddy/workbuddy/hy4flash-free`、`DSH_MEMORY_CLOUD_FALLBACK=qwen/qwen3.8-flash`、`DSH_PROACTIVE_MODEL=dahuangf/gpt-6.1-sol,qwen/qwen3.8-flash,workbuddy/workbuddy/deepseek-v4.1-flash`（逗号分隔即回退顺序）。
+- `resolve_cloud_target` 只按第一个斜杠切分，`workbuddy/workbuddy/hy4flash-free` 能正确解析成 provider=workbuddy、model=workbuddy/hy4flash-free。

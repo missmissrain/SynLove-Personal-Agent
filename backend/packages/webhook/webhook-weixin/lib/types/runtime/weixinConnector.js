@@ -919,17 +919,30 @@ export class WeixinConnector {
       const summary_prompt_path = join(workspace, 'prompts', 'InferenceDigest.md');
             const nudge_prompt = join(workspace, 'prompts', 'NotebookNudge.md');
             const config_path = find_model_config(PROJECT_CONFIG_DIR) ?? join(PROJECT_CONFIG_DIR, 'config', 'modelConfig.json');
-            const model = create_memory_model({
-                engine: 'cloud',
-                cloud_model: process.env.DSH_PROACTIVE_MODEL ?? 'qwen/qwen3.8-flash',
-                config_path
-            });
+            const proactive_models = (process.env.DSH_PROACTIVE_MODEL ?? 'qwen/qwen3.8-flash')
+                .split(',').map((item)=>item.trim()).filter((item)=>item !== '')
+                .map((cloud_model)=>create_memory_model({
+                    engine: 'cloud',
+                    cloud_model,
+                    config_path
+                }));
+            const complete_chain = async (prompt, max_tokens)=>{
+                let last;
+                for (const candidate of proactive_models){
+                    try {
+                        return await candidate.complete(prompt, max_tokens);
+                    } catch (error) {
+                        last = error;
+                    }
+                }
+                throw last instanceof Error ? last : new Error('主动研究没有可用模型');
+            };
             const researcher = new ProactiveResearcher({
                 store,
                 notebook,
                 profile,
                 web: this.ctx.get('web'),
-                complete: (prompt, max_tokens)=>this.gemma.run('proactive', ()=>model.complete(prompt, max_tokens)),
+                complete: (prompt, max_tokens)=>this.gemma.run('proactive', ()=>complete_chain(prompt, max_tokens)),
                 plan_prompt_path,
                 summary_prompt_path,
                 on_profile_changed: ()=>this.profile_context.refresh(),
@@ -940,7 +953,7 @@ export class WeixinConnector {
             const delivery = new NotebookNudge({
                 store: notebook,
                 rhythm,
-                complete: (prompt, max_tokens)=>this.gemma.run('notebook-nudge', ()=>model.complete(prompt, max_tokens)),
+                complete: (prompt, max_tokens)=>this.gemma.run('notebook-nudge', ()=>complete_chain(prompt, max_tokens)),
                 prompt_path: nudge_prompt,
                 send: (text)=>this.send_proactive_text(text),
                 min_gap_ms: 48 * 3_600_000,
