@@ -17,6 +17,8 @@
 - 首轮 Actions 失败原因是干净检出没有 `node_modules`：`diagnostics/probe.js` 顶层静态导入 `@deepseek-ai/dsh-llm`，导入即报 `ERR_MODULE_NOT_FOUND`。
 - 探针改为 `createRequire` 按需加载该包：可用时照常写 trace，缺失时只写 JSONL；生产环境行为不变。
 - 门槛补上 node 定位顺序与缺文件提示；工作流补 `actions/setup-node@v5`（Node 24），并把 checkout/setup-python 升到 v5/v6。
+- 主动研究回归原先写死 `G:/SynLove-houtai/...` 提示词路径，Runner 上文件不存在会让假模型走错分支；改为从 `import.meta.url` 取仓库内提示词，并按请求内容（是否带搜索正文）区分规划与摘要。
+- 门槛失败时把“失败用例名 + 断言行”写进注解，不用登录也能在 Actions 页面看到原因。
 - 已用干净浅克隆复跑：12 项通过、`GATE_PASS`。
 
 ## 跨仓与维护

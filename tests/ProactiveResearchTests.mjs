@@ -7,12 +7,15 @@ import assert from 'node:assert/strict'
 import {mkdtempSync, rmSync} from 'node:fs'
 import {join} from 'node:path'
 import {tmpdir} from 'node:os'
+import {fileURLToPath} from 'node:url'
 import {ProactiveStore} from '../backend/packages/webhook/webhook-weixin/lib/types/proactive/ProactiveStore.js'
 import {ProactiveResearcher} from '../backend/packages/webhook/webhook-weixin/lib/types/proactive/ProactiveResearcher.js'
 import {NotebookStore} from '../backend/packages/webhook/webhook-weixin/lib/types/notebook/NotebookStore.js'
 import {ProfileInferenceStore} from '../backend/packages/webhook/webhook-weixin/lib/types/profile/ProfileInference.js'
 
 const HOUR = 3_600_000
+// 提示词从仓库里取，不依赖某台机器的绝对路径；文件缺失时实现会退回内置说明。
+const PROMPTS = fileURLToPath(new URL('../prompts/', import.meta.url))
 
 function local_day(now) {
   const d = new Date(now)
@@ -42,15 +45,14 @@ function make_env(initial_notes) {
       },
     },
     complete: async (prompt) => {
-      if (prompt.includes('决定这次查什么')) {
-        if (plan_mode === 'throw') throw Error('plan timeout')
-        if (plan_mode === 'skip') return '无'
-        return '伊斯坦布尔 往返 机票 含税价格\n春节去伊斯坦布尔机票多少钱'
-      }
-      return '查到伊斯坦布尔往返含税四千二，时间在春节前后。'
+      // 摘要请求会带搜索正文，规划请求不会；按内容分流，避免依赖提示词文本。
+      if (prompt.includes('【搜索正文】')) return '查到伊斯坦布尔往返含税四千二，时间在春节前后。'
+      if (plan_mode === 'throw') throw Error('plan timeout')
+      if (plan_mode === 'skip') return '无'
+      return '伊斯坦布尔 往返 机票 含税价格\n春节去伊斯坦布尔机票多少钱'
     },
-    plan_prompt_path: 'G:/SynLove-houtai/SynLove-Personal-Agent/prompts/InferenceResearch.md',
-    summary_prompt_path: 'G:/SynLove-houtai/SynLove-Personal-Agent/prompts/InferenceDigest.md',
+    plan_prompt_path: join(PROMPTS, 'InferenceResearch.md'),
+    summary_prompt_path: join(PROMPTS, 'InferenceDigest.md'),
     max_per_day: 3,
     min_gap_ms: 48 * HOUR,
     max_gap_ms: 72 * HOUR,
@@ -170,8 +172,8 @@ test('重启后读取已有状态，不到期不重复研究', async () => {
       profile: env.profile,
       web: { async search() { throw Error('不应联网') } },
       complete: async () => { throw Error('不应调用模型') },
-      plan_prompt_path: 'G:/SynLove-houtai/SynLove-Personal-Agent/prompts/InferenceResearch.md',
-      summary_prompt_path: 'G:/SynLove-houtai/SynLove-Personal-Agent/prompts/InferenceDigest.md',
+      plan_prompt_path: join(PROMPTS, 'InferenceResearch.md'),
+      summary_prompt_path: join(PROMPTS, 'InferenceDigest.md'),
       max_per_day: 3,
     })
     await again.run_due(now + 1000, false)

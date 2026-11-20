@@ -28,11 +28,15 @@ def find_node():
     return None
 
 
-def summarize(text, limit=800):
-    """取输出末尾的非空行，压成一行，供 CI 注解展示。"""
+def summarize(text, limit=1200):
+    """保留失败用例名与断言行，压成一行，供 CI 注解展示。"""
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    joined = " / ".join(lines[-6:])
-    return joined[:limit]
+    start = 0
+    for index, line in enumerate(lines):
+        if "failing tests" in line:
+            start = index
+    picked = lines[start:] if start else lines[-10:]
+    return " / ".join(picked)[:limit]
 
 
 def annotate(message):
