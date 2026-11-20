@@ -1,44 +1,27 @@
-# Magpie 网关：WorkBuddy 的 OpenAI 兼容入口
+# Magpie 网关：WorkBuddy 的本地模型入口
 
-把家机 Windows 上的 WorkBuddy 通过 magpie 网关暴露成 OpenAI 兼容 API，经 VPS 的 nginx 提供 HTTPS 和 Bearer 鉴权。
+Magpie 把 WorkBuddy 的订阅模型包装成 OpenAI 兼容接口，供本机的 ModelHub 统一调用。**只监听回环地址，不对公网暴露。**
 
-## 拓扑
+## 组成
 
-- 家机：`magpie serve --web=127.0.0.1:3430`，网关 `127.0.0.1:3425`，插件 `@magpie-community/opencode-workbuddy-auth`，账号 MoYu
-- 家机隧道：`C:\frp\frpc-magpie.toml`（计划任务 `FrpClientMagpie`），`3425 -> VPS:21120`，`3430 -> VPS:21121`
-- VPS：nginx `21115`（HTTPS + Bearer）反代 `127.0.0.1:21120`；`21121` 仅回环，未对外开放
-- 自启：家机计划任务 `MagpieGateway`（运行 `C:\Tools\Magpie\serve.cmd`）与 `FrpClientMagpie`
+- `magpie serve --web=127.0.0.1:3430`：网关 `127.0.0.1:3425`，控制台 `127.0.0.1:3430`
+- 插件 `@magpie-community/opencode-workbuddy-auth`，登录 WorkBuddy 账号后可列出 16 个模型
+- 计划任务 `MagpieGateway`：登录后自启，日志在 `C:\Tools\Magpie\serve.log`
+- 账号凭证由 magpie 自己保存；多账号时由插件按额度轮换
 
-## 客户端
+## 接入方式
+
+由本机 ModelHub 转发，不直接对外：
 
 ```
-Base URL: https://47.111.64.20:21115/v1
-Authorization: Bearer <网关 key>
+POST http://127.0.0.1:8810/workbuddy/v1/chat/completions
+Authorization: Bearer <ModelHub 客户端 key>
+{"model": "workbuddy/glm-5.3", "messages": [...]}
 ```
-
-key 存在 VPS 的 `/etc/magpie/gateway.key`（权限 600），不要写进仓库。证书是自签的，客户端需要信任证书或临时跳过校验（例如 `curl -k`）。
-
-可用模型（`GET /v1/models`）：`workbuddy/auto`、`workbuddy/glm-5.3`、`workbuddy/deepseek-v4.1-flash`、`workbuddy/kimi-k3.1-pro` 等 16 个。
 
 ## 维护
 
-- 重新登录 WorkBuddy：临时恢复 `magpie-ui.conf`（`listen 21116` 反代 `127.0.0.1:21121`），用 `https://47.111.64.20:21116/?k=<MAGPIE_WEB_KEY>` 打开控制台登录，完成后删除该配置并 `systemctl reload nginx`
-- 网关日志：家机 `C:\Tools\Magpie\serve.log`；隧道日志 `C:\frp\frpc-magpie.log`
-- 端口与鉴权：只对外开放 `21115`；`21120/21121` 不加入安全组放行
-- 注意：magpie 对来自回环的请求不校验 key，所以 key 校验必须留在 VPS nginx 这一层
-
-## 欣爱（SynLove）接入
-
-按用途拆开，避免把主对话的额度花在后台任务上：
-
-| 用途 | 模型 | 回退 |
-| --- | --- | --- |
-| 主对话（presenter） | `dahuangf/gpt-6.1-sol` | `qwen3.8-flash` |
-| 主动研究 | `dahuangf/gpt-6.1-sol` | `qwen3.8-flash` → `workbuddy/deepseek-v4.1-flash` |
-| 记忆/知识图谱更新 | `workbuddy/hy4flash-free`（免费） | `qwen3.8-flash` |
-| 自主行动（agent task worker） | `workbuddy/glm-5.3` | 主链回退 |
-
-- `config/modelConfig.json`：默认 `dahuangf/gpt-6.1-sol`，`failover.order` 为 dahuangf → qwen；另有 `workbuddy` provider 指向 `http://127.0.0.1:3425/v1`。
-- `config/agentTaskConfig.json`：`workerModel` 指向 workbuddy，子 Agent 与自主行动走它。
-- `config/console.env`：`DSH_MEMORY_CLOUD_MODEL=workbuddy/workbuddy/hy4flash-free`、`DSH_MEMORY_CLOUD_FALLBACK=qwen/qwen3.8-flash`、`DSH_PROACTIVE_MODEL=dahuangf/gpt-6.1-sol,qwen/qwen3.8-flash,workbuddy/workbuddy/deepseek-v4.1-flash`（逗号分隔即回退顺序）。
-- `resolve_cloud_target` 只按第一个斜杠切分，`workbuddy/workbuddy/hy4flash-free` 能正确解析成 provider=workbuddy、model=workbuddy/hy4flash-free。
+- 重新登录：`magpie plugin login workbuddy`，选择浏览器登录，5 分钟内完成
+- 插件登录窗口可用 `SIGN_IN_MS` 调整（默认 5 分钟）
+- 常见错误：`11217` 表示仍在等待浏览器登录；`10085/11128/11133` 先升级插件
+- 只在需要加账号时临时打开控制台，用完关闭，不要暴露到公网
