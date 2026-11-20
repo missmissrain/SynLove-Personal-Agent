@@ -1,5 +1,13 @@
 import { appendFile } from 'node:fs/promises';
-import { ObservationRecorder } from '@deepseek-ai/dsh-llm';
+import { createRequire } from 'node:module';
+const observation_recorder = (() => {
+    try {
+        return createRequire(import.meta.url)('@deepseek-ai/dsh-llm').ObservationRecorder;
+    }
+    catch {
+        return undefined;
+    }
+})();
 function probe_path() {
     const path = process.env.DSH_WEIXIN_PROBE_LOG;
     return path !== undefined && path.length > 0 ? path : undefined;
@@ -11,9 +19,9 @@ export function probe(scope, event, fields) {
     const path = probe_path();
     if (path === undefined) return;
     const session_id = typeof fields?.session_id === 'string' ? fields.session_id : undefined;
-    const trace = typeof fields?.outbound_id === 'string' ? ObservationRecorder.outbound_context(fields.outbound_id) : session_id === undefined ? undefined : typeof fields?.turn === 'number' ? ObservationRecorder.turn_context(session_id, fields.turn) : ObservationRecorder.current(session_id);
-    if (trace && !event.startsWith('poll.')) {
-        ObservationRecorder.emit({
+    const trace = observation_recorder === undefined ? undefined : typeof fields?.outbound_id === 'string' ? observation_recorder.outbound_context(fields.outbound_id) : session_id === undefined ? undefined : typeof fields?.turn === 'number' ? observation_recorder.turn_context(session_id, fields.turn) : observation_recorder.current(session_id);
+    if (trace !== undefined && !event.startsWith('poll.')) {
+        observation_recorder?.emit({
             traceId: trace.traceId,
             parentSpanId: trace.spanId,
             sessionId: session_id,

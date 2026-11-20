@@ -9,9 +9,13 @@ jobs:
   memory:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+      # 发版门槛只依赖 Node 内置能力：干净检出、不装 node_modules 也必须能跑。
       - name: Memory and proactive gate
         run: python tools/RunMemoryGate.py

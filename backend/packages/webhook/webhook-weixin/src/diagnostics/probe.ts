@@ -11,7 +11,28 @@
  */
 
 import { appendFile } from 'node:fs/promises'
-import { ObservationRecorder } from '@deepseek-ai/dsh-llm'
+import { createRequire } from 'node:module'
+
+/**
+ * 观测记录器：只有工作区装好 `@deepseek-ai/dsh-llm` 时才可用。
+ * 发版门槛在干净检出里跑回归，没有 node_modules；探针不能因此让整个模块导入失败，
+ * 所以这里改成同步按需加载，拿不到就只写本地 JSONL，不写 trace。
+ */
+interface ObservationRecorderLike {
+  outbound_context(id: string): { traceId: string; spanId: string } | undefined
+  turn_context(session_id: string, turn: number): { traceId: string; spanId: string } | undefined
+  current(session_id: string): { traceId: string; spanId: string } | undefined
+  emit(event: Record<string, unknown>): void
+}
+
+const observation_recorder: ObservationRecorderLike | undefined = (() => {
+  try {
+    const loaded = createRequire(import.meta.url)('@deepseek-ai/dsh-llm') as { ObservationRecorder?: ObservationRecorderLike }
+    return loaded.ObservationRecorder
+  } catch {
+    return undefined
+  }
+})()
 
 /** 解析探针日志路径；未配置返回 undefined。 */
 function probe_path(): string | undefined {
@@ -34,11 +55,12 @@ export function probe(scope: string, event: string, fields?: Record<string, unkn
   const path = probe_path()
   if (path === undefined) return
   const session_id = typeof fields?.session_id === 'string' ? fields.session_id : undefined
-  const trace = typeof fields?.outbound_id === 'string' ? ObservationRecorder.outbound_context(fields.outbound_id)
+  const trace = observation_recorder === undefined ? undefined
+    : typeof fields?.outbound_id === 'string' ? observation_recorder.outbound_context(fields.outbound_id)
     : session_id === undefined ? undefined : typeof fields?.turn === 'number'
-    ? ObservationRecorder.turn_context(session_id, fields.turn) : ObservationRecorder.current(session_id)
-  if (trace && !event.startsWith('poll.')) {
-    ObservationRecorder.emit({
+    ? observation_recorder.turn_context(session_id, fields.turn) : observation_recorder.current(session_id)
+  if (trace !== undefined && !event.startsWith('poll.')) {
+    observation_recorder?.emit({
       traceId: trace.traceId, parentSpanId: trace.spanId, sessionId: session_id,
       kind: 'transport', phase: 'event', name: `${scope}.${event}`,
       deliveryId: fields?.delivery_id, outboxId: fields?.outbound_id,

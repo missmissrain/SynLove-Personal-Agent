@@ -12,6 +12,13 @@
 - 图谱回归先 `await scheduler.ready()` 等启动轮结束，再验证模型恢复和同毫秒增量；并发触发改为共享当前轮，不再直接丢一次。
 - 发版门槛 `tools/RunMemoryGate.py`：12 项记忆与主动研究回归全部通过才允许发布。
 
+## release-gate 失败修复
+
+- 首轮 Actions 失败原因是干净检出没有 `node_modules`：`diagnostics/probe.js` 顶层静态导入 `@deepseek-ai/dsh-llm`，导入即报 `ERR_MODULE_NOT_FOUND`。
+- 探针改为 `createRequire` 按需加载该包：可用时照常写 trace，缺失时只写 JSONL；生产环境行为不变。
+- 门槛补上 node 定位顺序与缺文件提示；工作流补 `actions/setup-node@v5`（Node 24），并把 checkout/setup-python 升到 v5/v6。
+- 已用干净浅克隆复跑：12 项通过、`GATE_PASS`。
+
 ## 跨仓与维护
 
 - `docs/ReleaseCompatibility.md` 固定主程序、后台服务、Relay、出站节点和远控的版本/提交/入口/回滚。
