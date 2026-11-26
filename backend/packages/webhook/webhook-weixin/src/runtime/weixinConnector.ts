@@ -43,6 +43,7 @@ import { InboundCoordinator } from '../coordination/inboundCoordinator.ts'
 import { OutboundCoordinator } from '../coordination/outboundCoordinator.ts'
 import { ReplyAggregator } from '../reply/replyAggregator.ts'
 import { HarnessSessionHost, type WeixinAttachmentStore } from '../session/weixinSessionHost.ts'
+import { VoiceTurnBridge } from '../voice/VoiceTurnBridge.ts'
 import { migrate_legacy_route_state } from '../state/migrateLegacyRouteState.ts'
 import { TimelineStore } from '../memory/timelineStore.ts'
 import { MemoryRemoteClient } from '../memory/memoryRemoteClient.ts'
@@ -78,6 +79,7 @@ import {
 } from './modelFailover.ts'
 import { create_gemma_summarizer } from '../memory/gemmaSummarizer.ts'
 import { create_memory_model, type MemoryEngine, type MemoryModel } from '../memory/memoryModel.ts'
+import { GraphModel } from '../memory/GraphModel.ts'
 import { start_timeline_scheduler, type TimelineScheduler } from '../memory/timelineScheduler.ts'
 import { set_shared_memory } from '../memory/sharedMemory.ts'
 import type { TimelineAttachment, TimelineEntry } from '../memory/timelineTypes.ts'
@@ -266,6 +268,7 @@ export class WeixinConnector {
   private stopped = false
   /** 本机调试注入口（仅当设置 DSH_WEIXIN_INJECT_PORT 时启用）。 */
   private inject_server: Server | undefined
+  private voice_bridge: VoiceTurnBridge | undefined
   /** 长期记忆（时间线）；DSH_TIMELINE_ENABLED=0 可整体关闭。 */
   private readonly timeline: TimelineStore | MemoryRemoteClient | undefined
   /** 知识图谱（社交网络）：人物 + "谁称呼谁为什么"的有向边。 */
@@ -290,6 +293,8 @@ export class WeixinConnector {
   private readonly memory: MemoryModel
   /** 云端兜底模型：主模型超时/失败时静默使用（默认千问 flash）。 */
   private readonly memory_backup: MemoryModel | undefined
+  /** 图谱与画像使用当前主模型，独立于时间线摘要引擎。 */
+  private readonly graph_model: GraphModel
   /**
    * 后台任务的闸门（摘要 / 图谱 / 图片描述共用）。
    *
@@ -403,6 +408,8 @@ export class WeixinConnector {
       provider: options.provider ?? '',
       model: options.model ?? '',
     }
+    this.graph_model = new GraphModel(() => this.ctx.get('llm'), () => this.current_model)
+    probe('graph', 'model.configured', { engine: 'main', ...this.current_model })
     this.host = new HarnessSessionHost(ctx, {
       ...options.agent_preset === undefined ? {} : { agent_preset: options.agent_preset },
       workspace_path: options.workspace_path ?? process.cwd(),
@@ -669,6 +676,19 @@ export class WeixinConnector {
     this.opencode_watcher.start()
     // 4.6 本机调试注入口（默认关闭；仅在显式设置 DSH_WEIXIN_INJECT_PORT 时开启）。
     this.start_inject_server_if_configured()
+    const voice_home = process.env.DSH_HOME ?? join(process.cwd(), 'runtime', 'dsh')
+    const voice_config = join(voice_home, '..', '..', 'config', 'voiceConfig.json')
+    if (existsSync(voice_config) && JSON.parse(readFileSync(voice_config,'utf8')).enabled === true) {
+      this.voice_bridge = new VoiceTurnBridge(async () => {
+        const path = join(voice_home,'shared-session.txt')
+        const session = existsSync(path) ? readFileSync(path,'utf8').split('\n')[0]!.trim() : 'main'
+        const id = brandString<SessionId>(session || 'main')
+        const agent = this.host.get_agent(id) ?? await this.host.resume_agent(id)
+        this.bind_agent_stream(agent)
+        return agent
+      },readFileSync(join(voice_home,'..','..','prompts','VoiceInteraction.md'),'utf8'))
+      await this.voice_bridge.start_bridge()
+    }
     // 4.7 长期记忆摘要调度（低频、纯本地，与 iLink 轮询解耦）。
     this.start_timeline_scheduler_if_enabled()
     // 5. 通知上线并开始轮询。
@@ -913,9 +933,11 @@ export class WeixinConnector {
       if (this.host.tasks) {
         const tools = agent.ctx.tools.schemas(agent)
         const allowed = this.host.tasks.presenter_tool_names()
-        if (tools.some(tool => !allowed.includes(tool.name))
-          || !allowed.every(name => tools.some(tool => tool.name === name)))
-          throw new Error('主人格任务与记忆查询工具检查失败：' + tools.map(tool => tool.name).join(','))
+        const missing = allowed.filter(name => !tools.some(tool => tool.name === name))
+        if (missing.length > 0)
+          throw new Error('主人格任务与记忆查询工具检查失败：缺少 ' + missing.join(',') + '；实际 ' + tools.map(tool => tool.name).join(','))
+        if (extras.length > 0) probe('agent-task', 'presenter.extra_tools', { extras })
+        const extras = tools.map(tool => tool.name).filter(name => !allowed.includes(name))
         const worker_tools = await this.host.tasks.check_worker(this.current_model, this.workspace_path)
         probe('agent-task', 'roles.checked', { presenter_tools:tools.length, worker_tools })
       }
@@ -1081,15 +1103,7 @@ export class WeixinConnector {
       this.graph_scheduler = start_graph_scheduler({
         graph: this.graph,
         timeline: this.timeline,
-        complete: prompt => this.gemma.run('graph-extract', async () => {
-          try {
-            return await this.memory.complete(prompt)
-          } catch (error) {
-            if (this.memory_backup === undefined) throw error
-            probe('graph', 'model.fallback', { error: String(error).slice(0, 160) })
-            return await this.memory_backup.complete(prompt)
-          }
-        }),
+        complete: prompt => this.graph_model.complete(prompt),
         on_update: result => {
           probe('graph', 'updated', { ...result })
           void this.profile_context.refresh()
@@ -1357,6 +1371,7 @@ export class WeixinConnector {
     // 拆成一堆"伪 turn"，并让同一 turn 的回复上下文被后续消息反复覆盖（已由日志证实）。
     const dispose = agent.ctx.on('agent/assistant-stream', ({ agent: subject, frame }: { agent: Agent; frame: AssistantStreamFrame }) => {
       if (subject !== agent) return
+      if ((agent as any)[Symbol.for('synlove.voice.turn')]) return
       if (this.host.tasks?.is_presenting(session_id)) return
       if (frame.type === 'chunk') this.handle_chunk(session_id, frame)
     })
@@ -1366,6 +1381,7 @@ export class WeixinConnector {
       'agent/pre-step',
       async ({ agent: subject, turn, step }: { agent: Agent; turn: number; step: number }, next: () => Promise<unknown>) => {
         if (subject === agent && (step === 1 || this.current_turn.get(session_id) !== turn)) {
+          if ((agent as any)[Symbol.for('synlove.voice.turn')]) return next() as never
           if (this.host.tasks?.is_presenting(session_id)) return next() as never
           await this.begin_turn_once(session_id, turn)
         }
@@ -1376,11 +1392,13 @@ export class WeixinConnector {
       'agent/turn-stopping',
       ({ agent: subject, turn }: { agent: Agent; turn: number }) => {
         if (subject !== agent) return
+        if ((agent as any)[Symbol.for('synlove.voice.turn')]) return
         if (this.host.tasks?.is_presenting(session_id)) return
         void this.handle_turn_end(session_id, turn)
       },
     )
     const dispose_error = agent.ctx.on('agent/error', ({ error }: { error: unknown }) => {
+      if ((agent as any)[Symbol.for('synlove.voice.turn')]) return
       if (this.host.tasks?.is_presenting(session_id)) return
       const detail = error instanceof Error ? error.message : String(error)
       probe('inbound', 'agent.error', { session_id, error: detail })
@@ -1913,6 +1931,7 @@ export class WeixinConnector {
     this.codex_watcher.stop()
     this.opencode_watcher.stop()
     this.outbound.stop()
+    this.voice_bridge?.stop_bridge()
     if (this.inject_server !== undefined) {
       this.inject_server.close()
       this.inject_server = undefined

@@ -55,6 +55,9 @@ class VoiceIdentity:
         }
 
     def build_instruction(self, emotion):
-        """emotion 为情绪代码；仅映射受控情绪，不接收模型生成的声线描述。"""
-        mood = TtsPrompt.EMOTIONS.get(emotion, TtsPrompt.EMOTIONS["neutral"])
-        return "保持参考音的说话人身份与音色不变。本轮情绪：" + mood + "。"
+        """emotion为情绪代码；读取独立表达提示词，保持固定声线并明确语速、重音和情绪。"""
+        code = emotion if emotion in TtsPrompt.EMOTIONS else "neutral"
+        path = Path(__file__).resolve().parents[1] / "prompts/TtsDelivery.json"
+        delivery = json.loads(path.read_text(encoding="utf-8-sig"))
+        return ("保持参考音的说话人身份与音色不变。本轮情绪："
+                + TtsPrompt.EMOTIONS[code] + "。本轮表达：" + delivery[code])

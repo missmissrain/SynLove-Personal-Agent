@@ -5,6 +5,9 @@
 """
 
 from pathlib import Path
+import time
+import io
+import wave
 
 from services.ServiceClient import ServiceClient
 from services.ServiceRegistry import ServiceRegistry
@@ -13,28 +16,47 @@ from voice.voicePrompt import VoicePrompt
 from voice.ttsPrompt import TtsPrompt
 from voice.voiceIdentity import VoiceIdentity
 from voice.wakeWordDetector import WakeWordDetector
+from voice.wakeReplyCache import WakeReplyCache
+from voice.LatencyProbe import LatencyProbe
+from voice.ReplySegmenter import ReplySegmenter
+from concurrent.futures import ThreadPoolExecutor
+import threading
 
 
 class VoicePipeline:
     """编排单轮唤醒、识别、理解和语音回复。"""
 
-    def __init__(self, registry=None, detector=None, prompt=None, store=None, tts_prompt=None, identity=None):
-        """各依赖可注入；identity 为固定参考声配置，禁止由模型控制音色身份。"""
+    def __init__(self, registry=None, detector=None, prompt=None, store=None, tts_prompt=None, identity=None, agent=None, cache=None):
+        """各依赖可注入；identity固定音色，cache仅复用同一音色的固定唤醒应答。"""
         self.registry = registry or ServiceRegistry()
         self.detector = detector or WakeWordDetector()
         self.prompt = prompt or VoicePrompt()
         self.store = store or VoiceAudioStore()
         self.tts_prompt = tts_prompt or TtsPrompt()
         self.identity = identity or VoiceIdentity()
+        self.agent = agent
+        self.cache = cache if cache is not None else WakeReplyCache()
+        self.wake_replies = self.cache.catalog
+        self.segmenter = ReplySegmenter()
 
-    def process_audio(self, audio_path, session_id="default", device_id="local"):
+    def process_audio(self, audio_path, session_id="default", device_id="local",
+                      follow_up=False, on_event=None):
         """audio_path 为设备音频路径；返回唤醒状态、文本、回复和 TTS 文件路径。"""
         path = Path(audio_path)
         if not path.is_file():
             raise FileNotFoundError("语音输入不存在：" + str(path))
-        asr = ServiceClient(self.registry.get_service("asr")).transcribe(path, language="zh")
+        probe = LatencyProbe("voice_turn")
+        probe.mark("recording_uploaded")
+        start = time.monotonic()
+        asr_client = ServiceClient(self.registry.get_service("asr"))
+        asr = asr_client.transcribe(path, language="zh")
+        probe.mark("asr_final")
+        timings = {"asrSeconds": round(time.monotonic() - start, 3)}
         transcript = str(asr.get("text") or "").strip()
         wake = self.detector.detect(transcript)
+        if follow_up and transcript:
+            wake = {"wake": True, "keyword": wake["keyword"],
+                    "command": wake["command"] if wake["wake"] else transcript}
         result = {
             "ok": True,
             "deviceId": str(device_id),
@@ -43,37 +65,162 @@ class VoicePipeline:
             "wake": bool(wake["wake"]),
             "keyword": wake["keyword"],
             "command": wake["command"],
+            "timings": timings,
         }
         if not wake["wake"]:
             result["state"] = "waiting_for_wake_word"
+            result["latencyProbe"] = probe.snapshot()
             return result
+        probe.mark("wake_accepted")
         command = wake["command"]
         tts_config = self.registry.get_service("tts")
         if tts_config.get("dialect") != "breeze":
             raise ValueError("固定音色克隆要求 TTS 服务配置 dialect=breeze")
         # 先验证参考声，避免缺配置时仍占用 LLM 或服务器显卡。
-        options = self.identity.build_options(self.tts_prompt.DEFAULT)
-        if not command:
-            reply = "嗯，我在～"
-            tts_prompt = self.tts_prompt.DEFAULT
-        else:
-            answer = self._ask_agent(command, session_id)
-            reply = answer["text"]
-            tts_prompt = answer["ttsPrompt"]
-        options["instruction"] = self.identity.build_instruction(tts_prompt)
-        audio, fmt = ServiceClient(tts_config).synthesize(reply, **options)
+        self.identity.build_options(self.tts_prompt.DEFAULT)
+        tts_client = ServiceClient(tts_config)
+        # 健康请求与主人格请求并行，先把TTS连接和服务状态预热，不生成错误音频。
+        prewarm = None
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="SynLoveVoice") as pool:
+            if hasattr(tts_client, "health"):
+                prewarm = pool.submit(tts_client.health)
+            if not command:
+                selected = self.wake_replies.select_reply(device_id)
+                reply = selected["text"]
+                tts_prompt = selected["emotion"]
+                timings["agentSeconds"] = 0
+            else:
+                mark = time.monotonic()
+                answer = self._ask_agent(command, session_id, on_ack=(
+                    lambda event, elapsed: self._handle_agent_ack(
+                        event, elapsed, session_id, device_id, probe, on_event)))
+                timings["agentSeconds"] = round(time.monotonic() - mark, 3)
+                reply = answer["text"]
+                tts_prompt = answer["ttsPrompt"]
+            probe.mark("agent_reply_ready")
+            if prewarm is not None:
+                try:
+                    prewarm.result(timeout=3)
+                    probe.mark("tts_prewarm", "ok")
+                except Exception:
+                    probe.mark("tts_prewarm", "fallback")
+        spoken = self.process_reply_segments(
+            {"text": reply, "ttsEmotion": tts_prompt},
+            session_id, device_id, probe=probe,
+        )
+        timings.update(spoken.pop("timings"))
+        result.update(spoken)
+        timings["gatewaySeconds"] = round(time.monotonic() - start, 3)
+        result["latencyProbe"] = probe.snapshot()
+        return result
+
+    def process_reply_segments(self, reply, session_id="default", device_id="local", probe=None):
+        """reply为主人格下行；按自然句合成并返回首段路径与全部音频段。"""
+        answer = self.tts_prompt.parse(reply)
+        parts = self.segmenter.split(answer["text"]) or [answer["text"]]
+        paths = []
+        segment_results = []
+        started = time.monotonic()
+        for index, part in enumerate(parts):
+            item = self.process_reply(
+                {"text": part, "ttsEmotion": answer["ttsPrompt"]},
+                session_id, device_id,
+                probe=probe,
+            )
+            paths.append(item["audioPath"])
+            segment_results.append({
+                "index": index,
+                "text": part,
+                "audioPath": item["audioPath"],
+                "audioFormat": item["audioFormat"],
+            })
+            if probe and index == 0:
+                probe.mark("tts_first_segment")
+        if probe:
+            probe.mark("tts_all_segments")
+        return {
+            **segment_results[0],
+            "ok": True,
+            "deviceId": str(device_id),
+            "sessionId": str(session_id),
+            "state": "replied",
+            "reply": answer["text"],
+            "ttsEmotion": answer["ttsPrompt"],
+            "ttsPrompt": answer["ttsPrompt"],
+            "audioPath": paths[0],
+            "audioPaths": paths,
+            "audioSegments": segment_results,
+            "timings": {
+                "ttsSeconds": round(time.monotonic() - started, 3),
+                "segmentCount": len(segment_results),
+            },
+        }
+
+    def process_reply(self, reply, session_id="default", device_id="local", probe=None):
+        """reply 为主人格下行；session_id、device_id 标识会话与终端；只按本机固定声线合成。"""
+        answer = self.tts_prompt.parse(reply)
+        reply = answer["text"]
+        tts_prompt = answer["ttsPrompt"]
+        tts_config = self.registry.get_service("tts")
+        if tts_config.get("dialect") != "breeze":
+            raise ValueError("固定音色克隆要求 TTS 服务配置 dialect=breeze")
+        options = self.identity.build_options(tts_prompt)
+        mark = time.monotonic()
+        cached = self.cache.cache_path(reply, tts_prompt, options)
+        audio = self.cache.read_audio(cached)
+        hit = audio is not None
+        fmt = "wav"
+        if not hit:
+            if tts_config.get("streamingEnabled") is True:
+                audio, fmt = self._synthesize_stream_to_wav(
+                    ServiceClient(tts_config), reply, options, probe=probe)
+            else:
+                audio, fmt = ServiceClient(tts_config).synthesize(reply, **options)
+            if fmt == "wav":
+                try:
+                    self.cache.save_audio(cached, audio)
+                except OSError:
+                    pass  # 可选缓存写入失败仍交付真实合成音频。
         output = self.store.save_output(audio, session_id, "." + fmt)
-        result.update({
+        return {
+            "ok": True,
+            "deviceId": str(device_id),
+            "sessionId": str(session_id),
             "state": "replied",
             "reply": reply,
+            "ttsEmotion": tts_prompt,
             "ttsPrompt": tts_prompt,
             "audioPath": str(output),
             "audioFormat": fmt,
-        })
-        return result
+            "timings": {"ttsSeconds": round(time.monotonic() - mark, 3), "wakeCacheHit": hit},
+        }
 
-    def _ask_agent(self, command, session_id):
-        """command 为去掉唤醒词的用户指令；session_id 用于后续接入会话存储。"""
+    def _synthesize_stream_to_wav(self, client, text, options, probe=None):
+        """client为支持流式的TTS客户端；把PCM增量封装成兼容现有播放器的WAV。"""
+        chunks = []
+        def on_chunk(chunk):
+            """chunk为TTS服务返回的一段PCM字节；首次收到时记录真正的首块探针。"""
+            if probe is not None and not chunks:
+                probe.mark("tts_first_chunk")
+            chunks.append(chunk)
+        result = client.synthesize_stream(text, on_chunk=on_chunk, **options)
+        pcm = b"".join(chunks)
+        sample_rate = int(result.get("sampleRate") or 24000)
+        output = io.BytesIO()
+        with wave.open(output, "wb") as writer:
+            writer.setnchannels(1)
+            writer.setsampwidth(2)
+            writer.setframerate(sample_rate)
+            writer.writeframes(pcm)
+        return output.getvalue(), "wav"
+
+    def _ask_agent(self, command, session_id, on_ack=None):
+        """command为去掉唤醒词的用户指令；on_ack接收主人格首个确认事件。"""
+        if self.agent is not None:
+            if on_ack and hasattr(self.agent, "ask_agent_stream"):
+                return self.tts_prompt.parse(
+                    self.agent.ask_agent_stream(command, session_id, on_ack=on_ack))
+            return self.tts_prompt.parse(self.agent.ask_agent(command, session_id))
         payload = {
             "messages": [
                 {"role": "system", "content": self.prompt.load()},
@@ -93,3 +240,42 @@ class VoicePipeline:
         if not content:
             raise ValueError("LLM 没有返回文本")
         return self.tts_prompt.parse(content)
+
+    def _handle_agent_ack(self, event, elapsed, session_id, device_id, probe, on_event=None):
+        """event为主人格确认事件；异步把确认文本转为TTS，不阻塞主人格继续处理。"""
+        text = str(event.get("reply") or event.get("text") or event.get("message") or "").strip()
+        if not text:
+            return
+        if probe:
+            probe.mark("agent_ack_received")
+        if on_event:
+            on_event({
+                "type": "ack",
+                "text": text,
+                "ttsEmotion": event.get("ttsEmotion", "gentle"),
+                "elapsedSeconds": elapsed,
+            })
+        def synthesize_ack():
+            """无参数；后台合成主人格首个确认语音。"""
+            try:
+                item = self.process_reply(
+                    {"text": text, "ttsEmotion": event.get("ttsEmotion", "gentle")},
+                    session_id, device_id, probe=probe)
+                if probe:
+                    probe.mark("agent_ack_tts_ready")
+                if on_event:
+                    on_event({
+                        "type": "ack_tts_ready",
+                        "text": text,
+                        "ttsEmotion": item.get("ttsEmotion"),
+                        "audioPath": item.get("audioPath"),
+                        "audioFormat": item.get("audioFormat"),
+                    })
+            except Exception:
+                if probe:
+                    probe.mark("agent_ack_tts_failed", "fallback")
+                if on_event:
+                    on_event({"type": "ack_tts_failed", "text": text})
+
+        threading.Thread(target=synthesize_ack, daemon=True,
+                         name="SynLoveAgentAckTts").start()

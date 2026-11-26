@@ -7,6 +7,7 @@
 import tempfile
 import unittest
 import sys
+from unittest.mock import patch
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -98,6 +99,7 @@ class TestVoicePipeline(unittest.TestCase):
             self.assertTrue(Path(result["audioPath"]).is_file())
             self.assertIn("记住", result["reply"])
             self.assertEqual(result["ttsPrompt"], "happy")
+            self.assertEqual(result["ttsEmotion"], "happy")
             self.assertIn("开心", clients["tts"].options["instruction"])
             self.assertEqual(clients["tts"].options["refText"], "固定参考文本")
 
@@ -145,6 +147,51 @@ class TestVoicePipeline(unittest.TestCase):
                 with self.subTest(key=key, value=value):
                     with self.assertRaises(ValueError):
                         VoiceIdentity(path / "identity.json", config={**cfg, key: value}).build_options("neutral")
+
+    def test_structured_emotion_reply(self):
+        """下行对象和 JSON 字符串均解析为正文与情绪，声线字段不进入结果。"""
+        parser = TtsPrompt()
+        reply = {"text": "我在呀。", "ttsEmotion": "gentle", "seed": 99, "refText": "换声"}
+        self.assertEqual(parser.parse(reply), {"text": "我在呀。", "ttsPrompt": "gentle"})
+        self.assertEqual(parser.parse('{"text":"我在呀。","ttsEmotion":"happy"}'),
+                         {"text": "我在呀。", "ttsPrompt": "happy"})
+        for mood in (None, {}, [], True, "换个人说话"):
+            with self.subTest(mood=mood):
+                self.assertEqual(parser.parse({"text": "你好", "ttsEmotion": mood})["ttsPrompt"], "neutral")
+
+    def test_main_reply_does_not_call_llm_or_override_voice(self):
+        """主人格直接下行时不再调用模型；连续情绪变化只改变 instruction。"""
+        with tempfile.TemporaryDirectory() as folder:
+            ref = Path(folder) / "ref.wav"
+            ref.write_bytes(b"fixed-reference")
+            pipeline = VoicePipeline(
+                registry=FakeRegistry(), store=VoiceAudioStore(Path(folder) / "voice"),
+                identity=VoiceIdentity(config={"refAudio": str(ref), "refText": "参考原文"}),
+            )
+            client = FakeClient("tts")
+            with patch("voice.voicePipeline.ServiceClient", return_value=client) as factory:
+                first = pipeline.process_reply({"text": "好呀", "ttsEmotion": "happy", "seed": 99})
+                fixed = dict(client.options)
+                second = pipeline.process_reply({"text": "陪着你", "ttsEmotion": "gentle",
+                                                 "refAudioBase64": "invalid", "cfgScale": 99})
+                self.assertEqual(factory.call_count, 2)
+            for key in ("refAudioBase64", "refText", "seed", "cfgScale"):
+                self.assertEqual(fixed[key], client.options[key])
+            self.assertNotEqual(fixed["instruction"], client.options["instruction"])
+            self.assertEqual(first["ttsEmotion"], "happy")
+            self.assertEqual(second["ttsEmotion"], "gentle")
+
+    def test_primary_agent_reuses_existing_turn_adapter(self):
+        """显式注入主人格时只走同会话适配器，不创建单轮LLM请求。"""
+        from unittest.mock import Mock
+        agent = Mock()
+        agent.ask_agent.return_value = '{"text":"我在这里。","ttsEmotion":"concerned"}'
+        pipeline = VoicePipeline(registry=FakeRegistry(), agent=agent)
+        with patch("voice.voicePipeline.ServiceClient") as client:
+            reply = pipeline._ask_agent("你在吗", "phone-1")
+        client.assert_not_called()
+        agent.ask_agent.assert_called_once_with("你在吗", "phone-1")
+        self.assertEqual(reply, {"text": "我在这里。", "ttsPrompt": "concerned"})
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ import { InboundCoordinator } from '../coordination/inboundCoordinator.js';
 import { OutboundCoordinator } from '../coordination/outboundCoordinator.js';
 import { ReplyAggregator } from '../reply/replyAggregator.js';
 import { HarnessSessionHost } from '../session/weixinSessionHost.js';
+import { VoiceTurnBridge } from '../voice/VoiceTurnBridge.js';
 import { migrate_legacy_route_state } from '../state/migrateLegacyRouteState.js';
 import { TimelineStore } from '../memory/timelineStore.js';
 import { MemoryRemoteClient } from '../memory/memoryRemoteClient.js';
@@ -29,10 +30,10 @@ import { ProfileRhythm } from '../proactive/ProfileRhythm.js';
 import { ProactiveStore } from '../proactive/ProactiveStore.js';
 import { ProactiveResearcher } from '../proactive/ProactiveResearcher.js';
 import { ProactiveDelivery } from '../proactive/ProactiveDelivery.js';
-import { ProactiveScheduler } from '../proactive/ProactiveScheduler.js'
-import { NotebookNudge } from '../notebook/NotebookNudge.js'
-import { register_notebook_tools } from '../notebook/NotebookTools.js'
-import { ProfileContext } from '../memory/ProfileContext.js'
+import { ProactiveScheduler } from '../proactive/ProactiveScheduler.js';
+import { NotebookNudge } from '../notebook/NotebookNudge.js';
+import { register_notebook_tools } from '../notebook/NotebookTools.js';
+import { ProfileContext } from '../memory/ProfileContext.js';
 import { ProfileInferenceStore } from '../profile/ProfileInference.js';
 import { shared_notebook } from '../notebook/NotebookStore.js';
 import { create_gemma_gate } from '../memory/gemmaGate.js';
@@ -44,6 +45,7 @@ import { kill_external_runs } from '../coordination/externalRuns.js';
 import { ModelHealth, classify_llm_failure, cooldown_ms, find_model_config, next_alive_candidate, parse_failover_config } from './modelFailover.js';
 import { create_gemma_summarizer } from '../memory/gemmaSummarizer.js';
 import { create_memory_model } from '../memory/memoryModel.js';
+import { GraphModel } from '../memory/GraphModel.js';
 import { start_timeline_scheduler } from '../memory/timelineScheduler.js';
 import { set_shared_memory } from '../memory/sharedMemory.js';
 import { INFLIGHT_TURN_PREFIX, WeixinStateStore } from '../state/weixinStateStore.js';
@@ -127,19 +129,18 @@ export class WeixinConnector {
     running;
     stopped = false;
     inject_server;
+    voice_bridge;
     timeline;
     graph;
-    /** 主人画像摘要。 */
     profile_context;
     workspace_path = process.cwd();
     notify;
     timeline_scheduler;
     graph_scheduler;
-    /** 主动研究：静默在后台查资料，合适时再播报。 */
     proactive_scheduler;
     memory;
-    /** 云端兜底模型。 */
     memory_backup;
+    graph_model;
     gemma;
     ctx;
     constructor(ctx, options){
@@ -184,7 +185,6 @@ export class WeixinConnector {
         this.graph = remote_memory ?? new KnowledgeGraphStore({
             dir: options.graph_dir ?? process.env.DSH_GRAPH_DIR ?? join(process.env.DSH_HOME ?? join(process.env.USERPROFILE ?? '.', '.dsh'), 'graph')
         });
-        // 画像摘要只缓存，不在这里读图谱。
         this.profile_context = new ProfileContext(this.graph);
         if (this.timeline !== undefined) set_shared_memory({
             timeline: this.timeline,
@@ -236,6 +236,11 @@ export class WeixinConnector {
             provider: options.provider ?? '',
             model: options.model ?? ''
         };
+        this.graph_model = new GraphModel(()=>this.ctx.get('llm'), ()=>this.current_model);
+        probe('graph', 'model.configured', {
+            engine: 'main',
+            ...this.current_model
+        });
         this.host = new HarnessSessionHost(ctx, {
             ...options.agent_preset === undefined ? {} : {
                 agent_preset: options.agent_preset
@@ -510,6 +515,19 @@ export class WeixinConnector {
         this.codex_watcher.start();
         this.opencode_watcher.start();
         this.start_inject_server_if_configured();
+        const voice_home = process.env.DSH_HOME ?? join(process.cwd(), 'runtime', 'dsh');
+        const voice_config = join(voice_home, '..', '..', 'config', 'voiceConfig.json');
+        if (existsSync(voice_config) && JSON.parse(readFileSync(voice_config, 'utf8')).enabled === true) {
+            this.voice_bridge = new VoiceTurnBridge(async ()=>{
+                const path = join(voice_home, 'shared-session.txt');
+                const session = existsSync(path) ? readFileSync(path, 'utf8').split('\n')[0].trim() : 'main';
+                const id = brandString(session || 'main');
+                const agent = this.host.get_agent(id) ?? await this.host.resume_agent(id);
+                this.bind_agent_stream(agent);
+                return agent;
+            }, readFileSync(join(voice_home, '..', '..', 'prompts', 'VoiceInteraction.md'), 'utf8'));
+            await this.voice_bridge.start_bridge();
+        }
         this.start_timeline_scheduler_if_enabled();
         try {
             await this.ingress.notify_start(this.controller.signal);
@@ -714,15 +732,18 @@ export class WeixinConnector {
             const agent = await this.host.create_agent(brandString(probe_id));
             if (this.timeline !== undefined) {
                 register_timeline_tools(agent.ctx, this.timeline);
-                register_graph_tools(agent.ctx, this.graph)
-                register_notebook_tools(agent.ctx)
+                register_graph_tools(agent.ctx, this.graph);
+                register_notebook_tools(agent.ctx);
             }
             this.bind_agent_stream(agent);
             this.bind_agent_stream(agent);
             if (this.host.tasks) {
                 const tools = agent.ctx.tools.schemas(agent);
                 const allowed = this.host.tasks.presenter_tool_names();
-                if (tools.some((tool)=>!allowed.includes(tool.name)) || !allowed.every((name)=>tools.some((tool)=>tool.name === name))) throw new Error('主人格任务与记忆查询工具检查失败：' + tools.map((tool)=>tool.name).join(','));
+                const missing = allowed.filter((name)=>!tools.some((tool)=>tool.name === name));
+                if (missing.length > 0) throw new Error('主人格任务与记忆查询工具检查失败：缺少 ' + missing.join(',') + '；实际 ' + tools.map((tool)=>tool.name).join(','));
+                const extras = tools.map((tool)=>tool.name).filter((name)=>!allowed.includes(name));
+                if (extras.length > 0) probe('agent-task', 'presenter.extra_tools', { extras });
                 const worker_tools = await this.host.tasks.check_worker(this.current_model, this.workspace_path);
                 probe('agent-task', 'roles.checked', {
                     presenter_tools: tools.length,
@@ -886,17 +907,11 @@ export class WeixinConnector {
             this.graph_scheduler = start_graph_scheduler({
                 graph: this.graph,
                 timeline: this.timeline,
-                complete: (prompt)=>this.gemma.run('graph-extract', async ()=>{
-                    try {
-                        return await this.memory.complete(prompt);
-                    } catch (error) {
-                        if (this.memory_backup === undefined) throw error;
-                        probe('graph', 'model.fallback', { error: String(error).slice(0, 160) });
-                        return await this.memory_backup.complete(prompt);
-                    }
-                }),
+                complete: (prompt)=>this.graph_model.complete(prompt),
                 on_update: (result)=>{
-                    probe('graph', 'updated', { ...result });
+                    probe('graph', 'updated', {
+                        ...result
+                    });
                     void this.profile_context.refresh();
                 }
             });
@@ -905,23 +920,20 @@ export class WeixinConnector {
             probe('graph', 'scheduler.deferred_mixed_memory_backend');
         }
     }
-    /** 启动主动研究：静默查资料，结果记进记事簿，隔几天再轻提一句。 */
     start_proactive_scheduler() {
         try {
             const home = process.env.DSH_HOME ?? join(process.cwd(), 'runtime', 'dsh');
             const dir = join(home, 'proactive');
             const store = new ProactiveStore(dir);
             const rhythm = new ProfileRhythm();
-            const notebook = shared_notebook()
-      const profile = new ProfileInferenceStore(this.graph);
+            const notebook = shared_notebook();
+            const profile = new ProfileInferenceStore(this.graph);
             const workspace = process.env.DSH_WEIXIN_WORKSPACE ?? process.cwd();
-            const plan_prompt_path = join(workspace, 'prompts', 'InferenceResearch.md')
-      const summary_prompt_path = join(workspace, 'prompts', 'InferenceDigest.md');
+            const plan_prompt_path = join(workspace, 'prompts', 'InferenceResearch.md');
+            const summary_prompt_path = join(workspace, 'prompts', 'InferenceDigest.md');
             const nudge_prompt = join(workspace, 'prompts', 'NotebookNudge.md');
             const config_path = find_model_config(PROJECT_CONFIG_DIR) ?? join(PROJECT_CONFIG_DIR, 'config', 'modelConfig.json');
-            const proactive_models = (process.env.DSH_PROACTIVE_MODEL ?? 'qwen/qwen3.8-flash')
-                .split(',').map((item)=>item.trim()).filter((item)=>item !== '')
-                .map((cloud_model)=>create_memory_model({
+            const proactive_models = (process.env.DSH_PROACTIVE_MODEL ?? 'qwen/qwen3.8-flash').split(',').map((item)=>item.trim()).filter((item)=>item !== '').map((cloud_model)=>create_memory_model({
                     engine: 'cloud',
                     cloud_model,
                     config_path
@@ -970,11 +982,11 @@ export class WeixinConnector {
             });
             this.proactive_scheduler.start();
         } catch (error) {
-            probe('proactive', 'scheduler.failed', { error: String(error).slice(0, 180) });
+            probe('proactive', 'scheduler.failed', {
+                error: String(error).slice(0, 180)
+            });
         }
     }
-
-    /** 把一条发现送到主人：优先 QQ 后台通知，没有目标时退回微信。 */
     async send_proactive_text(text) {
         const home = process.env.DSH_HOME ?? join(process.cwd(), 'runtime', 'dsh');
         const openid = read_news_push_openid();
@@ -982,20 +994,39 @@ export class WeixinConnector {
             try {
                 const id = createHash('sha256').update(text).digest('hex');
                 const dir = join(home, 'backendNotifications');
-                mkdirSync(dir, { recursive: true });
-                writeFileSync(join(dir, id + '.json'), JSON.stringify({ id, text, target: { userOpenid: openid } }), 'utf8');
-                probe('proactive', 'delivery.qq_queued', { chars: text.length });
+                mkdirSync(dir, {
+                    recursive: true
+                });
+                writeFileSync(join(dir, id + '.json'), JSON.stringify({
+                    id,
+                    text,
+                    target: {
+                        userOpenid: openid
+                    }
+                }), 'utf8');
+                probe('proactive', 'delivery.qq_queued', {
+                    chars: text.length
+                });
                 return true;
             } catch (error) {
-                probe('proactive', 'delivery.qq_failed', { error: String(error).slice(0, 160) });
+                probe('proactive', 'delivery.qq_failed', {
+                    error: String(error).slice(0, 160)
+                });
             }
         }
         const user_id = this.store.latest_user_id();
         if (user_id === undefined) return false;
         const session_id = this.store.get_session_id(user_id) ?? 'main';
-        this.queue_notice({ session_id, user_id, kind: 'assistant', text });
+        this.queue_notice({
+            session_id,
+            user_id,
+            kind: 'assistant',
+            text
+        });
         void this.outbound.drain();
-        probe('proactive', 'delivery.weixin_queued', { chars: text.length });
+        probe('proactive', 'delivery.weixin_queued', {
+            chars: text.length
+        });
         return true;
     }
     async ensure_gemma_running() {
@@ -1132,11 +1163,10 @@ export class WeixinConnector {
     bind_agent_stream(agent) {
         const session_id = String(agent.id);
         if (this.stream_agents.get(session_id) === agent) return;
-        // 画像摘要：每次请求组装提示时读缓存；刷新由图谱更新/压缩/首次绑定触发。
         agent.ctx.systemPrompt.section({
             name: 'synlove:profile-digest',
             order: 99990,
-            text: () => this.profile_context.current() || '【主人画像】正在读取。',
+            text: ()=>this.profile_context.current() || '【主人画像】正在读取。'
         });
         if (this.profile_context.current() === '') void this.profile_context.refresh();
         this.stream_disposers.get(session_id)?.();
@@ -1155,11 +1185,13 @@ export class WeixinConnector {
         }
         const dispose = agent.ctx.on('agent/assistant-stream', ({ agent: subject, frame })=>{
             if (subject !== agent) return;
+            if (agent[Symbol.for('synlove.voice.turn')]) return;
             if (this.host.tasks?.is_presenting(session_id)) return;
             if (frame.type === 'chunk') this.handle_chunk(session_id, frame);
         });
         const dispose_pre_step = agent.ctx.on('agent/pre-step', async ({ agent: subject, turn, step }, next)=>{
             if (subject === agent && (step === 1 || this.current_turn.get(session_id) !== turn)) {
+                if (agent[Symbol.for('synlove.voice.turn')]) return next();
                 if (this.host.tasks?.is_presenting(session_id)) return next();
                 await this.begin_turn_once(session_id, turn);
             }
@@ -1167,10 +1199,12 @@ export class WeixinConnector {
         });
         const dispose_turn_stopping = agent.ctx.on('agent/turn-stopping', ({ agent: subject, turn })=>{
             if (subject !== agent) return;
+            if (agent[Symbol.for('synlove.voice.turn')]) return;
             if (this.host.tasks?.is_presenting(session_id)) return;
             void this.handle_turn_end(session_id, turn);
         });
         const dispose_error = agent.ctx.on('agent/error', ({ error })=>{
+            if (agent[Symbol.for('synlove.voice.turn')]) return;
             if (this.host.tasks?.is_presenting(session_id)) return;
             const detail = error instanceof Error ? error.message : String(error);
             probe('inbound', 'agent.error', {
@@ -1198,6 +1232,7 @@ export class WeixinConnector {
             probe('lifecycle', 'compaction.resume_inbound', {
                 session_id
             });
+            void this.profile_context.refresh();
             void this.inbound.recover_unfinished().then((result)=>{
                 if (result.recovered > 0) {
                     probe('lifecycle', 'compaction.requeued', {
@@ -1424,19 +1459,28 @@ export class WeixinConnector {
                 provider: next.provider,
                 model: next.model
             };
-            // 冷却结束后自动回到配置里的默认模型。
             const preferred = config.defaultModel;
             if (preferred?.provider && preferred.model && preferred.model !== next.model) {
                 const wait = cooldown_ms(reason, failover) + 3000;
-                setTimeout(() => {
+                setTimeout(()=>{
                     const active = this.current_model;
                     if (active.provider !== next.provider || active.model !== next.model) return;
                     const ctrl = this.ctx.get('sessionController');
                     if (ctrl?.selectModel === undefined) return;
-                    void ctrl.selectModel({ sessionId: brandString(session_id), provider: preferred.provider, model: preferred.model }).then(() => {
-                        this.current_model = { provider: preferred.provider, model: preferred.model };
-                        probe('failover', 'model.restored', { provider: preferred.provider, model: preferred.model });
-                    }).catch(() => {});
+                    void ctrl.selectModel({
+                        sessionId: brandString(session_id),
+                        provider: preferred.provider,
+                        model: preferred.model
+                    }).then(()=>{
+                        this.current_model = {
+                            provider: preferred.provider,
+                            model: preferred.model
+                        };
+                        probe('failover', 'model.restored', {
+                            provider: preferred.provider,
+                            model: preferred.model
+                        });
+                    }).catch(()=>{});
                 }, wait).unref?.();
             }
             probe('failover', 'model.switched', {
@@ -1444,7 +1488,6 @@ export class WeixinConnector {
                 to: `${next.provider}/${next.model}`,
                 reason
             });
-            // 切换模型不通知用户，静默重做。
             const retry_user_id = await this.store.latest_user_id();
             if (retry_user_id !== undefined) await this.retry_last_message(session_id, retry_user_id);
         } catch (error) {
@@ -1665,6 +1708,7 @@ export class WeixinConnector {
         this.codex_watcher.stop();
         this.opencode_watcher.stop();
         this.outbound.stop();
+        this.voice_bridge?.stop_bridge();
         if (this.inject_server !== undefined) {
             this.inject_server.close();
             this.inject_server = undefined;
@@ -1680,8 +1724,6 @@ export class WeixinConnector {
         }
         this.graph_scheduler?.stop();
         this.graph_scheduler = undefined;
-        this.proactive_scheduler?.stop();
-        this.proactive_scheduler = undefined;
         for (const dispose of this.stream_disposers.values())dispose();
         this.stream_disposers.clear();
         this.stream_agents.clear();
@@ -1729,14 +1771,21 @@ export function install_weixin_connector(ctx, options) {
     }, 'webhook-weixin.lifecycle()');
     return connector;
 }
-
-/** 读 QQ 推送目标：newsDigest 的本机配置里有 userOpenid，不进仓库。 */
 function read_news_push_openid() {
     const base = process.env.DSH_WEIXIN_WORKSPACE ?? process.cwd();
-    for (const rel of [['newsDigest', 'config', 'newsDigest.json'], ['config', 'newsDigest.json']]) {
+    for (const rel of [
+        [
+            'newsDigest',
+            'config',
+            'newsDigest.json'
+        ],
+        [
+            'config',
+            'newsDigest.json'
+        ]
+    ]){
         const path = join(base, ...rel);
         try {
-            // 优先用 QQ 入站记下的主用户；没有再用新闻推送配置里的 openid。
             const home = process.env.DSH_HOME ?? join(process.cwd(), 'runtime', 'dsh');
             const owner_path = join(home, 'qq-owner.json');
             try {
@@ -1745,14 +1794,12 @@ function read_news_push_openid() {
                     const id = String(owner.userOpenid ?? '').trim();
                     if (id !== '') return id;
                 }
-            } catch {
-            }
+            } catch  {}
             if (!existsSync(path)) continue;
             const data = JSON.parse(readFileSync(path, 'utf8'));
-            const id = String(data?.push?.userOpenid ?? '').trim();
+            const id = String(data.push?.userOpenid ?? '').trim();
             if (id !== '') return id;
-        } catch {
-        }
+        } catch  {}
     }
     return undefined;
 }

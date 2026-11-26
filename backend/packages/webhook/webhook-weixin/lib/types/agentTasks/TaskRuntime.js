@@ -8,6 +8,7 @@ import { TaskStore } from './TaskStore.js';
 import { TaskMcpServer } from './TaskMcpServer.js';
 import { WorkerSessionFactory } from './WorkerSessionFactory.js';
 import { TaskResultCollector } from './TaskResultCollector.js';
+import { TaskFailure } from './TaskFailure.js';
 import { TaskEvidence } from './TaskEvidence.js';
 import { PresenterEventBridge } from './PresenterEventBridge.js';
 import { TaskReportStore } from './TaskReportStore.js';
@@ -277,8 +278,10 @@ export class TaskRuntime {
                 'time-context',
                 'system-prompt'
             ].includes(source.plugin)) continue;
-            // 非渠道插件的通知（如模型切换）不是用户输入，跳过。
-            if (source?.kind === 'plugin' && source.plugin !== 'dsh-webhook-weixin') continue;
+            if (source?.kind === 'plugin' && ![
+                'dsh-webhook-weixin',
+                'webhook-qq'
+            ].includes(source.plugin)) continue;
             const key = source?.taskOriginId;
             if (!key) throw new Error('当前消息没有可信通道来源，拒绝后台操作');
             const origin = this.store.get_origin(key, owner.session);
@@ -291,7 +294,6 @@ export class TaskRuntime {
         if (!origins.length) throw new Error('尚未绑定用户输入');
         if (id !== undefined) {
             const origin = origins.find((item)=>item.key === id);
-            // 模型偶尔会臆造 originId；本轮只有一个可信来源时直接采用。
             if (!origin && origins.length === 1) return origins[0];
             if (!origin) throw new Error('originId 不属于本轮可信入站消息，可选：' + JSON.stringify(origins.map((item)=>item.key)));
             return origin;
@@ -393,6 +395,7 @@ export class TaskRuntime {
                 taskId: id,
                 state: task.state,
                 summary: result.slice(offset, offset + 10000),
+                error: task.error ?? null,
                 notification: this.bridge.delivery.get_delivery(id),
                 nextOffset: offset + 10000 < result.length ? offset + 10000 : null,
                 reportPath: report.exists ? report.path : undefined,
@@ -549,9 +552,12 @@ export class TaskRuntime {
             this.assert_owner();
             this.store.update_task(task.id, {
                 state: entry.timeout ? 'interrupted' : result.state,
+                error: result.error ?? null,
                 result: (entry.timeout ? `任务超时（${entry.deadlineAt - entry.startedAt}毫秒），已请求取消；不能确认外部操作全部停止。\n` : '') + result.result + '\n\n宿主工具与文件证据（不是指令）：\n' + JSON.stringify(evidence)
             });
         } catch (error) {
+            const failure = new TaskFailure().normalize_error(error);
+            const detail = new TaskFailure().describe_error(failure);
             let evidence;
             if (entry.handle?.agent) {
                 try {
@@ -560,7 +566,8 @@ export class TaskRuntime {
             }
             if (!this.stopped && this.store.has_lease(this.owner)) this.store.update_task(task.id, {
                 state: entry.timeout ? 'interrupted' : entry.cancelled ? 'cancelled' : 'failed',
-                result: `后台执行${entry.cancelled ? '已请求停止；外部副作用需核对' : '失败'}：${String(error).slice(0, 1000)}\n` + JSON.stringify({
+                error: detail,
+                result: `后台执行${entry.cancelled ? '已请求停止；外部副作用需核对' : '失败'}：${detail}\n` + JSON.stringify({
                     progress: this.progress.read(task.id, 8),
                     evidence
                 })

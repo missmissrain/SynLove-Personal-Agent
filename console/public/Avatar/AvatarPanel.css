@@ -24,6 +24,12 @@ main:has(#tab-overview.active) { max-width: none; overflow: hidden; }
 }
 .companion-canvas { position: absolute; inset: 0; }
 .companion-canvas canvas { display: block; width: 100%; height: 100%; }
+.companion-action-video {
+  position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%;
+  object-fit: contain; background: #f7edf2; pointer-events: none;
+}
+.companion-action-video[hidden] { display: none; }
+.companion-canvas.companion-action-playing canvas { visibility: hidden; }
 .companion-fallback { background: url('/Avatar/live2d/StandingFallback.png') center 70px / 145% auto no-repeat; }
 .companion-fallback .companion-canvas { visibility: hidden; }
 .companion-load { position: absolute; left: 20px; right: 20px; top: 40%; text-align: center; font-size: 12px; color: #9c7c8c; }

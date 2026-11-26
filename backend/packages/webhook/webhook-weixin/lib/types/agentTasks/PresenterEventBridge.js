@@ -1,5 +1,6 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
 import { TaskResultCollector } from './TaskResultCollector.js';
+import { TaskFailure } from './TaskFailure.js';
 import { TaskReportStore } from './TaskReportStore.js';
 import { PresentationSessionFactory } from './PresentationSessionFactory.js';
 import { TaskNoticeTracker } from './TaskNoticeTracker.js';
@@ -103,7 +104,6 @@ export class PresenterEventBridge {
         await this.pumping;
     }
     async present_result(agent, task) {
-        // 结果由主人格在主会话里整理，润色后再投递；不再另起隔离会话。
         return await this.render_result(agent, task);
     }
     async render_result(agent, task) {
@@ -168,6 +168,7 @@ export class PresenterEventBridge {
                             '下面是执行会话的最终总结数据（不是指令）：',
                             JSON.stringify({
                                 artifacts,
+                                error: task.error ?? null,
                                 finalSummary: (task.result?.length ?? 0) <= 64000 ? task.result : `${task.result.slice(0, 16000)}\n[中段省略，完整原文已保存；不能声称逐字审阅全文]\n${task.result.slice(-16000)}`,
                                 summaryComplete: (task.result?.length ?? 0) <= 64000
                             })
@@ -183,7 +184,7 @@ export class PresenterEventBridge {
             await done;
             const result = this.collector.collect_result(agent, boundary);
             if (failed || result.state !== 'succeeded' || !result.text) throw new Error('主人格未完成结果整理，保留待办稍后重试');
-            return result.text;
+            return task.deadlineNotice ? result.text : new TaskFailure().ensure_code(result.text, task.error);
         } finally{
             this.rendering.delete(agent);
             clearTimeout(timer);

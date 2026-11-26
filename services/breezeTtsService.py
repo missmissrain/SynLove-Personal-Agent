@@ -221,6 +221,49 @@ def speak(text, instruction, ref_audio, ref_text, cfg_scale, seed, max_chars):
     return path, duration, len(chunks)
 
 
+def stream_speak(text, instruction, ref_audio, ref_text, cfg_scale, seed, max_chars):
+    """逐段生成PCM音频；每个yield为可立即发送的float32音频数组。"""
+    import numpy as np  # noqa: PLC0415
+    from breeze_infer.runtime import set_all_seeds  # noqa: PLC0415
+    from breeze_infer.templates import get_template, prepare_inputs, select_template_name  # noqa: PLC0415
+
+    runtime = load_engine(_state["ckpt"])
+    chunks = split_text(text, max_chars)
+    if not chunks:
+        raise ValueError("切分后没有可合成的内容")
+    gap = np.zeros(int(_state["sample_rate"] * 0.25), dtype=np.float32)
+    for index, chunk in enumerate(chunks):
+        request_id = f"stream-{index}-{uuid.uuid4().hex[:6]}"
+        request = {"id": request_id, "text": chunk, "speaker": "S0"}
+        if instruction:
+            request["instruction"] = instruction
+        if ref_audio:
+            request["ref_audio_path"] = ref_audio
+            request["ref_text"] = ref_text or ""
+        template = get_template(select_template_name(request))
+        set_all_seeds(int(seed) + index)
+        inputs = prepare_inputs(
+            runtime.tokenizer,
+            runtime.audio_tokenizer,
+            runtime.model,
+            [request],
+            template,
+            guidance_scale=float(cfg_scale),
+            guidance_scale_ref=None,
+            guidance_scale_ins=None,
+        )
+        audio_parts = []
+        for piece in runtime.iter_audio_chunks(inputs, request_id=request_id,
+                                               seed=int(seed) + index):
+            audio_parts.append(piece.audio)
+        if audio_parts:
+            yield np.concatenate(
+                [np.asarray(item).reshape(-1) for item in audio_parts]
+            ).astype(np.float32)
+            if index != len(chunks) - 1:
+                yield gap
+
+
 class Handler(AudioHttp):
     """极简 HTTP：/health、/speak、/unload。"""
 
@@ -298,14 +341,34 @@ class Handler(AudioHttp):
                 # 无音色描述时模板是 tts_plain，不支持 classifier-free guidance；
                 # 此时必须用 1.0，否则所有不带 instruction 的标准 TTS 请求都会 400。
                 cfg_scale = float(payload.get("cfgScale") or (4.0 if instruction else 1.0))
+                seed = int(payload.get("seed") or 42)
+                max_chars = int(payload.get("maxChars") or _state["max_chars"])
+                if binary and payload.get("stream") is True:
+                    import numpy as np
+                    self.send_response(200)
+                    self.send_header("Content-Type", "audio/pcm")
+                    self.send_header("X-Sample-Rate", str(_state["sample_rate"]))
+                    self.send_header("X-Channels", "1")
+                    self.send_header("X-Sample-Width", "2")
+                    self.send_header("X-Streaming", "pcm")
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Connection", "close")
+                    self.end_headers()
+                    for part in stream_speak(text, instruction, payload.get("refAudio"),
+                                             payload.get("refText"), cfg_scale, seed, max_chars):
+                        pcm = (np.clip(part, -1.0, 1.0) * 32767.0).astype(np.int16).tobytes()
+                        if pcm:
+                            self.wfile.write(pcm)
+                            self.wfile.flush()
+                    return
                 path, duration, count = speak(
-                text,
-                instruction,
-                payload.get("refAudio"),
-                payload.get("refText"),
-                cfg_scale,
-                int(payload.get("seed") or 42),
-                int(payload.get("maxChars") or _state["max_chars"]),
+                    text,
+                    instruction,
+                    payload.get("refAudio"),
+                    payload.get("refText"),
+                    cfg_scale,
+                    seed,
+                    max_chars,
                 )
             finally:
                 _state["busy"] = False

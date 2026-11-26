@@ -56,6 +56,11 @@ class ServiceHost:
         self.snapshot_at = 0
         self.snapshot_data = None
         self.database_lease = None
+        self.terminal_runtime = None
+        if name == "core" and (self.root / "config/terminalConnection.json").is_file():
+            from remoteControl.TerminalServerRuntime import TerminalServerRuntime
+            self.terminal_runtime = TerminalServerRuntime(self.root)
+            self.terminal_runtime.start_runtime()
         if name in ("reminders", "digest"):
             env = self.worker_environment()
             key = "SYNLOVE_" + name.upper() + "_DB"
@@ -279,6 +284,8 @@ class ServiceHost:
     def close(self):
         """无参数；先阻止新调度，再停止业务子进程并等待执行池退出，最后释放独占锁。"""
         self.closed.set()
+        if getattr(self, "terminal_runtime", None):
+            self.terminal_runtime.close_runtime()
         with self.registration:
             if self.adapter:
                 self.adapter.close()

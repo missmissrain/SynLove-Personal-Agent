@@ -387,7 +387,10 @@ def render_settings(config: dict) -> str:
     for name, provider in config.get("providers", {}).items():
         lines.append("    " + name + ":")
         lines.append("      displayName: " + yaml_string(str(provider.get("displayName", name))))
-        lines.append("      apiKeyEnv: " + yaml_string(str(provider.get("apiKeyEnv", ""))))
+        # 无鉴权的本地模型不声明凭据引用；空字符串会让整个模型适配器注册失败。
+        key_ref = str(provider.get("apiKeyEnv") or "").strip()
+        if key_ref:
+            lines.append("      apiKeyEnv: " + yaml_string(key_ref))
         if provider.get("api"):
             lines.append("      api: " + yaml_string(str(provider["api"])))
         if provider.get("baseURL"):

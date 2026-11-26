@@ -4,6 +4,7 @@
 该类不调用模型、不保存会话，也不绑定具体设备，方便以后由不同终端替换。
 """
 
+import json
 import re
 
 
@@ -26,8 +27,21 @@ class TtsPrompt:
     )
 
     def parse(self, content):
-        """content 为主人格原始返回文本；返回 text 与 ttsPrompt 两个字段。"""
+        """content 为正文或包含 text、ttsEmotion 的下行对象；返回正文和兼容情绪字段。"""
+        if isinstance(content, dict):
+            return self.parse_reply(content)
         text = str(content or "").strip()
+        # 仅将含正文键的对象识别成控制协议，普通 JSON 回答仍保留为正文。
+        raw = text
+        if text.startswith("```json\n") and text.endswith("```"):
+            raw = text[8:-3].strip()
+        if raw.startswith("{"):
+            try:
+                data = json.loads(raw)
+            except ValueError:
+                data = None
+            if isinstance(data, dict) and "text" in data:
+                return self.parse_reply(data)
         prompt = self.DEFAULT
         for pattern in self._PATTERNS:
             match = pattern.search(text)
@@ -41,3 +55,15 @@ class TtsPrompt:
         if not text:
             raise ValueError("主人格返回缺少可朗读正文")
         return {"text": text, "ttsPrompt": prompt}
+
+    def parse_reply(self, reply):
+        """reply 为主人格下行字典；白名单校验情绪，剥离正文标记，忽略声线覆盖字段。"""
+        text = reply.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("主人格返回缺少可朗读正文")
+        result = self.parse(text)
+        mood = reply.get("ttsEmotion", reply.get("ttsPrompt", result["ttsPrompt"]))
+        if isinstance(mood, str):
+            mood = mood.strip().lower()
+        result["ttsPrompt"] = mood if isinstance(mood, str) and mood in self.EMOTIONS else self.DEFAULT
+        return result

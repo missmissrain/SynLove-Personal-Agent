@@ -3,6 +3,7 @@
  * 参数doc默认document；仅移动现有概览DOM，不增加业务接口、不发送消息、不复制任务状态。
  */
 import { Live2dAvatarRenderer } from './Live2dAvatarRenderer.js'
+import { ActionVideoAvatarRenderer } from './ActionVideoAvatarRenderer.js'
 import { HomeWorkspace } from './HomeWorkspace.js'
 
 export class AvatarPanel {
@@ -40,6 +41,8 @@ export class AvatarPanel {
     this.card = card
     this.status = card.querySelector('.companion-load')
     const host = card.querySelector('.companion-canvas')
+    this.actionVideo = new ActionVideoAvatarRenderer(host)
+    this.actionVideo.onEnd = () => { host.classList.remove('companion-action-playing') }
     host.addEventListener('pointermove', event => {
       const box = host.getBoundingClientRect()
       this.avatar?.motion?.set_pointer((event.clientX-box.left)/box.width*2-1,
@@ -65,12 +68,36 @@ export class AvatarPanel {
   /** 参数host为画布容器；读取本机资源，失败时保留所有控制台功能并显示原模型静态图。 */
   async initialize_view(host) {
     try {
+      await this.actionVideo.load_manifest()
       this.avatar = new Live2dAvatarRenderer(host)
       this.info = await this.avatar.load_model()
       this.status.hidden = true
       this.status.textContent = ''
       this.card.dataset.ready = 'true'
+      await this.refresh_action()
+      this.actionTimer = window.setInterval(() => this.refresh_action(), 900)
     } catch (error) { this.show_error(error.message) }
+  }
+
+  /** 无参数；读取服务器当前动作状态，只有动作编号变化时才播放，防止人物频繁跳变。 */
+  async refresh_action() {
+    if (!this.actionVideo || this.actionVideo.current) return
+    const response = await fetch('/api/avatar/actions', { cache: 'no-store' })
+    if (!response.ok) return
+    const data = await response.json()
+    const state = data.current
+    if (!state?.action || state.requestId === this.actionRequestId) return
+    this.actionRequestId = state.requestId
+    const played = await this.set_action(state.action)
+    if (played) this.card.dataset.action = state.action
+  }
+
+  /** 参数name为服务器注册动作名；播放完整动作卡并让底层Live2D在结束后继续待机。 */
+  async set_action(name) {
+    if (!this.actionVideo || !this.actionVideo.index?.has(name)) return false
+    const host = this.card.querySelector('.companion-canvas')
+    host.classList.add('companion-action-playing')
+    return this.actionVideo.play_action(name)
   }
 
   /** 参数message为实际错误；显式说明Live2D不可用，禁止伪造成功状态。 */

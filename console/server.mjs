@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Agent 控制台 · 本地服务。
  *
  * 只绑 127.0.0.1，不对外网开放；零第三方依赖（Node 内置模块）。
@@ -39,6 +39,7 @@ import { RelayTrust } from './remote/RelayTrust.mjs'
 import { PersonaStore } from './PersonaStore.mjs'
 import { AgentReasoningStore } from './AgentReasoningStore.mjs'
 import { SelfIterationStore } from './SelfIterationStore.mjs'
+import { AvatarActionRegistry } from './avatar/AvatarActionRegistry.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const PROJECT = resolve(HERE, '..')
@@ -48,6 +49,7 @@ const CONFIG = join(PROJECT, 'config')
 const personas = new PersonaStore(PROJECT, path => backup_file(path))
 const agent_reasoning = new AgentReasoningStore(PROJECT, path => backup_file(path))
 const self_iteration = new SelfIterationStore(PROJECT, path => backup_file(path))
+const avatar_actions = new AvatarActionRegistry(PROJECT)
 const BACKEND_SERVICE_CONFIG = join(CONFIG, 'backendService.json')
 RelayTrust.configure_trust(PROJECT)
 const service_proxy = new ServiceProxy(PROJECT)
@@ -2082,6 +2084,7 @@ export const server = createServer((req, res) => {
         case '/api/logs': return void send(api.logs(url.searchParams.get('name') ?? 'probe', Number(url.searchParams.get('lines') ?? 200)))
         case '/api/usage': return void send(api.usage(Number(url.searchParams.get('days') ?? 7)))
         case '/api/heartbeat': return void send(heartbeat.snapshot())
+        case '/api/avatar/actions': return void send(avatar_actions.snapshot())
         case '/api/backend': return void send({ ok: true, config: read_backend_service_config(), hasApiKey: Boolean(read_secrets().backendService?.apiKey),
           protocol: 'synlove-backend-v1' })
         default: return json(res, 404, { error: 'unknown api' })
@@ -2130,6 +2133,7 @@ export const server = createServer((req, res) => {
             }
             case '/api/heartbeat/ping': return void send(heartbeat.note_page_ping())
             case '/api/heartbeat/check': return void heartbeat.tick('手动').then(send, fail)
+            case '/api/avatar/action': return void send(avatar_actions.choose_action(body))
             case '/api/backend/config': return void send(save_backend_service_config(body))
             case '/api/backend/probe': return void probe_backend_services(body).then(send, fail)
             case '/api/service':

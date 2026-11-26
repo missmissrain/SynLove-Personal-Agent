@@ -175,6 +175,7 @@ export function apply(ctx: Context, config: Config): void {
     if (bound.has(agent)) return
     bound.add(agent)
     agent.ctx.on('agent/assistant-stream', (payload: unknown) => {
+      if ((agent as any)[Symbol.for('synlove.voice.turn')]) return
       if (host.tasks?.is_presenting(session_id)) return
       if ((payload as { agent?: unknown }).agent !== undefined && (payload as { agent?: unknown }).agent !== agent) return
       const frame = (payload as { frame?: { type?: string; chunk?: { type?: string; text?: string } } }).frame
@@ -185,6 +186,7 @@ export function apply(ctx: Context, config: Config): void {
       if (item !== undefined) item.text += chunk.text
     })
     agent.ctx.on('agent/turn-stopping', (payload: unknown) => {
+      if ((agent as any)[Symbol.for('synlove.voice.turn')]) return
       if (host.tasks?.is_presenting(session_id)) return
       if ((payload as { agent?: unknown }).agent !== undefined && (payload as { agent?: unknown }).agent !== agent) return
       void flush(session_id).catch(error => probe('outbound', 'qq.flush_failed', { error: String(error).slice(0, 160) }))

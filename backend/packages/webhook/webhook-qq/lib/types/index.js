@@ -111,6 +111,7 @@ export function apply(ctx, config) {
         if (bound.has(agent)) return;
         bound.add(agent);
         agent.ctx.on('agent/assistant-stream', (payload)=>{
+            if (agent[Symbol.for('synlove.voice.turn')]) return;
             if (host.tasks?.is_presenting(session_id)) return;
             if (payload.agent !== undefined && payload.agent !== agent) return;
             const frame = payload.frame;
@@ -121,6 +122,7 @@ export function apply(ctx, config) {
             if (item !== undefined) item.text += chunk.text;
         });
         agent.ctx.on('agent/turn-stopping', (payload)=>{
+            if (agent[Symbol.for('synlove.voice.turn')]) return;
             if (host.tasks?.is_presenting(session_id)) return;
             if (payload.agent !== undefined && payload.agent !== agent) return;
             void flush(session_id).catch((error)=>probe('outbound', 'qq.flush_failed', {
@@ -163,14 +165,15 @@ export function apply(ctx, config) {
         } : {
             groupOpenid: group
         };
-    if (group === undefined) {
-        // 记下最近一个单聊用户：后台主动消息用它当默认收件人。
-        try {
-            const home = process.env.DSH_HOME ?? join(homedir(), '.dsh');
-            writeFileSync(join(home, 'qq-owner.json'), JSON.stringify({ userOpenid: openid, at: Date.now() }), 'utf8');
-        } catch  {
+        if (group === undefined) {
+            try {
+                const home = process.env.DSH_HOME ?? join(homedir(), '.dsh');
+                writeFileSync(join(home, 'qq-owner.json'), JSON.stringify({
+                    userOpenid: openid,
+                    at: Date.now()
+                }), 'utf8');
+            } catch  {}
         }
-    }
         probe('inbound', 'qq.message', {
             kind,
             session_id: String(session_id),

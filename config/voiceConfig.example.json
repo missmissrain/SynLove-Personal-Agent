@@ -1,14 +1,31 @@
 {
   "version": 1,
+  "enabled": false,
+  "agentMode": "primary",
+  "asrBaseURL": "http://127.0.0.1:18881/v1",
+  "asrModel": "small",
+  "asrStreamingURL": "ws://127.0.0.1:10095",
+  "asrStreamingEnabled": false,
+  "ttsStreamingPath": "/audio/speech",
+  "ttsStreamingEnabled": false,
+  "allowServerAsrFallback": false,
   "listenHost": "127.0.0.1",
   "listenPort": 8812,
   "wakeWords": [
     "欣爱"
   ],
   "audioMaxBytes": 33554432,
+  "latencyProbe": {
+    "enabled": true,
+    "includeStageTimings": true,
+    "includeRawAudio": false,
+    "includeTranscript": false
+  },
   "protocol": {
     "health": "GET /health",
     "turn": "POST /v1/voice/turn",
+    "turnStream": "POST /v1/voice/turn/stream",
+    "turnStreamFormat": "application/x-ndjson",
     "headers": [
       "Authorization: Bearer <optional local token>",
       "X-Device-Id: terminal identifier",

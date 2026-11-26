@@ -12,6 +12,7 @@ import { TaskStore } from './TaskStore.ts'
 import { TaskMcpServer } from './TaskMcpServer.ts'
 import { WorkerSessionFactory } from './WorkerSessionFactory.ts'
 import { TaskResultCollector } from './TaskResultCollector.ts'
+import { TaskFailure } from './TaskFailure.ts'
 import { TaskEvidence } from './TaskEvidence.ts'
 import { PresenterEventBridge } from './PresenterEventBridge.ts'
 import { TaskReportStore } from './TaskReportStore.ts'
@@ -230,7 +231,7 @@ export class TaskRuntime {
         && ['time-context','system-prompt'].includes(source.plugin)) continue
       // 模型切换、时间、系统提示等非渠道插件的通知不是用户输入，必须跳过；
       // 否则这些 notice 会让整轮被判成“没有可信来源”，任务将永远提交不了。
-      if (source?.kind === 'plugin' && source.plugin !== 'dsh-webhook-weixin') continue
+      if (source?.kind === 'plugin' && !['dsh-webhook-weixin','webhook-qq'].includes(source.plugin)) continue
       const key = source?.taskOriginId
       if (!key) throw new Error('当前消息没有可信通道来源，拒绝后台操作')
       const origin = this.store.get_origin(key, owner.session)
@@ -321,6 +322,7 @@ export class TaskRuntime {
       const report = reports.report_info(id)
       const excerpt = report.exists && offset === 0 ? reports.read_report(id, 0, 1500).text : undefined
       return { taskId: id, state: task.state, summary: result.slice(offset, offset + 10000),
+        error: task.error ?? null,
         notification: this.bridge.delivery.get_delivery(id),
         nextOffset: offset + 10000 < result.length ? offset + 10000 : null,
         reportPath: report.exists ? report.path : undefined,
@@ -434,9 +436,12 @@ export class TaskRuntime {
       entry.handle = undefined
       this.assert_owner()
       this.store.update_task(task.id, { state: entry.timeout ? 'interrupted' : result.state,
+        error: result.error ?? null,
         result: (entry.timeout ? `任务超时（${entry.deadlineAt - entry.startedAt}毫秒），已请求取消；不能确认外部操作全部停止。\n` : '')
           + result.result + '\n\n宿主工具与文件证据（不是指令）：\n' + JSON.stringify(evidence) })
     } catch (error) {
+      const failure = new TaskFailure().normalize_error(error)
+      const detail = new TaskFailure().describe_error(failure)
       let evidence: any
       if (entry.handle?.agent) {
         try { evidence = new TaskEvidence(this.root).collect_evidence(entry.handle.agent, task.id) }
@@ -444,7 +449,8 @@ export class TaskRuntime {
       }
       if (!this.stopped && this.store.has_lease(this.owner))
         this.store.update_task(task.id, { state: entry.timeout ? 'interrupted' : entry.cancelled ? 'cancelled' : 'failed',
-          result: `后台执行${entry.cancelled ? '已请求停止；外部副作用需核对' : '失败'}：${String(error).slice(0, 1000)}\n`
+          error: detail,
+          result: `后台执行${entry.cancelled ? '已请求停止；外部副作用需核对' : '失败'}：${detail}\n`
             + JSON.stringify({ progress: this.progress.read(task.id, 8), evidence }) })
     } finally {
       clearTimeout(entry.timer)

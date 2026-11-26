@@ -51,6 +51,47 @@ class ServiceClient:
         except urllib.error.HTTPError as error:
             raise RuntimeError(f"微服务请求失败 HTTP {error.code}") from None
 
+    def request_stream(self, path, body=None, content_type=None, limit=MAX_AUDIO):
+        """path为API相对路径；返回可迭代响应、响应头和关闭函数，供PCM/SSE边收边处理。"""
+        cfg = self.config
+        if cfg.get("management") == "disabled":
+            raise RuntimeError("服务已禁用")
+        headers = {}
+        if content_type:
+            headers["Content-Type"] = content_type
+        key = ServiceCredential.resolve_key(cfg)
+        if key:
+            headers["Authorization"] = "Bearer " + key
+        req = urllib.request.Request(cfg["baseURL"] + path, data=body, headers=headers)
+        opener = urllib.request.build_opener(
+            urllib.request.HTTPSHandler(context=ServiceTls.create_context(cfg)))
+        for handler in opener.handlers:
+            if isinstance(handler, urllib.request.HTTPRedirectHandler):
+                handler.redirect_request = lambda *args, **kwargs: None
+        try:
+            response = opener.open(req, timeout=cfg["timeoutSeconds"])
+        except urllib.error.HTTPError as error:
+            raise RuntimeError(f"微服务请求失败 HTTP {error.code}") from None
+
+        def chunks(chunk_size=8192):
+            """chunk_size为单次读取字节数；逐块返回并执行响应大小上限检查。"""
+            total = 0
+            while True:
+                data = response.read(int(chunk_size))
+                if not data:
+                    break
+                total += len(data)
+                if total > limit:
+                    raise ValueError("微服务流式响应超过大小上限")
+                yield data
+
+        return chunks(), response.headers, response.close
+
+    def health(self):
+        """无参数；读取服务健康状态，作为TTS/ASR预热探针，不生成音频。"""
+        data, _ = self.request("/health", limit=128 * 1024)
+        return json.loads(data)
+
     def synthesize(self, text, **options):
         """text 为待合成文字；options 为音色或 Breeze 扩展参数；返回音频字节与格式。"""
         fmt = self.config.get("format", "wav")
@@ -67,6 +108,33 @@ class ServiceClient:
         if not data or not mime.startswith("audio/"):
             raise ValueError("TTS 未返回音频字节")
         return data, fmt
+
+    def synthesize_stream(self, text, on_chunk=None, **options):
+        """text为待合成文字；on_chunk收到PCM/WAV增量；返回格式、首块和总字节数。"""
+        fmt = self.config.get("streamFormat", "pcm")
+        payload = {"model": self.config["model"], "input": text,
+                   "voice": self.config.get("voice", "default"),
+                   "response_format": fmt, "stream": True, "stream_format": "audio"}
+        if self.config.get("dialect") == "breeze":
+            payload.update(options)
+        data, headers, close = self.request_stream(
+            self.config.get("streamPath", "/audio/speech"),
+            json.dumps(payload).encode("utf-8"), "application/json")
+        first = b""
+        total = 0
+        try:
+            for chunk in data:
+                if not first:
+                    first = chunk
+                total += len(chunk)
+                if on_chunk:
+                    on_chunk(chunk)
+        finally:
+            close()
+        if total <= 0:
+            raise ValueError("TTS 流式接口未返回音频")
+        return {"format": headers.get_content_type(), "firstChunk": first,
+                "bytes": total, "sampleRate": int(headers.get("X-Sample-Rate", "24000"))}
 
     def transcribe(self, path, language=None, vad_filter=None):
         """path 为调用机音频路径；language 为可选语言代码；上传真实内容并返回 JSON 转写。"""
