@@ -6,7 +6,7 @@
 
 <p align="center"><b>心合万象，爱有回响</b></p>
 
-<p align="center">v3.0 · 本地优先的私人智能体</p>
+<p align="center">v3.1 · 本地优先的私人智能体</p>
 
 <p align="center">
   <img src="docs/art/character.png" width="300" alt="欣爱立绘">
