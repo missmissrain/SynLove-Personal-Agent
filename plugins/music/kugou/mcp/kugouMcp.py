@@ -58,8 +58,8 @@ TOOLS = [
     {
         "name": "kugou_fetch",
         "description": (
-            "在本机请求音乐：搜索并把音频下载到服务器文件，返回可传输的音频路径。"
-            "要播放到终端，请把返回的 path 交给 terminal_media_play；不要用 GUI 找酷狗。"
+            "只取单曲：搜索并把一首音频下载到服务器文件，返回可传输的音频路径。"
+            "单曲播放把 path 交给 terminal_media_play；歌单/列表请改用 kugou_play_playlist 一次入队，不要逐首取。"
         ),
         "inputSchema": {
             "type": "object",
@@ -109,13 +109,13 @@ TOOLS = [
         "name": "kugou_play_playlist",
         "description": (
             "把歌单前 limit 首加入服务器轮询队列：服务端逐首下载音频、经 file.stream 直传到目标终端并自动续播。"
-            "调用一次即可，不要自己循环点歌。用户说“放我的XX歌单/歌单里的歌”时用。"
+            "调用一次即可，不要自己循环点歌，也不要先 fetch 第一首再自己接。用户说“放我的XX歌单/歌单里的歌”时用。"
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "playlist": {"type": "string", "description": "歌单名字（如“战歌”）或 collection id"},
-                "limit": {"type": "integer", "description": "最多播多少首，默认 50"},
+                "limit": {"type": "integer", "description": "最多播多少首，默认 30；服务端自动轮询续播"},
             },
             "required": ["playlist"],
         },
