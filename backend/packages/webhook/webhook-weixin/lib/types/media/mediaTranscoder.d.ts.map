@@ -1,0 +1,1 @@
+{"version":3,"file":"mediaTranscoder.d.ts","sourceRoot":"","sources":["../../../src/media/mediaTranscoder.ts"],"names":[],"mappings":"AAAA,8CAA8C;AAY9C,kDAAkD;AAClD,wBAAsB,qBAAqB,CAAC,IAAI,EAAE,UAAU,EAAE,WAAW,SAAS,GAAG,OAAO,CAAC;IAAE,IAAI,EAAE,UAAU,CAAC;IAAC,SAAS,EAAE,WAAW,GAAG,YAAY,CAAC;IAAC,UAAU,EAAE,OAAO,CAAA;CAAE,CAAC,CAQ7K"}

@@ -1,0 +1,5 @@
+{
+  "wireZh": false,
+  "reasoningOff": false,
+  "note": "wireZh=中文短协议（工具名/参数走中文短词，实测输入 -61%）。reasoningOff 对 qwen 无效（网关不支持关思考），保持 false。"
+}

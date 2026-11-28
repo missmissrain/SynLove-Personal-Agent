@@ -1,0 +1,1 @@
+{"version":3,"file":"notifyTools.d.ts","sourceRoot":"","sources":["../../../src/coordination/notifyTools.ts"],"names":[],"mappings":"AAAA;;;;;;;;;GASG;AAEH,OAAO,KAAK,EAAE,OAAO,EAAE,MAAM,qBAAqB,CAAA;AAElD,OAAO,KAAK,EAAE,cAAc,EAAgB,MAAM,qBAAqB,CAAA;AAYvE;;;;;GAKG;AACH,wBAAgB,qBAAqB,CAAC,SAAS,EAAE,OAAO,EAAE,QAAQ,EAAE,cAAc,GAAG,IAAI,CAsExF"}

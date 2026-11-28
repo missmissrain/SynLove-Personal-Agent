@@ -1,0 +1,1 @@
+{"version":3,"file":"QqGatewayLease.d.ts","sourceRoot":"","sources":["../../src/QqGatewayLease.ts"],"names":[],"mappings":"AA6CA,qBAAa,cAAc;IACzB,OAAO,CAAC,QAAQ,CAAC,EAAE,CAAc;IACjC,OAAO,CAAC,QAAQ,CAAC,KAAK,CAAe;IACrC,OAAO,CAAC,MAAM,CAAQ;IAEtB,kCAAkC;gBACtB,IAAI,EAAE,MAAM;IAUxB,qCAAqC;IACrC,aAAa,IAAI,OAAO;IAoBxB,kCAAkC;IAClC,aAAa,IAAI,IAAI;CAMtB"}

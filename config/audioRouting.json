@@ -1,0 +1,16 @@
+{
+  "devices": [
+    "tianxuanLaptop",
+    "androidGateway",
+    "sonyXperia5III"
+  ],
+  "outputs": {
+    "sonyXperia5III": "tianxuanLaptop"
+  },
+  "cameraOwnerThreshold": 0.9,
+  "autoListeningMonitor": true,
+  "listenDevices": [
+    "tianxuanLaptop",
+    "sonyXperia5III"
+  ]
+}

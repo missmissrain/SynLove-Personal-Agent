@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "enabled": true,
+  "agentMode": "primary",
+  "asrBaseURL": "http://127.0.0.1:18881/v1",
+  "asrModel": "small",
+  "allowServerAsrFallback": false,
+  "wakeWords": [
+    "欣爱"
+  ],
+  "ttsStreamingPath": "/audio/speech",
+  "ttsStreamingEnabled": false,
+  "asrStreamingURL": "ws://127.0.0.1:10095",
+  "asrStreamingEnabled": true,
+  "asrStreamingModel": "PRODUCTION_ROOT/models/asrStreaming",
+  "asrStreamingHost": "127.0.0.1",
+  "asrStreamingPort": 10095,
+  "asrStreamingThreads": 2,
+  "asrStreamingEndpointSilence": 1.2,
+  "asrStreamingTimeoutSeconds": 60
+}

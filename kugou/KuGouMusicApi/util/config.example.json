@@ -1,0 +1,14 @@
+{
+  "wx_appid": "<redacted>",
+  "wx_lite_appid": "<redacted>",
+  "wx_secret": "<redacted>",
+  "wx_lite_secret": "<redacted>",
+  "srcappid": "<redacted>",
+  "appid": "<redacted>",
+  "apiver": 20,
+  "clientver": 20489,
+  "liteAppid": "<redacted>",
+  "liteClientver": 11440,
+  "qq_appid": "<redacted>",
+  "qq_lite_appid": "<redacted>"
+}

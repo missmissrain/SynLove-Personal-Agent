@@ -1,0 +1,253 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="2500" height="2700" viewBox="0 0 2500 2700">
+<defs><filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="4" stdDeviation="7" flood-color="#22304a" flood-opacity=".12"/></filter><linearGradient id="coreFill" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2b3a67"/><stop offset="1" stop-color="#4a6fa5"/></linearGradient></defs>
+<rect width="2500" height="2700" fill="#f6f8fc"/>
+<text x="64" y="70" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="30" font-weight="700" fill="#1f2a44">SynLove 能力拓扑 · 主人格为中心</text>
+<text x="64" y="102" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" fill="#6b7a94">每个节点只连一条直线到主人格；协议与端口写在节点副标题里。颜色表示能力分类。</text>
+<circle cx="1250" cy="1250" r="300" fill="#4a6fa5" fill-opacity=".05"/>
+<circle cx="1250" cy="1250" r="520" fill="#4a6fa5" fill-opacity=".04"/>
+<circle cx="1250" cy="1250" r="760" fill="#4a6fa5" fill-opacity=".03"/>
+<line x1="1250.0" y1="1100.0" x2="1250.0" y2="221.0" stroke="#2f6feb" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1281.2" y1="1103.3" x2="1448.6" y2="243.5" stroke="#2f6feb" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1311.0" y1="1113.0" x2="1638.4" y2="310.0" stroke="#2f6feb" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1338.2" y1="1128.6" x2="1811.3" y2="417.5" stroke="#2f6feb" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1361.5" y1="1149.6" x2="1959.7" y2="561.5" stroke="#e05a8a" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1379.9" y1="1175.0" x2="2077.1" y2="735.5" stroke="#e05a8a" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1392.7" y1="1203.6" x2="2158.3" y2="932.0" stroke="#e05a8a" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1399.2" y1="1234.3" x2="2199.8" y2="1142.4" stroke="#e05a8a" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1399.2" y1="1265.7" x2="2199.8" y2="1357.6" stroke="#0f9b8e" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1392.7" y1="1296.4" x2="2158.3" y2="1568.0" stroke="#0f9b8e" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1379.9" y1="1325.0" x2="2077.1" y2="1764.5" stroke="#0f9b8e" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1361.5" y1="1350.4" x2="1959.7" y2="1938.5" stroke="#0f9b8e" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1338.2" y1="1371.4" x2="1811.3" y2="2082.5" stroke="#0f9b8e" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1311.0" y1="1387.0" x2="1638.4" y2="2190.0" stroke="#7c5cff" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1281.2" y1="1396.7" x2="1448.6" y2="2256.5" stroke="#7c5cff" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1250.0" y1="1400.0" x2="1250.0" y2="2279.0" stroke="#7c5cff" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1218.8" y1="1396.7" x2="1051.4" y2="2256.5" stroke="#7c5cff" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1189.0" y1="1387.0" x2="861.6" y2="2190.0" stroke="#e8890c" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1161.8" y1="1371.4" x2="688.7" y2="2082.5" stroke="#e8890c" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1138.5" y1="1350.4" x2="540.3" y2="1938.5" stroke="#e8890c" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1120.1" y1="1325.0" x2="422.9" y2="1764.5" stroke="#e8890c" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1107.3" y1="1296.4" x2="341.7" y2="1568.0" stroke="#b5179e" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1100.8" y1="1265.7" x2="300.2" y2="1357.6" stroke="#b5179e" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1100.8" y1="1234.3" x2="300.2" y2="1142.4" stroke="#b5179e" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1107.3" y1="1203.6" x2="341.7" y2="932.0" stroke="#2f9e44" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1120.1" y1="1175.0" x2="422.9" y2="735.5" stroke="#2f9e44" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1138.5" y1="1149.6" x2="540.3" y2="561.5" stroke="#2f9e44" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1161.8" y1="1128.6" x2="688.7" y2="417.5" stroke="#6b7a94" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1189.0" y1="1113.0" x2="861.6" y2="310.0" stroke="#6b7a94" stroke-width="1.5" stroke-opacity=".38"/>
+<line x1="1218.8" y1="1103.3" x2="1051.4" y2="243.5" stroke="#6b7a94" stroke-width="1.5" stroke-opacity=".38"/>
+<g filter="url(#shadow)">
+<rect x="1145.0" y="159.0" width="210" height="62" rx="11" fill="#ffffff" stroke="#2f6feb" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="1145.0" y="168.0" width="5" height="44" rx="2.5" fill="#2f6feb"/>
+<text x="1161.0" y="185.0" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">微信接口</text>
+<text x="1161.0" y="204.0" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">webhook · 内部</text>
+<g filter="url(#shadow)">
+<rect x="1365.4" y="182.2" width="210" height="62" rx="11" fill="#ffffff" stroke="#2f6feb" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="1365.4" y="191.2" width="5" height="44" rx="2.5" fill="#2f6feb"/>
+<text x="1381.4" y="208.2" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">QQ 接口</text>
+<text x="1381.4" y="227.2" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">qqState · 8799</text>
+<g filter="url(#shadow)">
+<rect x="1576.1" y="250.6" width="210" height="62" rx="11" fill="#ffffff" stroke="#2f6feb" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="1576.1" y="259.6" width="5" height="44" rx="2.5" fill="#2f6feb"/>
+<text x="1592.1" y="276.6" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">桌面控制台</text>
+<text x="1592.1" y="295.6" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">console · 3080</text>
+<g filter="url(#shadow)">
+<rect x="1768.1" y="361.4" width="210" height="62" rx="11" fill="#ffffff" stroke="#2f6feb" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="1768.1" y="370.4" width="5" height="44" rx="2.5" fill="#2f6feb"/>
+<text x="1784.1" y="387.4" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">安卓终端</text>
+<text x="1784.1" y="406.4" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">app · 2.2.7</text>
+<g filter="url(#shadow)">
+<rect x="1932.7" y="509.7" width="210" height="62" rx="11" fill="#ffffff" stroke="#e05a8a" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="1932.7" y="518.7" width="5" height="44" rx="2.5" fill="#e05a8a"/>
+<text x="1948.7" y="535.7" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">语音网关</text>
+<text x="1948.7" y="554.7" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">HTTP · 8812</text>
+<g filter="url(#shadow)">
+<rect x="2063.0" y="689.0" width="210" height="62" rx="11" fill="#ffffff" stroke="#e05a8a" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="2063.0" y="698.0" width="5" height="44" rx="2.5" fill="#e05a8a"/>
+<text x="2079.0" y="715.0" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">流式识别</text>
+<text x="2079.0" y="734.0" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">WS · 10095</text>
+<g filter="url(#shadow)">
+<rect x="2153.1" y="891.4" width="210" height="62" rx="11" fill="#ffffff" stroke="#e05a8a" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="2153.1" y="900.4" width="5" height="44" rx="2.5" fill="#e05a8a"/>
+<text x="2169.1" y="917.4" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">语音合成</text>
+<text x="2169.1" y="936.4" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">HTTP · 7862</text>
+<g filter="url(#shadow)">
+<rect x="2199.2" y="1108.2" width="210" height="62" rx="11" fill="#ffffff" stroke="#e05a8a" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="2199.2" y="1117.2" width="5" height="44" rx="2.5" fill="#e05a8a"/>
+<text x="2215.2" y="1134.2" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">播放路由</text>
+<text x="2215.2" y="1153.2" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">内部 · voiceRouting</text>
+<g filter="url(#shadow)">
+<rect x="2199.2" y="1329.8" width="210" height="62" rx="11" fill="#ffffff" stroke="#0f9b8e" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="2199.2" y="1338.8" width="5" height="44" rx="2.5" fill="#0f9b8e"/>
+<text x="2215.2" y="1355.8" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">在场服务</text>
+<text x="2215.2" y="1374.8" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">presence · 12s</text>
+<g filter="url(#shadow)">
+<rect x="2153.1" y="1546.6" width="210" height="62" rx="11" fill="#ffffff" stroke="#0f9b8e" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="2153.1" y="1555.6" width="5" height="44" rx="2.5" fill="#0f9b8e"/>
+<text x="2169.1" y="1572.6" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">屏幕观察</text>
+<text x="2169.1" y="1591.6" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">screen.observe</text>
+<g filter="url(#shadow)">
+<rect x="2063.0" y="1749.0" width="210" height="62" rx="11" fill="#ffffff" stroke="#0f9b8e" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="2063.0" y="1758.0" width="5" height="44" rx="2.5" fill="#0f9b8e"/>
+<text x="2079.0" y="1775.0" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">定位与地点</text>
+<text x="2079.0" y="1794.0" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">location.coarse</text>
+<g filter="url(#shadow)">
+<rect x="1932.7" y="1928.3" width="210" height="62" rx="11" fill="#ffffff" stroke="#0f9b8e" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="1932.7" y="1937.3" width="5" height="44" rx="2.5" fill="#0f9b8e"/>
+<text x="1948.7" y="1954.3" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">摄像头</text>
+<text x="1948.7" y="1973.3" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">camera.presence</text>
+<g filter="url(#shadow)">
+<rect x="1768.1" y="2076.6" width="210" height="62" rx="11" fill="#ffffff" stroke="#0f9b8e" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="1768.1" y="2085.6" width="5" height="44" rx="2.5" fill="#0f9b8e"/>
+<text x="1784.1" y="2102.6" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">通知阅读</text>
+<text x="1784.1" y="2121.6" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">notification.listen</text>
+<g filter="url(#shadow)">
+<rect x="1576.1" y="2187.4" width="210" height="62" rx="11" fill="#ffffff" stroke="#7c5cff" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="1576.1" y="2196.4" width="5" height="44" rx="2.5" fill="#7c5cff"/>
+<text x="1592.1" y="2213.4" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">记忆服务</text>
+<text x="1592.1" y="2232.4" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">HTTP · 8797</text>
+<g filter="url(#shadow)">
+<rect x="1365.4" y="2255.8" width="210" height="62" rx="11" fill="#ffffff" stroke="#7c5cff" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="1365.4" y="2264.8" width="5" height="44" rx="2.5" fill="#7c5cff"/>
+<text x="1381.4" y="2281.8" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">会话状态</text>
+<text x="1381.4" y="2300.8" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">HTTP · 8798</text>
+<g filter="url(#shadow)">
+<rect x="1145.0" y="2279.0" width="210" height="62" rx="11" fill="#ffffff" stroke="#7c5cff" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="1145.0" y="2288.0" width="5" height="44" rx="2.5" fill="#7c5cff"/>
+<text x="1161.0" y="2305.0" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">图谱与画像</text>
+<text x="1161.0" y="2324.0" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">graphStore · profile</text>
+<g filter="url(#shadow)">
+<rect x="924.6" y="2255.8" width="210" height="62" rx="11" fill="#ffffff" stroke="#7c5cff" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="924.6" y="2264.8" width="5" height="44" rx="2.5" fill="#7c5cff"/>
+<text x="940.6" y="2281.8" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">自我记忆</text>
+<text x="940.6" y="2300.8" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">MCP · selfMemory</text>
+<g filter="url(#shadow)">
+<rect x="713.9" y="2187.4" width="210" height="62" rx="11" fill="#ffffff" stroke="#e8890c" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="713.9" y="2196.4" width="5" height="44" rx="2.5" fill="#e8890c"/>
+<text x="729.9" y="2213.4" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">终端服务</text>
+<text x="729.9" y="2232.4" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">HTTP · 17864</text>
+<g filter="url(#shadow)">
+<rect x="521.9" y="2076.6" width="210" height="62" rx="11" fill="#ffffff" stroke="#e8890c" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="521.9" y="2085.6" width="5" height="44" rx="2.5" fill="#e8890c"/>
+<text x="537.9" y="2102.6" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">中转节点</text>
+<text x="537.9" y="2121.6" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">WSS · relay</text>
+<g filter="url(#shadow)">
+<rect x="357.3" y="1928.3" width="210" height="62" rx="11" fill="#ffffff" stroke="#e8890c" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="357.3" y="1937.3" width="5" height="44" rx="2.5" fill="#e8890c"/>
+<text x="373.3" y="1954.3" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">终端客户端</text>
+<text x="373.3" y="1973.3" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">心跳 · Windows/Android</text>
+<g filter="url(#shadow)">
+<rect x="227.0" y="1749.0" width="210" height="62" rx="11" fill="#ffffff" stroke="#e8890c" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="227.0" y="1758.0" width="5" height="44" rx="2.5" fill="#e8890c"/>
+<text x="243.0" y="1775.0" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">文件与远控</text>
+<text x="243.0" y="1794.0" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">流式 · fileTransfer</text>
+<g filter="url(#shadow)">
+<rect x="136.9" y="1546.6" width="210" height="62" rx="11" fill="#ffffff" stroke="#b5179e" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="136.9" y="1555.6" width="5" height="44" rx="2.5" fill="#b5179e"/>
+<text x="152.9" y="1572.6" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">提醒日程</text>
+<text x="152.9" y="1591.6" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">MCP · 8791</text>
+<g filter="url(#shadow)">
+<rect x="90.8" y="1329.8" width="210" height="62" rx="11" fill="#ffffff" stroke="#b5179e" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="90.8" y="1338.8" width="5" height="44" rx="2.5" fill="#b5179e"/>
+<text x="106.8" y="1355.8" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">摘要服务</text>
+<text x="106.8" y="1374.8" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">HTTP · 8792/8793</text>
+<g filter="url(#shadow)">
+<rect x="90.8" y="1108.2" width="210" height="62" rx="11" fill="#ffffff" stroke="#b5179e" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="90.8" y="1117.2" width="5" height="44" rx="2.5" fill="#b5179e"/>
+<text x="106.8" y="1134.2" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">抓取订阅</text>
+<text x="106.8" y="1153.2" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">HTTP · 8796</text>
+<g filter="url(#shadow)">
+<rect x="136.9" y="891.4" width="210" height="62" rx="11" fill="#ffffff" stroke="#2f9e44" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="136.9" y="900.4" width="5" height="44" rx="2.5" fill="#2f9e44"/>
+<text x="152.9" y="917.4" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">会话任务</text>
+<text x="152.9" y="936.4" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">内部 · agentTasks</text>
+<g filter="url(#shadow)">
+<rect x="227.0" y="689.0" width="210" height="62" rx="11" fill="#ffffff" stroke="#2f9e44" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="227.0" y="698.0" width="5" height="44" rx="2.5" fill="#2f9e44"/>
+<text x="243.0" y="715.0" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">静默预演</text>
+<text x="243.0" y="734.0" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">任务 · rehearsal</text>
+<g filter="url(#shadow)">
+<rect x="357.3" y="509.7" width="210" height="62" rx="11" fill="#ffffff" stroke="#2f9e44" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="357.3" y="518.7" width="5" height="44" rx="2.5" fill="#2f9e44"/>
+<text x="373.3" y="535.7" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">维护与评审</text>
+<text x="373.3" y="554.7" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">任务 · nightly/skills</text>
+<g filter="url(#shadow)">
+<rect x="521.9" y="361.4" width="210" height="62" rx="11" fill="#ffffff" stroke="#6b7a94" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="521.9" y="370.4" width="5" height="44" rx="2.5" fill="#6b7a94"/>
+<text x="537.9" y="387.4" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">服务框架</text>
+<text x="537.9" y="406.4" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">HTTP · 8790-8801</text>
+<g filter="url(#shadow)">
+<rect x="713.9" y="250.6" width="210" height="62" rx="11" fill="#ffffff" stroke="#6b7a94" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="713.9" y="259.6" width="5" height="44" rx="2.5" fill="#6b7a94"/>
+<text x="729.9" y="276.6" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">模型运行时</text>
+<text x="729.9" y="295.6" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">HTTP · 8080/8081</text>
+<g filter="url(#shadow)">
+<rect x="924.6" y="182.2" width="210" height="62" rx="11" fill="#ffffff" stroke="#6b7a94" stroke-opacity=".45" stroke-width="1.3"/>
+</g>
+<rect x="924.6" y="191.2" width="5" height="44" rx="2.5" fill="#6b7a94"/>
+<text x="940.6" y="208.2" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" font-weight="700" fill="#1f2a44">Windows MCP</text>
+<text x="940.6" y="227.2" font-family="'Cascadia Mono','Consolas',monospace" font-size="10.5" fill="#7d8aa3">MCP · 17865</text>
+<g filter="url(#shadow)">
+<rect x="1035" y="1166" width="430" height="168" rx="22" fill="url(#coreFill)"/>
+</g>
+<text x="1250" y="1228" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="27" font-weight="700" fill="#ffffff" text-anchor="middle">主人格 · 欣爱</text>
+<text x="1250" y="1258" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="12.5" fill="#cfe0f5" text-anchor="middle">会话循环 · 工具编排 · 记忆写入 · 通道桥接</text>
+<text x="1250" y="1284" font-family="'Cascadia Mono','Consolas',monospace" font-size="11.5" fill="#9fb6d6" text-anchor="middle">DSH/Cordis · 8813</text>
+<rect x="64" y="2400" width="2372" height="200" rx="16" fill="#ffffff" stroke="#dde5f2"/>
+<text x="90" y="2432" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="700" fill="#1f2a44">能力分类（共 30 个节点）</text>
+<rect x="90" y="2458" width="18" height="18" rx="5" fill="#2f6feb"/>
+<text x="118" y="2472" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14" fill="#3d4a63">通道 · 4 项</text>
+<text x="240" y="2472" font-family="'Cascadia Mono','Consolas',monospace" font-size="12" fill="#8b98ad">微信接口、QQ 接口、桌面控制台、安卓终端</text>
+<rect x="680" y="2458" width="18" height="18" rx="5" fill="#e05a8a"/>
+<text x="708" y="2472" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14" fill="#3d4a63">语音 · 4 项</text>
+<text x="830" y="2472" font-family="'Cascadia Mono','Consolas',monospace" font-size="12" fill="#8b98ad">语音网关、流式识别、语音合成、播放路由</text>
+<rect x="1270" y="2458" width="18" height="18" rx="5" fill="#0f9b8e"/>
+<text x="1298" y="2472" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14" fill="#3d4a63">感知 · 5 项</text>
+<text x="1420" y="2472" font-family="'Cascadia Mono','Consolas',monospace" font-size="12" fill="#8b98ad">在场服务、屏幕观察、定位与地点、摄像头、通知阅读</text>
+<rect x="1860" y="2458" width="18" height="18" rx="5" fill="#7c5cff"/>
+<text x="1888" y="2472" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14" fill="#3d4a63">记忆 · 4 项</text>
+<text x="2010" y="2472" font-family="'Cascadia Mono','Consolas',monospace" font-size="12" fill="#8b98ad">记忆服务、会话状态、图谱与画像、自我记忆</text>
+<rect x="90" y="2506" width="18" height="18" rx="5" fill="#e8890c"/>
+<text x="118" y="2520" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14" fill="#3d4a63">设备 · 4 项</text>
+<text x="240" y="2520" font-family="'Cascadia Mono','Consolas',monospace" font-size="12" fill="#8b98ad">终端服务、中转节点、终端客户端、文件与远控</text>
+<rect x="680" y="2506" width="18" height="18" rx="5" fill="#b5179e"/>
+<text x="708" y="2520" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14" fill="#3d4a63">能力 · 3 项</text>
+<text x="830" y="2520" font-family="'Cascadia Mono','Consolas',monospace" font-size="12" fill="#8b98ad">提醒日程、摘要服务、抓取订阅</text>
+<rect x="1270" y="2506" width="18" height="18" rx="5" fill="#2f9e44"/>
+<text x="1298" y="2520" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14" fill="#3d4a63">任务 · 3 项</text>
+<text x="1420" y="2520" font-family="'Cascadia Mono','Consolas',monospace" font-size="12" fill="#8b98ad">会话任务、静默预演、维护与评审</text>
+<rect x="1860" y="2506" width="18" height="18" rx="5" fill="#6b7a94"/>
+<text x="1888" y="2520" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14" fill="#3d4a63">平台 · 3 项</text>
+<text x="2010" y="2520" font-family="'Cascadia Mono','Consolas',monospace" font-size="12" fill="#8b98ad">服务框架、模型运行时、Windows MCP</text>
+<text x="90" y="2576" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="12.5" fill="#8b98ad">连线表示「调用/依赖」；同一时刻只有一条活跃链路时，按端口定位具体服务。</text>
+</svg>

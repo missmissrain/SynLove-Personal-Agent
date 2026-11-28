@@ -1,0 +1,7 @@
+{
+  "enabled": true,
+  "url": "http://127.0.0.1:17865/mcp",
+  "token": "<redacted>",
+  "toolCallTimeoutMs": 120000,
+  "python": "PRODUCTION_ROOT\\repos\\personal-agent\\runtime\\windowsMcp\\venv\\Scripts\\python.exe"
+}

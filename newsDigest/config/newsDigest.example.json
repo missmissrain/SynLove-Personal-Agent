@@ -1,0 +1,21 @@
+{
+  "enabled": false,
+  "interest": "科技与日常生活",
+  "maxItems": 3,
+  "maxChars": 120,
+  "sources": [],
+  "hot": {
+    "enabled": false
+  },
+  "browser": {
+    "node": "node",
+    "extractorScript": "tools/browserMcp/extractNews.mjs",
+    "profileDir": "runtime/browser-profile-digest",
+    "timeoutSeconds": 120
+  },
+  "push": {
+    "channel": "disabled",
+    "userOpenid": "",
+    "allowWakeupFallback": false
+  }
+}

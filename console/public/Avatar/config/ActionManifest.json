@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "defaultAction": "基础动作",
+  "selection": {
+    "mode": "ai-or-rule",
+    "instruction": "主模型可从actions.name中选择一个动作；未选择或选择无效时由规则选择，无法确定时使用基础动作。",
+    "transition": "动作视频自带前后0.65秒渐隐；连续请求至少间隔1.2秒，避免动作抖动。",
+    "doNotRepeat": true
+  },
+  "actions": [
+    {"name":"伸手安慰","file":"action01.mp4","tags":["安慰","难过","伤心","温柔"]},
+    {"name":"低头碰指害羞","file":"action02.mp4","tags":["害羞","尴尬"]},
+    {"name":"侧头掩鼻嫌弃","file":"action03.mp4","tags":["嫌弃","拒绝"]},
+    {"name":"侧耳倾听","file":"action04.mp4","tags":["倾听","收到","语音"]},
+    {"name":"叉腰皱眉生气","file":"action05.mp4","tags":["生气","愤怒"]},
+    {"name":"叉腰眨眼比耶","file":"action06.mp4","tags":["得意","比耶"]},
+    {"name":"双手交叠站立","file":"action07.mp4","tags":["平静","礼貌"]},
+    {"name":"双手握拳举起","file":"action08.mp4","tags":["鼓励","加油","兴奋"]},
+    {"name":"双臂张开掌心朝上","file":"action09.mp4","tags":["展示","选择","欢迎"]},
+    {"name":"垂眼抓袖难过","file":"action10.mp4","tags":["难过","委屈"]},
+    {"name":"基础动作","file":"action11.mp4","tags":["默认","待机"]},
+    {"name":"微笑摊手","file":"action12.mp4","tags":["微笑","解释"]},
+    {"name":"托下巴思考","file":"action13.mp4","tags":["思考","分析"]},
+    {"name":"抬手拭泪伤心","file":"action14.mp4","tags":["擦泪","眼泪","伤心"]},
+    {"name":"挥手打招呼","file":"action15.mp4","tags":["你好","打招呼","欢迎"]},
+    {"name":"摊开单手困惑","file":"action16.mp4","tags":["困惑","疑惑"]},
+    {"name":"歪头指尖贴唇","file":"action17.mp4","tags":["撒娇","安静"]},
+    {"name":"歪头点脸颊","file":"action18.mp4","tags":["可爱","等待"]},
+    {"name":"睁眼捂嘴惊讶","file":"action19.mp4","tags":["惊讶","震惊"]},
+    {"name":"缩肩后退害怕","file":"action20.mp4","tags":["害怕","担心"]},
+    {"name":"背手站立","file":"action21.mp4","tags":["等待","安静"]},
+    {"name":"闭眼抚胸松口气","file":"action22.mp4","tags":["放心","松气"]},
+    {"name":"闭眼拍手开心","file":"action23.mp4","tags":["开心","庆祝","高兴"]}
+  ]
+}

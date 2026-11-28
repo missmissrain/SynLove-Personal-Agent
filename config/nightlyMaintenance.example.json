@@ -1,0 +1,78 @@
+{
+  "enabled": true,
+  "skillEnabled": true,
+  "skillHour": "03:00",
+  "maintenanceHour": "03:30",
+  "intervalDays": 3,
+  "autoApply": true,
+  "execution": {
+    "primaryDevice": "tianxuanLaptop",
+    "fallbackLocal": true,
+    "timeoutSec": 900,
+    "primaryInbox": "D:/SynLove/terminal-pc/runtime"
+  },
+  "maxRepositoriesPerRun": 0,
+  "notifyQQ": true,
+  "repositories": [
+    {
+      "name": "personalAgent",
+      "path": "D:/SynLove/personal-agent",
+      "enabled": true,
+      "autoApply": true,
+      "timeoutSec": 900,
+      "checks": [
+        [
+          "{python}",
+          "-X",
+          "utf8",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "tests",
+          "-p",
+          "NightlyMaintenanceTests.py"
+        ]
+      ],
+      "autoApplyPrefixes": [
+        "docs/",
+        "tests/"
+      ],
+      "scopeChecks": [
+        {
+          "prefix": "backend/packages/webhook/",
+          "checks": [
+            [
+              "{python}",
+              "-X",
+              "utf8",
+              "tools/RunMemoryGate.py"
+            ]
+          ]
+        },
+        {
+          "prefix": "tests/",
+          "checks": [
+            [
+              "{python}",
+              "-X",
+              "utf8",
+              "tools/RunMemoryGate.py"
+            ]
+          ]
+        },
+        {
+          "prefix": "prompts/",
+          "checks": [
+            [
+              "{python}",
+              "-X",
+              "utf8",
+              "tools/RunMemoryGate.py"
+            ]
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "replies": [
+    {"id": "here", "text": "嗯，我在～", "emotion": "gentle"},
+    {"id": "goAhead", "text": "我在呀，你说。", "emotion": "gentle"},
+    {"id": "listening", "text": "听着呢，怎么啦？", "emotion": "gentle"},
+    {"id": "rightHere", "text": "诶，我在这儿。", "emotion": "gentle"},
+    {"id": "needMe", "text": "嗯，找我什么事呀？", "emotion": "gentle"},
+    {"id": "allEars", "text": "在呢，我听你说。", "emotion": "gentle"}
+  ]
+}

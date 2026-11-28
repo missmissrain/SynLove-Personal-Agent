@@ -1,0 +1,43 @@
+你正在被要求排查一个通知投递问题。
+
+## 问题描述
+欣爱（SynLove）系统的后台任务（如Codex、OpenCode执行的任务）完成后，结束事件不能可靠地送达主会话。具体表现：
+- 任务已succeeded但主会话收不到通知，用户必须手动追问才知道结果
+- 任务failed时也没有通知
+- 某些状态的事件（如interrupted、partial）有时能到达有时不能
+- 此前确实收到过若干次结束事件推送（包括interrupted与partial），所以"完全没通道"不成立
+
+## 已知的架构信息
+- 这是一个消息中转(hub-relay)系统，负责在backend(主会话)和执行节点(Codex/OpenCode等)之间路由任务与结果
+- backend通过relayClient订阅hub的事件（包括任务完成事件）
+- taskRouter中有on_event回调，已确认代码里有task.started/task.failed/task.queued/task.cancelled事件，但需要确认task.succeeded/task.completed事件是否存在
+- 结果上报由Hub负责（代码注释明确说了）
+
+## 你的任务（只读排查，不要修改任何文件）
+1. 阅读 src/hub/relayHub.ts - 找到任务完成时的事件广播逻辑，确认：
+   - 当节点上报任务成功完成（status=succeeded/completed/done）时，Hub是否调用了on_event或broadcast了相关事件
+   - 对比failed路径和succeeded路径，是否有一条路径漏发了事件
+   - 特别关注handle_result或类似处理节点返回结果的函数
+
+2. 阅读 src/protocol/types.ts - 确认：
+   - 协议中定义了哪些事件类型（event frame types）
+   - 任务结果帧的结构（result frame），特别是status字段的可能值
+   - 有没有succeeded或completed对应的事件定义
+
+3. 阅读 src/hub/taskStore.ts - 确认：
+   - 任务状态机的转换（特别是从running到terminal状态的转换）
+   - mark_completed/mark_succeeded或类似方法是否触发了事件通知
+
+4. 阅读 src/client/relayClient.ts - 确认：
+   - 客户端订阅了哪些事件类型
+   - 是否有过滤逻辑导致某些事件被忽略
+
+5. 检查 docs/ 目录下的设计文档了解预期行为
+
+## 要求
+- 只读排查，不修改任何代码或配置
+- 定位到具体的文件、函数和逻辑分支
+- 区分"代码中明确缺失/有bug"和"需要运行时日志确认的推测"
+- 如果发现succeeded事件确实没有被Hub广播，指出应该在哪个文件的哪个函数里加入
+- 如果发现是去重/幂等逻辑或状态过滤吞掉了事件，指出具体代码位置
+- 给出修复建议但不实施

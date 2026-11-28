@@ -1,0 +1,339 @@
+import { spawn } from 'node:child_process';
+import { OpenCodeCommand } from '@deepseek-ai/dsh-native-command/openCodeCommand';
+import { existsSync } from 'node:fs';
+import { probe } from '../diagnostics/probe.js';
+import { SoftwareLocator } from '@deepseek-ai/dsh-native-command/softwareLocator';
+const DEFAULT_WORKSPACE = process.env.DSH_OPENCODE_WORKSPACE?.trim() || process.cwd();
+const RUN_TIMEOUT_MS = Number(process.env.DSH_OPENCODE_TIMEOUT_MS ?? String(30 * 60_000));
+function kill_tree(child) {
+    const pid = child.pid;
+    if (pid === undefined) {
+        child.kill();
+        return;
+    }
+    if (process.platform === 'win32') {
+        spawn('taskkill', [
+            '/pid',
+            String(pid),
+            '/T',
+            '/F'
+        ], {
+            stdio: 'ignore',
+            windowsHide: true
+        });
+        return;
+    }
+    child.kill('SIGKILL');
+}
+function resolve_bin() {
+    return new SoftwareLocator().resolve_command('opencode', process.env.OPENCODE_BIN);
+}
+function strip_ansi(text) {
+    return text.replace(/\u001B\[[0-9;?]*[A-Za-z]/g, '').replace(/\r\n/g, '\n').replace(/\r/g, '');
+}
+const DEFAULT_MODEL_CHAIN = [
+    'opencode-go/deepseek-v4.1-flash',
+    'dahuangfen/gpt-5.6-sol',
+    'volcengine/deepseek-v4-flash-ga-260731'
+];
+const CONNECTIVITY_FAILURE = /Cannot connect|ProviderHeaderTimeoutError|AI_APICallError|not supported by any configured account|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|fetch failed|connect timeout|socket hang up|socket connection unexpectedly closed|stream error|ProviderError/i;
+const APPROVAL_TTL_MS = Number(process.env.DSH_OPENCODE_APPROVAL_TTL_MS ?? String(30 * 60_000));
+export function parse_opencode_command(text) {
+    const trimmed = text.trim();
+    const lower = trimmed.toLowerCase();
+    let rest;
+    if (lower.startsWith('/opencode')) rest = trimmed.slice(9).trim();
+    else if (lower.startsWith('/oc ')) rest = trimmed.slice(3).trim();
+    else if (lower === '/oc') rest = '';
+    if (rest === undefined) return undefined;
+    if (rest === '') return {
+        action: 'help',
+        text: ''
+    };
+    const [head, ...tail] = rest.split(/\s+/);
+    const keyword = (head ?? '').toLowerCase();
+    const body = tail.join(' ').trim();
+    if (keyword === 'stop' || keyword === '停止') return {
+        action: 'stop',
+        text: body
+    };
+    if (keyword === 'status' || keyword === '状态') return {
+        action: 'status',
+        text: body
+    };
+    if (keyword === 'new' || keyword === '新开') return {
+        action: 'new',
+        text: body
+    };
+    if (keyword === 'help' || keyword === '帮助') return {
+        action: 'help',
+        text: body
+    };
+    if (keyword === 'yes' || keyword === '同意' || keyword === 'ok') return {
+        action: 'yes',
+        text: body
+    };
+    if (keyword === 'no' || keyword === '不同意' || keyword === '不用' || keyword === '取消') return {
+        action: 'no',
+        text: body
+    };
+    return {
+        action: 'run',
+        text: rest
+    };
+}
+export class OpencodeBridge {
+    store;
+    push;
+    server_url;
+    workspace;
+    tasks = new Map();
+    pending = new Map();
+    approvals = new Map();
+    chain;
+    constructor(store, push, server_url = process.env.OPENCODE_SERVER_URL ?? 'http://127.0.0.1:4096', workspace = process.env.DSH_OPENCODE_WORKSPACE ?? DEFAULT_WORKSPACE){
+        this.store = store;
+        this.push = push;
+        this.server_url = server_url;
+        this.workspace = workspace;
+        const configured = process.env.DSH_OPENCODE_MODEL_CHAIN;
+        this.chain = configured !== undefined && configured.trim() !== '' ? configured.split(',').map((item)=>item.trim()).filter(Boolean) : DEFAULT_MODEL_CHAIN;
+    }
+    has_volcengine_approval(user_id) {
+        const at = this.approvals.get(user_id);
+        if (at === undefined) return false;
+        if (Date.now() - at > APPROVAL_TTL_MS) {
+            this.approvals.delete(user_id);
+            return false;
+        }
+        return true;
+    }
+    async handle(user_id, session_id, command, context_token) {
+        if (command.action === 'help') {
+            await this.push(user_id, session_id, [
+                '这里是 opencode 远程控制，用法：',
+                '- /opencode <任务>     交给 opencode 执行',
+                '- /opencode status     查看状态',
+                '- /opencode stop       终止当前任务',
+                '- /opencode yes|no     确认/拒绝"切到火山模型"',
+                `默认工作区：${this.workspace}`,
+                `模型优先级：${this.chain.join(' → ')}`
+            ].join('\n'), 'assistant', context_token);
+            return;
+        }
+        if (command.action === 'yes') {
+            const waiting = this.pending.get(user_id);
+            if (waiting === undefined) {
+                await this.push(user_id, session_id, '（当前没有待确认的切换请求）', 'error', context_token);
+                return;
+            }
+            this.pending.delete(user_id);
+            this.approvals.set(user_id, Date.now());
+            const volcanic = this.chain[2] ?? this.chain[this.chain.length - 1];
+            await this.push(user_id, session_id, `（好，这次用火山模型 ${volcanic} 继续）`, 'progress', context_token);
+            await this.run(user_id, session_id, waiting.text, context_token, volcanic);
+            return;
+        }
+        if (command.action === 'no') {
+            const waiting = this.pending.get(user_id);
+            if (waiting === undefined) {
+                await this.push(user_id, session_id, '（当前没有待确认的切换请求）', 'error', context_token);
+                return;
+            }
+            this.pending.delete(user_id);
+            this.approvals.delete(user_id);
+            await this.push(user_id, session_id, '（好，那我停下了；opencode 和大黄蜂都不通，等你处理网络或用别的办法）', 'assistant', context_token);
+            return;
+        }
+        if (command.action === 'status') {
+            const task = this.tasks.get(user_id);
+            await this.push(user_id, session_id, task === undefined ? '（当前没有正在运行的 opencode 任务）' : `（opencode 正在运行：已 ${Math.round((Date.now() - task.started_at) / 1000)} 秒）`, 'assistant', context_token);
+            return;
+        }
+        if (command.action === 'stop') {
+            const stopped = this.stop(user_id);
+            await this.push(user_id, session_id, stopped ? '（已终止当前的 opencode 任务）' : '（当前没有正在运行的 opencode 任务）', 'assistant', context_token);
+            return;
+        }
+        if (this.tasks.has(user_id)) {
+            await this.push(user_id, session_id, '（已经有一个 opencode 任务在跑，等它结束或先发 /opencode stop）', 'error', context_token);
+            return;
+        }
+        if (!command.text.trim()) {
+            await this.push(user_id, session_id, '（/opencode 后面要跟具体任务）', 'error', context_token);
+            return;
+        }
+        const task = command.text.trim();
+        if (this.has_volcengine_approval(user_id) && this.chain.length >= 3) {
+            await this.run(user_id, session_id, task, context_token, this.chain[2]);
+            return;
+        }
+        const outcome = await this.try_chain(user_id, session_id, task, context_token, this.chain.slice(0, 2));
+        if (outcome === 'connectivity_failed') {
+            const volcanic = this.chain[2];
+            if (volcanic === undefined) {
+                await this.push(user_id, session_id, '（opencode 和大黄蜂都连不上，且没有配置第三级模型）', 'error', context_token);
+                return;
+            }
+            this.pending.set(user_id, {
+                text: task,
+                ...context_token === undefined ? {} : {
+                    context_token
+                },
+                asked_at: Date.now()
+            });
+            await this.push(user_id, session_id, [
+                'opencode（首选）和大黄蜂（次选）都连不通。',
+                `现在只剩火山可用：${volcanic}`,
+                '要我切到火山继续做这个任务吗？',
+                '回复 `/opencode yes` 同意，或 `/opencode no` 取消（我就停在这里，不会自己跳过去）。'
+            ].join('\n'), 'assistant', context_token);
+        }
+    }
+    async try_chain(user_id, session_id, task, context_token, models) {
+        for (const model of models){
+            const result = await this.run(user_id, session_id, task, context_token, model);
+            if (result.ok) return 'ok';
+            if (!result.connectivity) return 'failed';
+            probe('opencode-bridge', 'chain.fallback', {
+                user_id,
+                failed_model: model
+            });
+        }
+        return 'connectivity_failed';
+    }
+    stop(user_id) {
+        const task = this.tasks.get(user_id);
+        if (task === undefined) return false;
+        probe('opencode-bridge', 'stop', {
+            user_id,
+            pid: task.child.pid
+        });
+        kill_tree(task.child);
+        this.tasks.delete(user_id);
+        return true;
+    }
+    async run(user_id, session_id, task_text, context_token, model_override) {
+        const bin = resolve_bin();
+        const model = model_override ?? process.env.DSH_OPENCODE_MODEL?.trim();
+        const args = OpenCodeCommand.adapt_args(bin, [
+            'run',
+            '--auto',
+            '--attach',
+            this.server_url,
+            '--dir',
+            this.workspace,
+            ...model === undefined || model === '' ? [] : [
+                '-m',
+                model
+            ],
+            task_text
+        ]);
+        probe('opencode-bridge', 'run.start', {
+            user_id,
+            workspace: this.workspace,
+            model: model ?? '(default)',
+            attach: this.server_url,
+            task_len: task_text.length
+        });
+        const window_start = Date.now();
+        await this.store.set_meta('oc_bridge_window', JSON.stringify({
+            start: window_start,
+            end: 0
+        }));
+        await this.push(user_id, session_id, `（好呀，我让 opencode 开始做了～${model === undefined ? '' : '模型 ' + model}）`, 'progress', context_token);
+        const child = spawn(bin, args, {
+            cwd: this.workspace,
+            windowsHide: true,
+            stdio: [
+                'ignore',
+                'pipe',
+                'pipe'
+            ]
+        });
+        this.tasks.set(user_id, {
+            child,
+            started_at: Date.now(),
+            model: model ?? '(default)'
+        });
+        const timer = setTimeout(()=>{
+            probe('opencode-bridge', 'run.timeout', {
+                user_id,
+                timeout_ms: RUN_TIMEOUT_MS
+            });
+            kill_tree(child);
+        }, RUN_TIMEOUT_MS);
+        let stderr = '';
+        let buffer = '';
+        const tail = [];
+        const pushed = 0;
+        const handle_lines = (raw)=>{
+            buffer += raw;
+            const lines = buffer.split(/\r?\n/);
+            buffer = lines.pop() ?? '';
+            for (const raw_line of lines){
+                const line = strip_ansi(raw_line).trim();
+                if (line === '' || line.length < 2) continue;
+                tail.push(line);
+                if (tail.length > 40) tail.shift();
+            }
+        };
+        child.stdout?.on('data', (data)=>handle_lines(String(data)));
+        child.stderr?.on('data', (data)=>{
+            stderr += String(data);
+        });
+        return await new Promise((resolve)=>{
+            let settled = false;
+            const finish = (result)=>{
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                this.tasks.delete(user_id);
+                resolve(result);
+            };
+            child.on('close', async (code)=>{
+                handle_lines(buffer);
+                await this.store.set_meta('oc_bridge_window', JSON.stringify({
+                    start: window_start,
+                    end: Date.now()
+                }));
+                const detail = strip_ansi(stderr).split('\n').filter(Boolean).slice(-3).join(' ').slice(0, 300);
+                const connectivity = CONNECTIVITY_FAILURE.test(detail);
+                probe('opencode-bridge', 'run.close', {
+                    user_id,
+                    code,
+                    model,
+                    pushed_lines: pushed,
+                    connectivity
+                });
+                const summary = tail.slice(-15).join('\n').trim();
+                if (code === 0) {
+                    await this.push(user_id, session_id, summary === '' ? '（opencode 任务完成，没有输出内容）' : summary, 'assistant', context_token);
+                    finish({
+                        ok: true,
+                        connectivity: false
+                    });
+                    return;
+                }
+                if (!connectivity) {
+                    await this.push(user_id, session_id, `（opencode 退出码 ${code}${detail ? '：' + detail : ''}）` + (summary === '' ? '' : `\n最近输出：\n${summary}`), 'error', context_token);
+                }
+                finish({
+                    ok: false,
+                    connectivity
+                });
+            });
+            child.on('error', async (error)=>{
+                probe('opencode-bridge', 'run.error', {
+                    user_id,
+                    error: error.message
+                });
+                await this.push(user_id, session_id, `（opencode 进程启动失败：${error.message}）`, 'error', context_token);
+                finish({
+                    ok: false,
+                    connectivity: false
+                });
+            });
+        });
+    }
+}

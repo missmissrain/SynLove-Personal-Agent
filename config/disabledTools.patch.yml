@@ -1,0 +1,20 @@
+# 默认工具配置：禁用依赖额外交互界面的多智能体与计划工具，保留长期目标能力。
+# 注册参数：作为后端第二层 patch 加载；默认不修改用户的模型与凭据。
+- id: tool-subagent-control
+  disabled: true
+- id: tool-subagent-list-agents
+  disabled: true
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true
+- id: subagent-model-selection-settings
+  disabled: true
+- id: workflow-ptc
+  disabled: true
+- id: tool-workflow
+  disabled: true
+- id: plan-mode
+  disabled: true
+- id: tool-ralph
+  disabled: true

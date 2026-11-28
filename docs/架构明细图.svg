@@ -1,0 +1,333 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="4600" height="2532" viewBox="0 0 4600 2532">
+<defs><filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#22304a" flood-opacity=".10"/></filter><linearGradient id="core" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2b3a67"/><stop offset="1" stop-color="#4a6fa5"/></linearGradient></defs>
+<rect width="4600" height="2430" fill="#f6f8fc"/>
+<text x="70" y="66" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="30" font-weight="700" fill="#1f2a44">SynLove 明细架构 · 功能线 → 实现 → 协议</text>
+<text x="70" y="98" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14.5" fill="#6b7a94">左侧为输入与认知，右侧为输出与执行；中心是主人格；底部是共用底座。实现列给出仓库内真实文件/类名，端口为当前监听。</text>
+<text x="70" y="132" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="15" font-weight="700" fill="#4a6fa5">输入与认知 · 左侧</text>
+<text x="2940" y="132" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="15" font-weight="700" fill="#c0506f">输出与执行 · 右侧</text>
+<g>
+<rect x="70" y="156" width="1590" height="564" rx="16" fill="#ffffff" stroke="#2f6feb" stroke-opacity=".30"/>
+<path d="M 86 156 h 1558 a 16 16 0 0 1 16 16 v 6 h -1558 v -6 a 16 16 0 0 1 16 -16 z" fill="#2f6feb" fill-opacity=".92"/>
+<text x="100" y="196" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="20" font-weight="700" fill="#1f2a44">对话入口</text>
+<text x="1636" y="194" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#7d8aa3" text-anchor="end">8813 / 3080</text>
+<text x="100" y="220" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="13" fill="#7d8aa3">所有「人说话」的入口，统一收敛到主人格</text>
+<line x1="92" y1="234" x2="1638" y2="234" stroke="#e8eef7"/>
+<circle cx="102" cy="264" r="3.4" fill="#2f6feb"/>
+<text x="116" y="269" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">微信消息收发</text>
+<text x="1636" y="269" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">ilink</text>
+<text x="116" y="289" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">webhook/src/transport/weixinIngress.ts · reply/replyAggregator.ts</text>
+<circle cx="102" cy="328" r="3.4" fill="#2f6feb"/>
+<text x="116" y="333" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">微信 API 客户端</text>
+<text x="1636" y="333" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">HTTPS</text>
+<text x="116" y="353" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">webhook/src/api/ilinkClient.ts · ilinkTypes.ts</text>
+<circle cx="102" cy="392" r="3.4" fill="#2f6feb"/>
+<text x="116" y="397" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">QQ 收件与推送</text>
+<text x="1636" y="397" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">8799</text>
+<text x="116" y="417" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">qqState/qqStateService.py · newsDigest/push/qqPush.py</text>
+<circle cx="102" cy="456" r="3.4" fill="#2f6feb"/>
+<text x="116" y="461" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">桌面控制台</text>
+<text x="1636" y="461" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">3080/3081</text>
+<text x="116" y="481" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">console/server.mjs · public/app.js · dashboard/*.mjs</text>
+<circle cx="102" cy="520" r="3.4" fill="#2f6feb"/>
+<text x="116" y="525" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">安卓桌面</text>
+<text x="1636" y="525" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">终端</text>
+<text x="116" y="545" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">androidterminal/TerminalService.java · AvatarView.java</text>
+<circle cx="102" cy="584" r="3.4" fill="#2f6feb"/>
+<text x="116" y="589" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">语音唤醒入口</text>
+<text x="1636" y="589" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">端侧</text>
+<text x="116" y="609" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">terminalConnection/client/KeywordSpotter.py</text>
+<circle cx="102" cy="648" r="3.4" fill="#2f6feb"/>
+<text x="116" y="653" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">语音回合</text>
+<text x="1636" y="653" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">8812</text>
+<text x="116" y="673" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">voice/voiceGateway.py · voicePipeline.py · primaryAgentClient.py</text>
+</g>
+<g>
+<rect x="70" y="750" width="1590" height="692" rx="16" fill="#ffffff" stroke="#0f9b8e" stroke-opacity=".30"/>
+<path d="M 86 750 h 1558 a 16 16 0 0 1 16 16 v 6 h -1558 v -6 a 16 16 0 0 1 16 -16 z" fill="#0f9b8e" fill-opacity=".92"/>
+<text x="100" y="790" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="20" font-weight="700" fill="#1f2a44">感知 · 眼耳</text>
+<text x="1636" y="788" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#7d8aa3" text-anchor="end">12s / 180s</text>
+<text x="100" y="814" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="13" fill="#7d8aa3">状态刻画不调模型，漂移够大才起临时会话</text>
+<line x1="92" y1="828" x2="1638" y2="828" stroke="#e8eef7"/>
+<circle cx="102" cy="858" r="3.4" fill="#0f9b8e"/>
+<text x="116" y="863" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">状态刻画</text>
+<text x="1636" y="863" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">12s</text>
+<text x="116" y="883" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">presenceState/StateCollector.py · DeviceStateProbe.py</text>
+<circle cx="102" cy="922" r="3.4" fill="#0f9b8e"/>
+<text x="116" y="927" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">漂移计算</text>
+<text x="1636" y="927" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">每轮</text>
+<text x="116" y="947" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">presenceState/DriftScorer.py</text>
+<circle cx="102" cy="986" r="3.4" fill="#0f9b8e"/>
+<text x="116" y="991" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">快照与推理落盘</text>
+<text x="1636" y="991" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">覆写</text>
+<text x="116" y="1011" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">presenceState/SnapshotStore.py · StateMonitor.py</text>
+<circle cx="102" cy="1050" r="3.4" fill="#0f9b8e"/>
+<text x="116" y="1055" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">地点解析</text>
+<text x="1636" y="1055" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">180s</text>
+<text x="116" y="1075" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">presenceState/PlaceResolver.py · config/presenceReasoning.json</text>
+<circle cx="102" cy="1114" r="3.4" fill="#0f9b8e"/>
+<text x="116" y="1119" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">临时会话判定</text>
+<text x="1636" y="1119" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">模型</text>
+<text x="116" y="1139" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">presenceAgent/PresenceReasoner.py · PresenceModelClient.py</text>
+<circle cx="102" cy="1178" r="3.4" fill="#0f9b8e"/>
+<text x="116" y="1183" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">屏幕观察</text>
+<text x="1636" y="1183" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">8790</text>
+<text x="116" y="1203" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">screenInitiative/screenInitiative.py · screenModel.py · screenPolicy.py</text>
+<circle cx="102" cy="1242" r="3.4" fill="#0f9b8e"/>
+<text x="116" y="1247" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">终端屏幕采集</text>
+<text x="1636" y="1247" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">17864</text>
+<text x="116" y="1267" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">terminalConnection/client/ScreenObserver.py · DesktopState.py</text>
+<circle cx="102" cy="1306" r="3.4" fill="#0f9b8e"/>
+<text x="116" y="1311" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">手机模态</text>
+<text x="1636" y="1311" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">心跳</text>
+<text x="116" y="1331" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">CameraPresence.java · LocationProbe.java · AudioRouteProbe.java</text>
+<circle cx="102" cy="1370" r="3.4" fill="#0f9b8e"/>
+<text x="116" y="1375" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">通知阅读</text>
+<text x="1636" y="1375" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">心跳</text>
+<text x="116" y="1395" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">NotificationRelay.java · NotificationCenter.java</text>
+</g>
+<g>
+<rect x="70" y="1472" width="1590" height="564" rx="16" fill="#ffffff" stroke="#7c5cff" stroke-opacity=".30"/>
+<path d="M 86 1472 h 1558 a 16 16 0 0 1 16 16 v 6 h -1558 v -6 a 16 16 0 0 1 16 -16 z" fill="#7c5cff" fill-opacity=".92"/>
+<text x="100" y="1512" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="20" font-weight="700" fill="#1f2a44">记忆 · 人格</text>
+<text x="1636" y="1510" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#7d8aa3" text-anchor="end">8797-8799</text>
+<text x="100" y="1536" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="13" fill="#7d8aa3">长期图谱 + 会话状态 + 画像作息</text>
+<line x1="92" y1="1550" x2="1638" y2="1550" stroke="#e8eef7"/>
+<circle cx="102" cy="1580" r="3.4" fill="#7c5cff"/>
+<text x="116" y="1585" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">长期记忆图谱</text>
+<text x="1636" y="1585" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">8797</text>
+<text x="116" y="1605" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">memory/memoryService.py · webhook/src/memory/graphStore.ts</text>
+<circle cx="102" cy="1644" r="3.4" fill="#7c5cff"/>
+<text x="116" y="1649" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">图谱调度与摘要</text>
+<text x="1636" y="1649" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">内部</text>
+<text x="116" y="1669" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">memory/graphScheduler.ts · gemmaSummarizer.ts · gemmaGate.ts</text>
+<circle cx="102" cy="1708" r="3.4" fill="#7c5cff"/>
+<text x="116" y="1713" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">会话状态</text>
+<text x="1636" y="1713" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">8798</text>
+<text x="116" y="1733" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">state/stateService.py · webhook/src/state/weixinStateStore.ts</text>
+<circle cx="102" cy="1772" r="3.4" fill="#7c5cff"/>
+<text x="116" y="1777" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">画像推断</text>
+<text x="1636" y="1777" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">内部</text>
+<text x="116" y="1797" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">webhook/src/profile/ProfileInference.ts · memory/ProfileContext.ts</text>
+<circle cx="102" cy="1836" r="3.4" fill="#7c5cff"/>
+<text x="116" y="1841" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">作息先验</text>
+<text x="1636" y="1841" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">10min</text>
+<text x="116" y="1861" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">profilePresence/ProfilePresenceReasoner.py · GraphProfileAdapter.py</text>
+<circle cx="102" cy="1900" r="3.4" fill="#7c5cff"/>
+<text x="116" y="1905" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">自我记忆</text>
+<text x="1636" y="1905" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">MCP</text>
+<text x="116" y="1925" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">selfMemory/mcp/selfMemoryMcp.py</text>
+<circle cx="102" cy="1964" r="3.4" fill="#7c5cff"/>
+<text x="116" y="1969" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">技能沉淀</text>
+<text x="1636" y="1969" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">任务</text>
+<text x="116" y="1989" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">skills/skillReviewService.py · review/skillReviewer.py</text>
+</g>
+<g>
+<rect x="2940" y="156" width="1590" height="564" rx="16" fill="#ffffff" stroke="#e05a8a" stroke-opacity=".30"/>
+<path d="M 2956 156 h 1558 a 16 16 0 0 1 16 16 v 6 h -1558 v -6 a 16 16 0 0 1 16 -16 z" fill="#e05a8a" fill-opacity=".92"/>
+<text x="2970" y="196" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="20" font-weight="700" fill="#1f2a44">表达 · 嘴</text>
+<text x="4506" y="194" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#7d8aa3" text-anchor="end">7862 / 8812</text>
+<text x="2970" y="220" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="13" fill="#7d8aa3">从文字到声音、表情与屏幕</text>
+<line x1="2962" y1="234" x2="4508" y2="234" stroke="#e8eef7"/>
+<circle cx="2972" cy="264" r="3.4" fill="#e05a8a"/>
+<text x="2986" y="269" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">语音合成</text>
+<text x="4506" y="269" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">7862</text>
+<text x="2986" y="289" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">services/breezeTtsService.py · Backend-Service/synlove-tts</text>
+<circle cx="2972" cy="328" r="3.4" fill="#e05a8a"/>
+<text x="2986" y="333" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">唤醒应答</text>
+<text x="4506" y="333" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">8812</text>
+<text x="2986" y="353" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">voice/wakeReplyCatalog.py · wakeReplyCache.py · runtime/voiceDeployment</text>
+<circle cx="2972" cy="392" r="3.4" fill="#e05a8a"/>
+<text x="2986" y="397" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">回复分段与语气</text>
+<text x="4506" y="397" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">内部</text>
+<text x="2986" y="417" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">voice/ReplySegmenter.py · ttsPrompt.py · voiceIdentity.py</text>
+<circle cx="2972" cy="456" r="3.4" fill="#e05a8a"/>
+<text x="2986" y="461" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">播放路由</text>
+<text x="4506" y="461" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">8812</text>
+<text x="2986" y="481" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">voiceRouting/AudioRoutePolicy.py · AudioRouteDelivery.py</text>
+<circle cx="2972" cy="520" r="3.4" fill="#e05a8a"/>
+<text x="2986" y="525" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">终端播放</text>
+<text x="4506" y="525" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">17864</text>
+<text x="2986" y="545" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">terminalConnection/client/AudioPlayback.py · server/VoicePlaybackRouter.py</text>
+<circle cx="2972" cy="584" r="3.4" fill="#e05a8a"/>
+<text x="2986" y="589" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">头像动作</text>
+<text x="4506" y="589" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">终端</text>
+<text x="2986" y="609" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">AvatarCommandBus.java · AvatarView.java · AvatarActionRegistry.mjs</text>
+<circle cx="2972" cy="648" r="3.4" fill="#e05a8a"/>
+<text x="2986" y="653" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">媒体屏</text>
+<text x="4506" y="653" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">终端</text>
+<text x="2986" y="673" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">MediaPanel.js · MediaState.java · media.display 工具</text>
+</g>
+<g>
+<rect x="2940" y="750" width="1590" height="628" rx="16" fill="#ffffff" stroke="#e8890c" stroke-opacity=".30"/>
+<path d="M 2956 750 h 1558 a 16 16 0 0 1 16 16 v 6 h -1558 v -6 a 16 16 0 0 1 16 -16 z" fill="#e8890c" fill-opacity=".92"/>
+<text x="2970" y="790" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="20" font-weight="700" fill="#1f2a44">行动 · 手</text>
+<text x="4506" y="788" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#7d8aa3" text-anchor="end">17864</text>
+<text x="2970" y="814" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="13" fill="#7d8aa3">设备、文件、应用、音乐、提醒</text>
+<line x1="2962" y1="828" x2="4508" y2="828" stroke="#e8eef7"/>
+<circle cx="2972" cy="858" r="3.4" fill="#e8890c"/>
+<text x="2986" y="863" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">设备注册与租约</text>
+<text x="4506" y="863" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">17864</text>
+<text x="2986" y="883" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">TerminalManager.py · DeviceStore.py · DeviceIdentity.py</text>
+<circle cx="2972" cy="922" r="3.4" fill="#e8890c"/>
+<text x="2986" y="927" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">指令下发与信箱</text>
+<text x="4506" y="927" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">17864</text>
+<text x="2986" y="947" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">TerminalAdminHandler.py · VoiceMailbox.py</text>
+<circle cx="2972" cy="986" r="3.4" fill="#e8890c"/>
+<text x="2986" y="991" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">终端执行</text>
+<text x="4506" y="991" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">心跳</text>
+<text x="2986" y="1011" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">client/TerminalAgent.py · CommandExecutor.py</text>
+<circle cx="2972" cy="1050" r="3.4" fill="#e8890c"/>
+<text x="2986" y="1055" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">屏幕与输入控制</text>
+<text x="4506" y="1055" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">17864</text>
+<text x="2986" y="1075" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">remoteControl/RemoteCmdTools.py · RemoteCmdClient.py</text>
+<circle cx="2972" cy="1114" r="3.4" fill="#e8890c"/>
+<text x="2986" y="1119" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">文件传输</text>
+<text x="4506" y="1119" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">流式</text>
+<text x="2986" y="1139" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">fileTransfer/FileTransferService.py · DeviceFileService.py · StreamFileClient.py</text>
+<circle cx="2972" cy="1178" r="3.4" fill="#e8890c"/>
+<text x="2986" y="1183" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">音乐播放</text>
+<text x="4506" y="1183" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">49835</text>
+<text x="2986" y="1203" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">kugou/KuGouMusicApi · music.play 工具</text>
+<circle cx="2972" cy="1242" r="3.4" fill="#e8890c"/>
+<text x="2986" y="1247" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">提醒与日程</text>
+<text x="4506" y="1247" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">8791</text>
+<text x="2986" y="1267" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">reminders/reminderService.py · mcp/reminderMcp.py</text>
+<circle cx="2972" cy="1306" r="3.4" fill="#e8890c"/>
+<text x="2986" y="1311" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">安卓控制</text>
+<text x="4506" y="1311" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">终端</text>
+<text x="2986" y="1331" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">AndroidAccessibilityService.java · AndroidShellExecutor.java</text>
+</g>
+<g>
+<rect x="2940" y="1408" width="1590" height="564" rx="16" fill="#ffffff" stroke="#2f9e44" stroke-opacity=".30"/>
+<path d="M 2956 1408 h 1558 a 16 16 0 0 1 16 16 v 6 h -1558 v -6 a 16 16 0 0 1 16 -16 z" fill="#2f9e44" fill-opacity=".92"/>
+<text x="2970" y="1448" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="20" font-weight="700" fill="#1f2a44">任务与编排</text>
+<text x="4506" y="1446" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#7d8aa3" text-anchor="end">计划任务</text>
+<text x="2970" y="1472" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="13" fill="#7d8aa3">没人说话时也在跑的事</text>
+<line x1="2962" y1="1486" x2="4508" y2="1486" stroke="#e8eef7"/>
+<circle cx="2972" cy="1516" r="3.4" fill="#2f9e44"/>
+<text x="2986" y="1521" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">会话任务</text>
+<text x="4506" y="1521" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">内部</text>
+<text x="2986" y="1541" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">agentTasks/TaskRuntime.ts · TaskDeadlineMonitor.ts · TaskEvidence.ts</text>
+<circle cx="2972" cy="1580" r="3.4" fill="#2f9e44"/>
+<text x="2986" y="1585" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">定时任务</text>
+<text x="4506" y="1585" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">任务</text>
+<text x="2986" y="1605" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">microServices/ScheduleStore.py · OperationStore.py</text>
+<circle cx="2972" cy="1644" r="3.4" fill="#2f9e44"/>
+<text x="2986" y="1649" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">静默预演</text>
+<text x="4506" y="1649" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">任务</text>
+<text x="2986" y="1669" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">rehearsal/RehearsalPlanner.py · ScenarioRegistry.py · RehearsalJournal.py</text>
+<circle cx="2972" cy="1708" r="3.4" fill="#2f9e44"/>
+<text x="2986" y="1713" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">自动迭代</text>
+<text x="4506" y="1713" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">Git</text>
+<text x="2986" y="1733" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">maintenance/IterationBranch.py · CodexDispatcher.py · tools/ApplyIteration.py</text>
+<circle cx="2972" cy="1772" r="3.4" fill="#2f9e44"/>
+<text x="2986" y="1777" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">技能评审</text>
+<text x="4506" y="1777" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">任务</text>
+<text x="2986" y="1797" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">skills/review/*.py · skillReviewService.py</text>
+<circle cx="2972" cy="1836" r="3.4" fill="#2f9e44"/>
+<text x="2986" y="1841" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">夜间维护</text>
+<text x="4506" y="1841" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">任务</text>
+<text x="2986" y="1861" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">maintenance/NightlyMaintenance.py · SourceValidator.py</text>
+<circle cx="2972" cy="1900" r="3.4" fill="#2f9e44"/>
+<text x="2986" y="1905" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="16" font-weight="600" fill="#2b3852">新闻与视频摘要</text>
+<text x="4506" y="1905" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">8792/8793</text>
+<text x="2986" y="1925" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="13" fill="#5b6a85">newsDigest/*（8792）· videoDigest/*（8793）</text>
+</g>
+<g filter="url(#shadow)"><rect x="1780" y="782" width="1040" height="628" rx="20" fill="#ffffff" stroke="#c9d6ea"/></g>
+<rect x="1780" y="782" width="1040" height="86" rx="20" fill="url(#core)"/>
+<rect x="1780" y="848" width="1040" height="20" fill="url(#core)"/>
+<text x="1808" y="822" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="24" font-weight="700" fill="#ffffff">主人格 · 欣爱</text>
+<text x="1808" y="848" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="12.5" fill="#cfe0f5">会话循环 · 工具编排 · 记忆写入 · 通道桥接</text>
+<text x="2796" y="822" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#cfe0f5" text-anchor="end">8813</text>
+<circle cx="1810" cy="898" r="3.4" fill="#4a6fa5"/>
+<text x="1824" y="903" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="15" font-weight="600" fill="#2b3852">会话与推理循环</text>
+<text x="2798" y="903" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11" fill="#8b98ad" text-anchor="end">8813</text>
+<text x="1824" y="921" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#5b6a85">backend/apps/cli · DSH agent loop</text>
+<circle cx="1810" cy="962" r="3.4" fill="#4a6fa5"/>
+<text x="1824" y="967" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="15" font-weight="600" fill="#2b3852">模型路由与降级</text>
+<text x="2798" y="967" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11" fill="#8b98ad" text-anchor="end">内部</text>
+<text x="1824" y="985" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#5b6a85">webhook/src/runtime/modelFailover.ts · config/modelConfig.json</text>
+<circle cx="1810" cy="1026" r="3.4" fill="#4a6fa5"/>
+<text x="1824" y="1031" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="15" font-weight="600" fill="#2b3852">工具编排 / MCP 桥</text>
+<text x="2798" y="1031" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11" fill="#8b98ad" text-anchor="end">MCP</text>
+<text x="1824" y="1049" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#5b6a85">webhook/src/agentTasks/TaskMcpServer.ts · microServices/McpAdapter.py</text>
+<circle cx="1810" cy="1090" r="3.4" fill="#4a6fa5"/>
+<text x="1824" y="1095" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="15" font-weight="600" fill="#2b3852">微信接入与回复</text>
+<text x="2798" y="1095" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11" fill="#8b98ad" text-anchor="end">ilink</text>
+<text x="1824" y="1113" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#5b6a85">webhook/src/transport/weixinIngress.ts · reply/replyAggregator.ts</text>
+<circle cx="1810" cy="1154" r="3.4" fill="#4a6fa5"/>
+<text x="1824" y="1159" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="15" font-weight="600" fill="#2b3852">任务与进度</text>
+<text x="2798" y="1159" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11" fill="#8b98ad" text-anchor="end">内部</text>
+<text x="1824" y="1177" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#5b6a85">agentTasks/TaskRuntime.ts · TaskProgressCache.ts · TaskReportStore.ts</text>
+<circle cx="1810" cy="1218" r="3.4" fill="#4a6fa5"/>
+<text x="1824" y="1223" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="15" font-weight="600" fill="#2b3852">记忆写入</text>
+<text x="2798" y="1223" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11" fill="#8b98ad" text-anchor="end">8797</text>
+<text x="1824" y="1241" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#5b6a85">webhook/src/memory/graphStore.ts · graphTools.ts · gemmaSummarizer.ts</text>
+<circle cx="1810" cy="1282" r="3.4" fill="#4a6fa5"/>
+<text x="1824" y="1287" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="15" font-weight="600" fill="#2b3852">主动消息</text>
+<text x="2798" y="1287" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11" fill="#8b98ad" text-anchor="end">QQ</text>
+<text x="1824" y="1305" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#5b6a85">webhook/src/proactive/ProactiveScheduler.ts · ProactiveDelivery.ts</text>
+<circle cx="1810" cy="1346" r="3.4" fill="#4a6fa5"/>
+<text x="1824" y="1351" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="15" font-weight="600" fill="#2b3852">语音回合桥</text>
+<text x="2798" y="1351" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11" fill="#8b98ad" text-anchor="end">8812</text>
+<text x="1824" y="1369" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#5b6a85">webhook/src/voice/VoiceTurnBridge.ts → voice/voiceGateway.py</text>
+<path d="M 1660 438.0 C 1750 438.0 1690 1096.0 1780 1096.0" fill="none" stroke="#2f6feb" stroke-width="2.2" stroke-opacity=".45"/>
+<path d="M 1660 1096.0 C 1750 1096.0 1690 1096.0 1780 1096.0" fill="none" stroke="#0f9b8e" stroke-width="2.2" stroke-opacity=".45"/>
+<path d="M 1660 1754.0 C 1750 1754.0 1690 1096.0 1780 1096.0" fill="none" stroke="#7c5cff" stroke-width="2.2" stroke-opacity=".45"/>
+<path d="M 2940 438.0 C 2850 438.0 2910 1096.0 2820 1096.0" fill="none" stroke="#e05a8a" stroke-width="2.2" stroke-opacity=".45"/>
+<path d="M 2940 1064.0 C 2850 1064.0 2910 1096.0 2820 1096.0" fill="none" stroke="#e8890c" stroke-width="2.2" stroke-opacity=".45"/>
+<path d="M 2940 1690.0 C 2850 1690.0 2910 1096.0 2820 1096.0" fill="none" stroke="#2f9e44" stroke-width="2.2" stroke-opacity=".45"/>
+<rect x="70" y="2106" width="4460" height="300" rx="18" fill="#ffffff" stroke="#dde5f2"/>
+<text x="100" y="2140" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="19" font-weight="700" fill="#1f2a44">共用底座</text>
+<text x="100" y="2164" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="12.5" fill="#7d8aa3">所有扇区共用 · 失败会影响全局</text>
+<rect x="100" y="2188" width="1420" height="104" rx="12" fill="#f2f6fc" stroke="#dbe6f5"/>
+<text x="116" y="2214" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="15" font-weight="600" fill="#2b3852">服务框架</text>
+<text x="1504" y="2214" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">8790-8801</text>
+<text x="116" y="2238" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#5b6a85">microServices/ServiceHost.py · ServiceManager.py · ServiceLease.py</text>
+<rect x="1550" y="2188" width="1420" height="104" rx="12" fill="#f2f6fc" stroke="#dbe6f5"/>
+<text x="1566" y="2214" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="15" font-weight="600" fill="#2b3852">服务安装与启动</text>
+<text x="2954" y="2214" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">计划任务</text>
+<text x="1566" y="2238" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#5b6a85">services/ServiceInstaller.py · StartupServices.py · LocalServiceLifecycle.py</text>
+<rect x="3000" y="2188" width="1420" height="104" rx="12" fill="#f2f6fc" stroke="#dbe6f5"/>
+<text x="3016" y="2214" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="15" font-weight="600" fill="#2b3852">中转与穿透</text>
+<text x="4404" y="2214" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">9010</text>
+<text x="3016" y="2238" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#5b6a85">RelayServerNode.py · synlove-relay · Backend-Service/relayNode</text>
+<rect x="100" y="2308" width="1420" height="104" rx="12" fill="#f2f6fc" stroke="#dbe6f5"/>
+<text x="116" y="2334" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="15" font-weight="600" fill="#2b3852">模型运行时</text>
+<text x="1504" y="2334" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">8080-10095</text>
+<text x="116" y="2358" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#5b6a85">whisperService.py(8081) · gemma/serve.py(8080) · StreamingAsrServer.py(10095)</text>
+<rect x="1550" y="2308" width="1420" height="104" rx="12" fill="#f2f6fc" stroke="#dbe6f5"/>
+<text x="1566" y="2334" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="15" font-weight="600" fill="#2b3852">配置与凭据</text>
+<text x="2954" y="2334" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">文件</text>
+<text x="1566" y="2358" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#5b6a85">config/*.json · secrets.json · serviceConfig.json</text>
+<rect x="3000" y="2308" width="1420" height="104" rx="12" fill="#f2f6fc" stroke="#dbe6f5"/>
+<text x="3016" y="2334" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="15" font-weight="600" fill="#2b3852">观测与回放</text>
+<text x="4404" y="2334" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="11.5" fill="#8b98ad" text-anchor="end">8800</text>
+<text x="3016" y="2358" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#5b6a85">runtime/*.log · console/observation/*.mjs · AgentReasoningStore.mjs</text>
+<text x="70" y="2452" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="14" fill="#7d8aa3">模块体量（行）：</text>
+<rect x="260" y="2430" width="338" height="34" rx="9" fill="#eef4fd" stroke="#d8e5f7"/>
+<text x="272" y="2452" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="13" fill="#3d4a63">backend(自研 webhook)</text>
+<text x="586" y="2452" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#7d8aa3" text-anchor="end">20k</text>
+<rect x="612" y="2430" width="128" height="34" rx="9" fill="#eef4fd" stroke="#d8e5f7"/>
+<text x="624" y="2452" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="13" fill="#3d4a63">kugou</text>
+<text x="728" y="2452" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#7d8aa3" text-anchor="end">18k</text>
+<rect x="754" y="2430" width="167" height="34" rx="9" fill="#eef4fd" stroke="#d8e5f7"/>
+<text x="766" y="2452" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="13" fill="#3d4a63">console</text>
+<text x="909" y="2452" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#7d8aa3" text-anchor="end">9.4k</text>
+<rect x="935" y="2430" width="137" height="34" rx="9" fill="#eef4fd" stroke="#d8e5f7"/>
+<text x="947" y="2452" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="13" fill="#3d4a63">tools</text>
+<text x="1060" y="2452" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#7d8aa3" text-anchor="end">7.3k</text>
+<rect x="1086" y="2430" width="227" height="34" rx="9" fill="#eef4fd" stroke="#d8e5f7"/>
+<text x="1098" y="2452" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="13" fill="#3d4a63">fleet(终端连接)</text>
+<text x="1301" y="2452" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#7d8aa3" text-anchor="end">9.8k</text>
+<rect x="1327" y="2430" width="182" height="34" rx="9" fill="#eef4fd" stroke="#d8e5f7"/>
+<text x="1339" y="2452" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="13" fill="#3d4a63">voice+路由</text>
+<text x="1497" y="2452" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#7d8aa3" text-anchor="end">2.1k</text>
+<rect x="1523" y="2430" width="182" height="34" rx="9" fill="#eef4fd" stroke="#d8e5f7"/>
+<text x="1535" y="2452" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="13" fill="#3d4a63">presence</text>
+<text x="1693" y="2452" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#7d8aa3" text-anchor="end">0.9k</text>
+<rect x="1719" y="2430" width="119" height="34" rx="9" fill="#eef4fd" stroke="#d8e5f7"/>
+<text x="1731" y="2452" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif" font-size="13" fill="#3d4a63">其余域服务</text>
+<text x="1826" y="2452" font-family="'Cascadia Mono','Consolas','Microsoft YaHei',monospace" font-size="12" fill="#7d8aa3" text-anchor="end">6k</text>
+</svg>

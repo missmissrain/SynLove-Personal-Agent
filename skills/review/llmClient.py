@@ -1,0 +1,154 @@
+﻿"""OpenAI 兼容的模型客户端（主用云端 qwen，失败降级本地 Gemma）。
+
+职责：
+- 从环境变量或 `~/.dsh/.credentials.yaml` 取密钥；
+- 调用 /chat/completions，支持 function-calling（tools）；
+- 主模型失败时自动降级到 fallback（Gemma 不支持可靠的工具调用，降级后按单轮处理）。
+
+注册参数（来自配置 model / fallback 段）：
+    provider / baseUrl / model / apiKeyEnv / timeoutSeconds
+"""
+
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+try:
+    import yaml
+except ImportError:
+    yaml = None
+
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+
+class llmClient:
+    """一个主模型 + 一个降级模型。"""
+
+    def __init__(self, primary, fallback=None):
+        """primary/fallback：{baseUrl, model, apiKeyEnv, timeoutSeconds, provider}。"""
+        self.primary = dict(primary or {})
+        self.fallback = dict(fallback or {})
+
+    def chat(self, messages, tools=None, use_fallback=False):
+        """调一次模型；返回 {message, model, provider, fallback}。"""
+        target = self.fallback if use_fallback else self.primary
+        if not target:
+            raise RuntimeError("没有可用的模型配置")
+        try:
+            return self._request(target, messages, tools, fallback=use_fallback)
+        except Exception as error:
+            if use_fallback or not self.fallback:
+                raise
+            print(f"[llm] 主模型失败（{type(error).__name__}: {error}），降级到 {self.fallback.get('model')}", flush=True)
+            return self._request(self.fallback, messages, None, fallback=True)
+
+    def _request(self, target, messages, tools, fallback):
+        """真正发 HTTP 请求。"""
+        if target.get("provider") == "gemma":
+            # 使用统一服务配置、鉴权和可信 CA；服务迁到远端后不再回退到固定本机端口。
+            from services.ServiceRegistry import ServiceRegistry
+            from services.ServiceClient import ServiceClient
+            cfg = ServiceRegistry().get_service("llm")
+            # Gemma路径没有注册工具；覆盖工具循环工作方式，仍沿用技能正文的校验规则。
+            single = [*messages, {"role": "user", "content":
+                "当前是无工具的单轮技能提炼模式，不能调用list_skills、save_skill或finish。"
+                "忽略先前要求调用工具的工作步骤。直接输出一份完整SKILL.md，"
+                "从---开始，含name/description/version/metadata.hermes和四段中文正文；"
+                "不要解释、不要工具调用文本。没有可沉淀经验时只输出Nothing to save."}]
+            data = ServiceClient(cfg).chat({"model": cfg["model"], "messages": single,
+                "temperature": 0.3, "max_tokens": 2500, "stream": False})
+            return {"message": ((data.get("choices") or [{}])[0] or {}).get("message") or {},
+                    "model": data.get("model") or cfg["model"], "provider": "gemma", "fallback": fallback}
+        base = str(target.get("baseUrl") or "").rstrip("/")
+        model = target.get("model") or ""
+        timeout = int(target.get("timeoutSeconds") or 180)
+        key = self._key(target.get("apiKeyEnv"))
+        if target.get("provider") == "dahuangf" or target.get("api") == "openai-responses":
+            return self._request_responses(target, messages, key, timeout, fallback)
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": 0.3,
+            "max_tokens": 2500,
+        }
+        if tools and not fallback:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+        headers = {"Content-Type": "application/json"}
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
+        request = urllib.request.Request(
+            f"{base}/chat/completions",
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        mode = target.get("proxyMode", "environment")
+        if mode not in ("direct", "environment"):
+            raise ValueError("proxyMode 仅支持 direct 或 environment")
+        opener = (urllib.request.build_opener(urllib.request.ProxyHandler({}))
+                  if mode == "direct" else urllib.request.build_opener())
+        with opener.open(request, timeout=timeout) as response:
+            data = json.loads(response.read().decode("utf-8", "replace"))
+        message = ((data.get("choices") or [{}])[0] or {}).get("message") or {}
+        return {
+            "message": message,
+            "model": data.get("model") or model,
+            "provider": target.get("provider") or "",
+            "fallback": fallback,
+        }
+
+    def _request_responses(self, target, messages, key, timeout, fallback):
+        """调用 Responses 协议；把聊天消息转换为 input 并解析文本结果。"""
+        base = str(target.get("baseUrl") or "").rstrip("/")
+        payload = {"model": target.get("model") or "", "input": messages, "max_output_tokens": 2500}
+        headers = {"Content-Type": "application/json"}
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
+        request = urllib.request.Request(
+            f"{base}/responses",
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        opener = (urllib.request.build_opener(urllib.request.ProxyHandler({}))
+                  if target.get("proxyMode", "environment") == "direct"
+                  else urllib.request.build_opener())
+        with opener.open(request, timeout=timeout) as response:
+            data = json.loads(response.read().decode("utf-8", "replace"))
+        text = data.get("output_text")
+        if not text:
+            parts = []
+            for item in data.get("output") or []:
+                for content in item.get("content") or []:
+                    if content.get("type") in ("output_text", "text") and content.get("text"):
+                        parts.append(str(content["text"]))
+            text = "".join(parts)
+        if not text:
+            raise RuntimeError("Responses 返回为空")
+        return {
+            "message": {"role": "assistant", "content": text},
+            "model": data.get("model") or target.get("model"),
+            "provider": target.get("provider") or "",
+            "fallback": fallback,
+        }
+
+    @staticmethod
+    def _key(env_name):
+        """按优先级取密钥：环境变量 → ~/.dsh/.credentials.yaml 的 refs。"""
+        if not env_name:
+            return ""
+        value = os.environ.get(env_name)
+        if value:
+            return value
+        path = Path(os.environ.get("DSH_HOME") or Path(__file__).resolve().parents[2] / "runtime/dsh") / ".credentials.yaml"
+        if yaml is None or not path.is_file():
+            return ""
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            return str((data.get("refs") or {}).get(env_name) or "")
+        except Exception:
+            return ""

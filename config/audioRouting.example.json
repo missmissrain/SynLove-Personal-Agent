@@ -1,0 +1,6 @@
+{
+  "devices": ["tianxuanLaptop", "androidGateway", "sonyXperia5III"],
+  "outputs": {},
+  "allowSpeaker": {},
+  "cameraOwnerThreshold": 0.9
+}

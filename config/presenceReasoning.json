@@ -1,0 +1,39 @@
+{
+  "version": 2,
+  "enabled": true,
+  "intervalSeconds": 12,
+  "driftThreshold": 0.45,
+  "minReasonSeconds": 60,
+  "maxReasonPerHour": 20,
+  "decisionTtlSeconds": 600,
+  "maxContextChars": 6000,
+  "utcOffsetMinutes": 480,
+  "cameraIntervalSeconds": 90,
+  "locationIntervalSeconds": 180,
+  "batteryIntervalSeconds": 300,
+  "audioRouteIntervalSeconds": 30,
+  "locationFreshSeconds": 900,
+  "placeRadiusM": 250,
+  "staleBaselineSeconds": 1800,
+  "places": [
+    {
+      "name": "公司",
+      "lat": 30.3222,
+      "lon": 120.2466,
+      "radiusM": 250,
+      "devices": ["androidGateway"]
+    },
+    {
+      "name": "家",
+      "radiusM": 250,
+      "devices": ["tianxuanLaptop"]
+    }
+  ],
+  "routine": [
+    { "name": "睡眠", "start": "23:30", "end": "07:00" },
+    { "name": "通勤", "start": "07:00", "end": "09:00" },
+    { "name": "工作", "start": "09:00", "end": "18:30" },
+    { "name": "晚间", "start": "18:30", "end": "23:30" }
+  ],
+  "weights": {}
+}

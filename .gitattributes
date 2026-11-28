@@ -1,0 +1,9 @@
+# 独立后端使用 LF；二进制资源保持原始字节。
+* text=auto
+backend/** text=auto eol=lf
+# 上游编译产物保持内容；不对生成代码施加源码空白检查。
+backend/**/*.js whitespace=-trailing-space,-blank-at-eof
+*.cmd text eol=crlf
+*.png binary
+*.ico binary
+*.mp4 binary

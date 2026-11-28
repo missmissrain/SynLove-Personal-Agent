@@ -1,0 +1,10 @@
+{
+  "enabled": true,
+  "presenterPreset": "presenter",
+  "workerPreset": "task-worker",
+  "maxConcurrent": 4,
+  "taskTimeoutMs": 3600000,
+  "presentationTimeoutMs": 180000,
+  "workerModel": {},
+  "deadlineLeadMs": 300000
+}

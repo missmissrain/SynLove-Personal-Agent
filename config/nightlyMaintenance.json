@@ -1,0 +1,153 @@
+{
+  "enabled": true,
+  "skillEnabled": true,
+  "skillHour": "03:00",
+  "maintenanceHour": "03:30",
+  "autoApply": true,
+  "maxRepositoriesPerRun": 0,
+  "notifyQQ": true,
+  "repositories": [
+    {
+      "name": "personalAgent",
+      "path": "PRODUCTION_ROOT\\repos\\personal-agent",
+      "checks": [
+        [
+          "PRODUCTION_ROOT\\repos\\personal-agent\\.venv\\Scripts\\python.exe",
+          "-X",
+          "utf8",
+          "PRODUCTION_ROOT\\repos\\personal-agent\\tools\\CheckMaintenanceSource.py",
+          "."
+        ],
+        [
+          "PRODUCTION_ROOT\\repos\\personal-agent\\.venv\\Scripts\\python.exe",
+          "-X",
+          "utf8",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "tests",
+          "-p",
+          "NightlyMaintenanceTests.py"
+        ]
+      ],
+      "autoApply": true,
+      "enabled": true,
+      "autoApplyPrefixes": [
+        "docs/",
+        "tests/"
+      ],
+      "scopeChecks": [
+        {
+          "prefix": "backend/packages/webhook/",
+          "checks": [
+            [
+              "{python}",
+              "-X",
+              "utf8",
+              "tools/RunMemoryGate.py"
+            ]
+          ]
+        },
+        {
+          "prefix": "tests/",
+          "checks": [
+            [
+              "{python}",
+              "-X",
+              "utf8",
+              "tools/RunMemoryGate.py"
+            ]
+          ]
+        },
+        {
+          "prefix": "prompts/",
+          "checks": [
+            [
+              "{python}",
+              "-X",
+              "utf8",
+              "tools/RunMemoryGate.py"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "backendService",
+      "path": "PRODUCTION_ROOT\\repos\\backend-service",
+      "checks": [
+        [
+          "PRODUCTION_ROOT\\repos\\personal-agent\\.venv\\Scripts\\python.exe",
+          "-X",
+          "utf8",
+          "PRODUCTION_ROOT\\repos\\personal-agent\\tools\\CheckMaintenanceSource.py",
+          "."
+        ],
+        [
+          "PRODUCTION_ROOT\\repos\\personal-agent\\.venv\\Scripts\\python.exe",
+          "-X",
+          "utf8",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "tests",
+          "-p",
+          "GpuResidencyTests.py"
+        ]
+      ],
+      "autoApply": false,
+      "enabled": true
+    },
+    {
+      "name": "terminalConnection",
+      "path": "PRODUCTION_ROOT\\repos\\terminal-pc",
+      "checks": [
+        [
+          "PRODUCTION_ROOT\\repos\\personal-agent\\.venv\\Scripts\\python.exe",
+          "-X",
+          "utf8",
+          "PRODUCTION_ROOT\\repos\\personal-agent\\tools\\CheckMaintenanceSource.py",
+          "."
+        ],
+        [
+          "PRODUCTION_ROOT\\repos\\personal-agent\\.venv\\Scripts\\python.exe",
+          "-X",
+          "utf8",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "tests",
+          "-p",
+          "SoftwareLocatorTests.py"
+        ]
+      ],
+      "autoApply": false,
+      "enabled": true
+    },
+    {
+      "name": "remoteControl",
+      "path": "PRODUCTION_ROOT\\Remote-CMD-Control",
+      "checks": [
+        [
+          "PRODUCTION_ROOT\\repos\\personal-agent\\.venv\\Scripts\\python.exe",
+          "-X",
+          "utf8",
+          "PRODUCTION_ROOT\\repos\\personal-agent\\tools\\CheckMaintenanceSource.py",
+          "."
+        ]
+      ],
+      "autoApply": false,
+      "enabled": true
+    }
+  ],
+  "execution": {
+    "primaryDevice": "tianxuanLaptop",
+    "fallbackLocal": true,
+    "timeoutSec": 900,
+    "primaryInbox": "G:/desktop/日常智能体空间/terminal-pc/runtime"
+  },
+  "intervalDays": 3
+}

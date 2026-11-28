@@ -1,0 +1,33 @@
+{
+  "services": {
+    "asr": {
+      "python": [3, 9],
+      "requirements": ["faster-whisper==1.2.1"],
+      "script": "services/whisperService.py",
+      "port": 8081
+    },
+    "tts": {
+      "python": [3, 12],
+      "requirements": ["torch==2.9.1", "torchaudio==2.9.1", "qwen-tts==0.1.1", "transformers==4.57.3", "huggingface-hub>=0.34", "numpy>=2.0", "soundfile>=0.13"],
+      "repo": "https://github.com/breezeblue-ai/breeze-tts.git",
+      "ref": "6eba901d1845353802652c708a4740fdfc5baa75",
+      "directory": "vendor/breeze-tts",
+      "script": "services/breezeTtsService.py",
+      "port": 7862
+    },
+    "llm": {
+      "python": [3, 9],
+      "requirements": [],
+      "downloadScript": "gemma/downloadGemmaModel.py",
+      "script": "gemma/serve.py",
+      "model": "gemma/model/gemma-4-E4B-it-Q4_K_M.gguf",
+      "port": 8080
+    },
+    "kugou": {
+      "repo": "https://github.com/MakcRe/KuGouMusicApi.git",
+      "ref": "5d6c9f7b180279c9dd08bc6f7159de52a856d587",
+      "directory": "kugou/KuGouMusicApi",
+      "port": 3001
+    }
+  }
+}

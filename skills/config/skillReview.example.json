@@ -1,0 +1,30 @@
+{
+  "enabled": true,
+  "intervalHours": 72,
+  "firstRunLookbackHours": 24,
+  "skillsDir": "runtime/dsh/skills",
+  "stateFile": "runtime/skill-review-state.json",
+  "logFile": "runtime/skill-review.log",
+  "model": {
+    "provider": "<provider>",
+    "baseUrl": "https://your-gateway.example.com/v1",
+    "model": "<model>",
+    "apiKeyEnv": "GATEWAY_API_KEY",
+    "timeoutSeconds": 180
+  },
+  "fallback": {
+    "provider": "<provider>",
+    "baseUrl": "https://your-fallback.example.com/v1",
+    "model": "<model>",
+    "apiKeyEnv": "FALLBACK_API_KEY",
+    "timeoutSeconds": 300
+  },
+  "maxIterations": 8,
+  "maxSkillsPerRun": 3,
+  "minTurns": 4,
+  "transcriptChars": 14000,
+  "notifyQQ": false,
+  "autoCreate": true,
+  "stageUpdates": true,
+  "note": "复制为 skillReview.json 后填入自己的模型路由；skillReview.json 不进仓库，避免公开私有路由。"
+}

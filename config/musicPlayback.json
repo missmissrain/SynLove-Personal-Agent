@@ -1,0 +1,6 @@
+{
+  "mode": "remote",
+  "target": "tianxuanLaptop",
+  "volume": 25,
+  "transport": "terminal"
+}

@@ -1,0 +1,22 @@
+{
+  "maxFileBytes": 8388608,
+  "retainedFiles": 4,
+  "maxQueuedEvents": 2048,
+  "maxReadBytes": 33554432,
+  "maxRecords": 50000,
+  "trendDays": 7,
+  "minimumSamples": 20,
+  "errorRateWarning": 0.1,
+  "toolErrorRateWarning": 0.15,
+  "scoreWarning": 3,
+  "minimumScores": 5,
+  "errorRateIncreaseWarning": 0.05,
+  "latencyRatioWarning": 1.5,
+  "costRatioWarning": 1.5,
+  "relay": {
+    "enabled": false,
+    "baseURL": "",
+    "apiKeyEnv": "RELAY_TOKEN",
+    "timeoutMs": 2500
+  }
+}

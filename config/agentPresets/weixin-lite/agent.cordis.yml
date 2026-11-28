@@ -1,0 +1,52 @@
+# 欣爱默认会话预设：基本工具、长期目标、技能与独立上下文压缩。
+# 注册参数：安装器复制到本项目 runtime/dsh/.agent-presets；预算默认跟随模型容量。
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  disabled: true
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  disabled: !!js process.platform === 'win32'
+- id: tool-pwsh
+  name: '@deepseek-ai/dsh-tool-pwsh'
+  disabled: !!js process.platform !== 'win32'
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    sampleOverCapGlobResults: true
+- id: tool-jobs
+  name: '@deepseek-ai/dsh-tool-jobs'
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: compaction-basic
+      name: '@deepseek-ai/dsh-compaction-basic'
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: false
+- id: tool-opencode
+  name: '@deepseek-ai/dsh-tool-opencode'
+- id: tool-codex
+  name: '@deepseek-ai/dsh-tool-codex'
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+- id: tool-goal
+  name: '@deepseek-ai/dsh-tool-goal'
+- id: skills
+  name: cordis:group
+  group: true
+  isolate:
+    skills: true
+  config:
+    - id: skill
+      name: '@deepseek-ai/dsh-skill'
+    - id: skill-filesystem
+      name: '@deepseek-ai/dsh-skill-filesystem'
+    - id: tool-skill
+      name: '@deepseek-ai/dsh-tool-skill'

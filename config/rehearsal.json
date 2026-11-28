@@ -1,0 +1,43 @@
+{
+  "enabled": true,
+  "mode": "usage",
+  "cooldownHours": 48,
+  "maxAppsPerRound": 2,
+  "lookbackDays": 7,
+  "graphGate": true,
+  "silentUserId": "rehearsal@local",
+  "skillRoot": "runtime/dsh/rehearsalSkills",
+  "logFile": "runtime/rehearsal.log",
+  "stateFile": "runtime/rehearsal-state.json",
+  "note": "预演由使用画像驱动：图谱更新后，读图谱+时间线+任务日志推断最近常用的软件，逐个预演；每软件 48 小时冷却，全部冷却就跳过。",
+  "deviceSnapshot": "PRODUCTION_ROOT\\repos\\terminal-pc\\runtime\\server\\devices.json",
+  "devices": {
+    "sonyXperia5III": {"kind": "android", "note": "手机，操作前先解锁"},
+    "androidGateway": {"kind": "windows", "note": "大黄蜂工作机"},
+    "tianxuanLaptop": {"kind": "windows", "note": "天选笔记本"},
+    "server": {"kind": "windows", "note": "家庭服务器"}
+  },
+  "forbidActions": [
+    "支付", "付款", "确认支付", "立即支付", "去支付", "提交订单", "确认下单",
+    "立即购买", "立即抢购", "确认购票", "提交", "打卡", "签到", "确认报名",
+    "立即开通", "同意并支付", "免密支付", "删除", "卸载", "格式化", "重置"
+  ],
+  "appCatalog": [
+    {"name": "美团", "device": "sonyXperia5III", "package": "com.sankuai.meituan", "aliases": ["美团", "meituan", "外卖"], "flow": "点外卖：商家列表、菜单、购物车、确认订单页"},
+    {"name": "淘宝", "device": "sonyXperia5III", "package": "com.taobao.taobao", "aliases": ["淘宝", "taobao"], "flow": "搜索商品、比价、商品详情、规格选择"},
+    {"name": "京东", "device": "sonyXperia5III", "package": "com.jingdong.app.mall", "aliases": ["京东", "jd"], "flow": "搜索商品、比价、商品详情、优惠券"},
+    {"name": "闲鱼", "device": "sonyXperia5III", "package": "com.taobao.idlefish", "aliases": ["闲鱼", "二手"], "flow": "搜索二手商品、看卖家与成色、议价入口"},
+    {"name": "拼多多", "device": "sonyXperia5III", "package": "com.xunmeng.pinduoduo", "aliases": ["拼多多", "pdd"], "flow": "百亿补贴、商品详情、拼单入口"},
+    {"name": "大众点评", "device": "sonyXperia5III", "package": "com.dianping.v1", "aliases": ["点评", "大众点评"], "flow": "找店、看评分与团购、排队取号入口"},
+    {"name": "高德地图", "device": "sonyXperia5III", "package": "com.autonavi.minimap", "aliases": ["高德", "地图", "导航"], "flow": "搜地点、路线规划、打车比价入口"},
+    {"name": "12306", "device": "sonyXperia5III", "package": "com.MobileTicket", "aliases": ["12306", "火车票"], "flow": "查车次、选座、订单确认页"},
+    {"name": "携程", "device": "sonyXperia5III", "package": "ctrip.android.view", "aliases": ["携程", "机票", "酒店"], "flow": "查机票、比价、退改规则"},
+    {"name": "哔哩哔哩", "device": "sonyXperia5III", "package": "tv.danmaku.bili", "aliases": ["b站", "哔哩", "bilibili"], "flow": "首页、搜索、播放页"},
+    {"name": "酷狗音乐", "device": "sonyXperia5III", "package": "com.kugou.android", "aliases": ["酷狗", "kugou", "歌单"], "flow": "歌单、播放页、下载"},
+    {"name": "小红书", "device": "sonyXperia5III", "package": "com.xingin.xhs", "aliases": ["小红书", "xhs"], "flow": "搜索笔记、详情、收藏"},
+    {"name": "Chrome", "device": "tianxuanLaptop", "aliases": ["chrome", "浏览器"], "flow": "打开网页、书签、下载"},
+    {"name": "VS Code", "device": "tianxuanLaptop", "aliases": ["vscode", "vs code"], "flow": "打开工程、搜索、终端"},
+    {"name": "Total Commander", "device": "androidGateway", "aliases": ["total commander", "tc"], "flow": "文件浏览、复制、搜索"},
+    {"name": "PowerShell", "device": "server", "aliases": ["powershell", "pwsh"], "flow": "查看已装模块、常用脚本目录"}
+  ]
+}

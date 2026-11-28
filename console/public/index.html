@@ -1,0 +1,444 @@
+﻿<!DOCTYPE html>
+<!-- SynLove 控制台页面：组织导航、真实数据容器与设置表单；参数由同源 API 提供。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<!-- 只允许本页自己的资源；不加载任何外部脚本，也就不用 unsafe-eval -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'self'" />
+<title>SynLove</title>
+<link rel="icon" type="image/png" href="/assets/BrandIcon.png" />
+<link rel="stylesheet" href="/style.css" />
+<link rel="stylesheet" href="/ConsoleTheme.css" />
+<link rel="stylesheet" href="/RemoteConnections.css" />
+<link rel="stylesheet" href="/ConsolePolish.css" />
+<link rel="stylesheet" href="/ConsoleLayout.css" />
+<link rel="stylesheet" href="/Avatar/AvatarPanel.css" />
+</head>
+<body>
+<div id="desktop-shell">
+<div id="opening-screen" class="opening-screen" data-state="waiting" aria-label="SynLove 开屏动画" hidden>
+  <video data-src="/assets/Opening.mp4" playsinline preload="auto" aria-label="SynLove 开屏视频"></video>
+  <button type="button" class="opening-skip">跳过</button>
+</div>
+<div id="desktop-titlebar" hidden>
+  <div id="desktop-drag"><span>SynLove</span></div>
+  <span id="desktop-window-status" role="status"></span>
+  <div class="desktop-controls">
+    <button id="window-minimize" aria-label="最小化"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10" /></svg></button>
+    <button id="window-size" aria-label="放大窗口"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="2" /></svg></button>
+    <button id="window-hide" aria-label="收起到托盘"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8" /></svg></button>
+  </div>
+</div>
+<header>
+  <div class="page-breadcrumb"><span id="page-category">日常</span><span class="breadcrumb-divider" aria-hidden="true">/</span><h1 id="page-title">概览</h1></div>
+  <div class="status" id="status-strip">正在读取状态…</div>
+  <time id="console-date"></time>
+</header>
+<div id="request-progress" class="request-progress" role="progressbar" aria-label="正在等待操作返回" aria-busy="false" hidden></div>
+<div id="request-feedback" class="request-feedback" role="alert" hidden><span id="request-feedback-text"></span><button id="request-feedback-close" type="button" aria-label="关闭提示">×</button></div>
+<dialog id="action-confirm" class="action-confirm" aria-labelledby="action-confirm-title" aria-describedby="action-confirm-description">
+  <h3 id="action-confirm-title">停止 Agent 内核？</h3>
+  <p id="action-confirm-description"></p>
+  <form method="dialog"><button id="action-confirm-cancel" value="cancel" autofocus>暂不停止</button><button class="danger" value="confirm">确认停止</button></form>
+</dialog>
+
+<nav id="tabs" aria-label="主导航">
+  <div class="sidebar-brand">
+    <img class="brand-mark" src="/assets/BrandIcon.png" alt="" width="34" height="34" />
+    <div><img class="brand-title-art" src="/assets/BrandTitle.png" alt="SynLove" width="100" height="36" /><div class="brand-caption">心合万象 爱有回响</div></div>
+  </div>
+  <div class="nav-label">日常</div>
+  <button data-tab="overview" class="active"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>概览</button>
+  <button data-tab="agent"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.7 6.3L21 12l-6.3 2.7L12 21l-2.7-6.3L3 12l6.3-2.7Z"/></svg>人格与工具</button>
+  <button data-tab="memory"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h6a3 3 0 0 1 3 3v13a4 4 0 0 0-4-3H4ZM20 5h-4a3 3 0 0 0-3 3v13a4 4 0 0 1 4-3h3Z"/></svg>记忆维护</button>
+  <div class="nav-label">连接与能力</div>
+  <button data-tab="remote"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="3"/><path d="M8 21h8m-4-5v5M7 9h10m-3-3 3 3-3 3"/></svg>服务与远控</button>
+  <button data-tab="models"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5"/></svg>模型选择</button>
+  <button data-tab="toggles"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="6"/><circle cx="9" cy="12" r="3"/></svg>功能设置</button>
+  <button data-tab="weixin"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18 3 21v-6a8 8 0 0 1-1-4 9 9 0 0 1 18 0 9 9 0 0 1-9 8 10 10 0 0 1-6-1Z"/><path d="M7 10h.01M11 10h.01M15 10h.01"/></svg>微信</button>
+  <button data-tab="qq"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4a3 3 0 0 1 6 0v1a6 6 0 0 1 3 5v5a6 6 0 0 1-12 0v-5a6 6 0 0 1 3-5ZM6 10l-3 6m15-6 3 6M8 21l-3 1m11-1 3 1"/><path d="M9 10h.01M15 10h.01"/></svg>QQ</button>
+  <details class="nav-diagnostics">
+    <summary>运行与诊断 <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 4 4 4-4 4"/></svg></summary>
+    <button data-tab="system"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M3 9h18M9 9v12"/></svg>系统</button>
+    <button data-tab="observations"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="5" r="2"/><circle cx="18" cy="12" r="2"/><circle cx="6" cy="19" r="2"/><path d="M6 7v10m2-12h4a6 6 0 0 1 6 5"/></svg>调用链</button>
+    <button data-tab="quality"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4v16h16M7 15l4-5 4 3 5-7"/></svg>运行趋势</button>
+    <button data-tab="usage"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V9m8 11V4m8 16v-7"/></svg>Token 用量</button>
+    <button data-tab="logs"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6ZM9 10h7m-7 4h7m-7 4h4"/></svg>日志</button>
+  </details>
+  <div class="sidebar-signature"><span class="companion-dot"></span>心合万象 爱有回响</div>
+</nav>
+
+<main>
+  <div class="page-heading"><div><h2 id="page-heading-title">欢迎回来</h2><p id="page-description">查看服务、消息通道和后台动态。</p></div><div class="heading-actions"><button id="dashboard-refresh" class="button-secondary"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 11-1l3 6M4 12l3 6a7 7 0 0 0 11-1"/></svg>刷新</button></div></div>
+  <section id="tab-observations" class="panel">
+    <div class="card">
+      <div class="section-heading"><h3>调用记录</h3><button id="obs-refresh" class="primary">刷新记录</button></div>
+      <div class="row observation-filters">
+        <label class="sr-only" for="obs-search">搜索调用链</label><input id="obs-search" placeholder="搜索会话、模型、调用 ID 或提示词指纹" maxlength="200" />
+        <label class="sr-only" for="obs-status">执行状态</label><select id="obs-status"><option value="">全部状态</option><option value="ok">执行结束</option><option value="error">执行失败</option><option value="cancelled">已取消</option><option value="incomplete">未完整记录</option></select>
+        <label class="sr-only" for="obs-days">查询范围</label><select id="obs-days"><option value="1">近 24 小时</option><option value="7" selected>近 7 天</option><option value="30">近 30 天</option></select>
+      </div>
+      <p id="obs-health" class="hint" role="status">尚未读取</p>
+      <div id="obs-list" class="table-scroll"></div>
+      <div class="row"><button id="obs-prev">上一页</button><span id="obs-page" class="hint"></span><button id="obs-next">下一页</button></div>
+    </div>
+    <div id="obs-detail" class="card observation-detail" hidden></div>
+  </section>
+  <section id="tab-quality" class="panel">
+    <div class="section-heading"><h3>运行表现</h3><div class="row"><label class="sr-only" for="quality-days">趋势范围</label><select id="quality-days"><option value="1">近 24 小时</option><option value="7" selected>近 7 天</option><option value="30">近 30 天</option></select><button id="quality-refresh" class="primary">刷新趋势</button></div></div>
+    <p id="quality-health" class="hint" role="status">尚未读取</p>
+    <div id="quality-cards" class="cards"></div>
+    <div class="card"><h3>关注事项</h3><div id="quality-warnings"></div></div>
+    <div class="card"><h3>每日调用与错误</h3><div id="quality-chart" class="trend-chart"></div><div id="quality-daily" class="table-scroll"></div></div>
+    <div class="card"><h3 title="按实际请求中的人格或系统指纹归组，工具另计。统计差异不代表因果效果。">版本对照</h3><div id="quality-versions" class="table-scroll"></div></div>
+  </section>
+  <!-- 服务状态 -->
+  <section id="tab-overview" class="panel active">
+    <div class="dashboard-stats" aria-label="运行统计">
+      <button class="stat-card" data-open-tab="usage" aria-label="查看 Token 用量"><span class="stat-label">Token · 近 24 小时</span><strong class="stat-value" id="dashboard-tokens">—</strong><span class="stat-note" id="dashboard-token-note">正在读取调用记录</span></button>
+      <button class="stat-card" data-open-tab="observations" aria-label="查看工具调用记录"><span class="stat-label">工具调用 · 近 24 小时</span><strong class="stat-value" id="dashboard-tools">—</strong><span class="stat-note" id="dashboard-tool-note">来自调用链记录</span></button>
+      <button class="stat-card" data-open-tab="system" aria-label="查看消息投递与系统状态"><span class="stat-label">累计消息投递</span><strong class="stat-value" id="dashboard-deliveries">—</strong><span class="stat-note">消息投递账本</span></button>
+      <button class="stat-card" data-open-tab="memory" aria-label="查看时间线记忆"><span class="stat-label">时间线记忆</span><strong class="stat-value" id="dashboard-memory">—</strong><span class="stat-note" id="dashboard-memory-note">正在读取记忆索引</span></button>
+    </div>
+    <div class="card channel-card overview-connections"><div class="channel-card-heading"><h3>消息与连接</h3><details class="channel-manage"><summary>管理连接 <span aria-hidden="true">↗</span></summary><div class="channel-manage-menu"><button data-open-tab="weixin">微信绑定</button><button data-open-tab="qq">QQ 通道</button><button data-open-tab="remote">服务与远控</button></div></details></div><span id="dashboard-channel-time" hidden></span><div id="dashboard-channels" class="empty-state">正在读取现有连接</div></div>
+    <div class="overview-workspace">
+      <div class="card service-panel">
+        <div class="service-panel-head">
+          <h3>能力与服务</h3>
+          <div class="service-panel-actions"><button class="button-link" data-open-tab="remote">配置 <span aria-hidden="true">↗</span></button><div class="service-pager" id="service-pager" hidden>
+            <button id="service-prev" type="button" aria-label="上一页">‹</button>
+            <span id="service-page">1/1</span>
+            <button id="service-next" type="button" aria-label="下一页">›</button>
+          </div></div>
+        </div>
+        <div id="service-cards"></div>
+        <div class="service-legend" aria-label="服务灯色图例">
+          <span><i class="service-dot is-up"></i>本机可用</span>
+          <span><i class="service-dot is-remote"></i>远程可用</span>
+          <span><i class="service-dot is-down"></i>不可用</span>
+        </div>
+        <p class="hint" id="dashboard-checked" role="status" hidden></p>
+      </div>
+      <div class="overview-side">
+        <div class="card overview-schedules"><div class="section-heading"><h3>定时任务 <span class="hint" id="dashboard-schedule-count"></span></h3><span class="hint">下次执行</span></div><div id="dashboard-schedules" class="empty-state">正在读取用户提醒和系统任务</div><p class="hint" id="dashboard-schedule-note"></p></div>
+        <div class="card overview-activity"><div class="section-heading"><h3>最近动态</h3><button class="button-link" data-open-tab="logs">全部 <span aria-hidden="true">↗</span></button></div><div id="dashboard-recent" class="empty-state">正在读取后台动态</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-remote" class="panel">
+    <div class="workspace-tabs" role="tablist" aria-label="连接分类">
+      <button type="button" id="remote-services-tab" role="tab" aria-selected="true" aria-controls="remote-service-container" data-remote-view="services" class="active">后台服务</button>
+      <button type="button" id="remote-computer-tab" role="tab" aria-selected="false" aria-controls="remote-computer-view" data-remote-view="computer" tabindex="-1">设备管理</button>
+    </div>
+    <div id="remote-service-container" role="tabpanel" aria-labelledby="remote-services-tab"></div>
+    <div class="card remote-computer-card" id="remote-computer-view" role="tabpanel" aria-labelledby="remote-computer-tab" hidden>
+      <div class="section-heading"><h3>设备管理 <span id="terminal-online-count" class="badge">读取中</span></h3><button id="remote-new">添加设备</button></div>
+      <div id="remote-target-list" class="remote-target-list" aria-label="已登记设备"></div>
+      <form id="remote-target-form" autocomplete="off">
+        <div class="form-grid">
+          <label>显示名称<input id="remote-description" placeholder="设备名称" maxlength="80" /></label>
+          <label>设备标识<input id="remote-id" placeholder="留空自动生成" pattern="[a-zA-Z][a-zA-Z0-9_-]{0,63}" maxlength="64" /></label>
+          <label>设备类型<select id="remote-kind"><option value="windows">Windows 电脑</option><option value="linux">Linux 主机</option><option value="android">安卓设备</option><option value="embedded">嵌入式设备</option><option value="gateway">接入网关</option></select></label>
+          <label>接入方式<select id="remote-transport"><option value="direct">独立终端</option><option value="adb">ADB · 预留</option><option value="gateway">网关转发 · 预留</option></select></label>
+          <label id="remote-parent-label" hidden>接入设备<select id="remote-parent"><option value="">请选择</option></select></label>
+          <label>连接开关<select id="remote-enabled"><option value="true">开启</option><option value="false">关闭</option></select></label>
+          <label>Codex 完成通知<select id="remote-codex"><option value="false">关闭</option><option value="true">开启</option></select></label>
+          <label>OpenCode 完成通知<select id="remote-opencode"><option value="false">关闭</option><option value="true">开启</option></select></label>
+        </div>
+        <p id="remote-notification-hint" class="hint" hidden>服务器尚未配置通知接收人，开启后完成事件会暂存在服务器。</p>
+        <div class="row remote-actions">
+          <button id="remote-save" class="primary" type="submit">生成接入文件</button>
+          <button id="remote-pair" type="button" hidden>生成接入文件</button>
+          <button id="remote-test" type="button">测试连接</button>
+        </div>
+      </form>
+      <div id="remote-result" class="remote-result" role="status" aria-live="polite">选择设备，或为新终端生成接入文件。</div>
+    </div>
+  </section>
+
+  <!-- 系统：守护、队列与运行维护，沿用原来的元素标识和后端动作。 -->
+  <section id="tab-system" class="panel">
+    <div class="row">
+      <button id="btn-restart" class="primary">重启后端服务</button>
+      <button id="btn-stop" class="danger">停止后端服务</button>
+      <span class="hint" id="service-hint"></span>
+    </div>
+    <div class="card">
+      <h3>后端守护（心跳） <span id="hb-badge" class="badge">读取中</span></h3>
+      <div id="hb-detail" class="hint">正在读取…</div>
+      <div class="row">
+        <label><input type="checkbox" id="hb-enabled" /> 掉线自动重启</label>
+        <label>间隔(秒) <input type="number" id="hb-interval" min="5" max="3600" step="5" class="heartbeat-number" /></label>
+        <label>连续失败 <input type="number" id="hb-threshold" min="1" max="20" class="heartbeat-number" /></label>
+        <label>冷却(分) <input type="number" id="hb-cooldown" min="1" max="1440" class="heartbeat-number" /></label>
+        <label>每小时上限 <input type="number" id="hb-max" min="1" max="100" class="heartbeat-number" /></label>
+        <button id="hb-save">保存</button>
+        <button id="hb-check">立即探活</button>
+        <button id="hb-resume" class="hb-hidden">恢复自动重启</button>
+      </div>
+      <div class="hint" id="hb-note"></div>
+      <pre id="hb-log"></pre>
+    </div>
+    <div class="card backend-config-card">
+      <div class="section-heading">
+        <h3>远程服务</h3>
+        <button id="backend-probe" class="primary">自动查验</button>
+      </div>
+      <p class="hint">TTS、ASR 和本地大模型；通过服务协议后才显示可用。</p>
+      <div class="form-grid backend-config-grid">
+        <label>运行位置
+          <select id="backend-mode">
+            <option value="local">本机</option>
+            <option value="remote">远程服务器</option>
+          </select>
+        </label>
+        <label>服务器地址
+          <input id="backend-host" placeholder="127.0.0.1" />
+        </label>
+        <label>访问协议<select id="backend-protocol"><option value="http">HTTP</option><option value="https">HTTPS</option></select></label>
+        <label>访问密钥<input id="backend-key" type="password" autocomplete="new-password" placeholder="无需鉴权可留空；已保存时留空保留" /></label>
+        <label>TTS 端口<input id="backend-tts-port" type="number" min="1" max="65535" value="7862" /></label>
+        <label>ASR 端口<input id="backend-asr-port" type="number" min="1" max="65535" value="8081" /></label>
+        <label>大模型端口<input id="backend-llm-port" type="number" min="1" max="65535" value="8080" /></label>
+        <label>端口递推范围
+          <input id="backend-radius" type="number" min="1" max="64" step="1" />
+        </label>
+      </div>
+      <div id="backend-services" class="backend-services" aria-live="polite"></div>
+      <div class="row">
+        <button id="backend-save">保存配置</button>
+        <span id="backend-hint" class="hint">默认端口：TTS 7862 · ASR 8081 · LLM 8080</span>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="card">
+        <h3>发送队列</h3>
+        <div id="outbox"></div>
+      </div>
+      <div class="card">
+        <h3>长期记忆</h3>
+        <div id="memory"></div>
+      </div>
+    </div>
+    <div class="card"><h3>系统维护任务</h3><div id="dashboard-system-tasks" class="empty-state">正在读取系统计划任务</div></div>
+  </section>
+
+  <!-- 模型选择 -->
+  <section id="tab-models" class="panel">
+    <div class="card">
+      <h3>当前默认模型</h3>
+      <div id="current-model" class="big"></div>
+      <div class="row">
+        <select id="provider-select"></select>
+        <select id="model-select"></select>
+        <button id="btn-save-model" class="primary">设为默认</button>
+        <span class="hint" id="model-hint"></span>
+      </div>
+      <p class="hint">重启后生效</p>
+    </div>
+    <div class="card">
+      <div class="section-heading"><h3>故障转移</h3><button id="btn-failover-refresh">刷新</button></div>
+      <div id="failover-status" role="status">读取中…</div>
+    </div>
+    <div class="card">
+      <h3>全部可用模型</h3>
+      <div id="model-table"></div>
+    </div>
+    <details class="card advanced-card">
+      <summary>添加模型 <span>自定义服务商与接口</span></summary>
+      <div class="form-grid">
+        <label>服务商<input id="add-provider" placeholder="例如 myrelay" /></label>
+        <label>接口地址<input id="add-baseurl" placeholder="https://your-endpoint/v1" /></label>
+        <label>API Key<input id="add-apikey" type="password" placeholder="sk-…" /></label>
+        <label>模型 id<input id="add-model" placeholder="例如 gpt-5.6" /></label>
+        <label>显示名（可选）<input id="add-name" placeholder="留空就用模型 id" /></label>
+        <label class="checkbox"><input id="add-vision" type="checkbox" /> 支持图片输入（多模态）</label>
+      </div>
+      <div class="row">
+        <button id="btn-add-model" class="primary">添加</button>
+        <span class="hint" id="add-hint">重启后生效</span>
+      </div>
+    </details>
+  </section>
+
+  <!-- 功能开关 -->
+  <section id="tab-toggles" class="panel">
+    <div class="card">
+      <h3>即时生效</h3>
+      <div id="toggles-immediate"></div>
+    </div>
+    <div class="card">
+      <h3>需要重启生效</h3>
+      <div id="toggles-restart"></div>
+      <div class="row">
+        <button id="btn-restart-2" class="primary">保存并重启</button>
+        <span class="hint" id="toggle-hint"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>上下文长度与压缩</h3>
+      <div class="settings">
+        <div class="toggle">
+          <label class="label">当前默认模型<div class="help" id="ctx-model">—</div></label>
+        </div>
+        <div class="toggle">
+          <label class="label">上下文窗口（tokens）
+            <button type="button" class="tool-help" aria-label="查看说明" data-help="模型可容纳的 Token 上限；重启后生效。">?</button>
+          </label>
+          <input class="setting-input" type="number" id="ctx-window" />
+          <button id="btn-ctx-save">保存</button>
+        </div>
+        <div class="toggle">
+          <label class="label">压缩阈值（tokens）
+            <button type="button" class="tool-help" aria-label="查看说明" data-help="达到阈值后摘要旧内容，应小于上下文窗口；新会话生效。">?</button>
+          </label>
+          <input class="setting-input" type="number" id="ctx-budget" />
+        </div>
+        <div class="toggle">
+          <label class="label">压缩后保留（tokens）
+            <button type="button" class="tool-help" aria-label="查看说明" data-help="压缩时保留的最近原文量。">?</button>
+          </label>
+          <input class="setting-input" type="number" id="ctx-retain" />
+          <button id="btn-compaction-save">保存</button>
+        </div>
+      </div>
+      <p class="hint" id="compaction-hint"></p>
+    </div>
+  </section>
+
+  <!-- 人格与工具 -->
+  <section id="tab-agent" class="panel">
+    <div class="workspace-tabs" role="tablist" aria-label="人格与工具分类">
+      <button type="button" id="agent-main-tab" role="tab" aria-selected="true" aria-controls="agent-main-view" data-agent-view="main" class="active">欣爱主人格</button>
+      <button type="button" id="agent-worker-tab" role="tab" aria-selected="false" aria-controls="agent-worker-view" data-agent-view="worker" tabindex="-1">执行内核</button>
+      <button type="button" id="agent-tools-tab" role="tab" aria-selected="false" aria-controls="agent-tools-view" data-agent-view="tools" tabindex="-1">工具与能力</button>
+    </div>
+    <div class="card editor-pane" id="agent-main-view" role="tabpanel" aria-labelledby="agent-main-tab">
+      <div class="editor-heading"><div><h3>欣爱 · 主人格</h3><p class="hint" id="persona-hint">重启后生效</p></div><div class="editor-actions"><button id="btn-reload-persona" class="button-secondary">重新读取</button><button id="btn-save-persona" class="primary">保存主人格</button></div></div>
+      <p class="hint" id="persona-path" hidden></p>
+      <textarea id="persona-text" aria-label="欣爱主人格提示词" spellcheck="false"></textarea>
+    </div>
+    <div class="card editor-pane" id="agent-worker-view" role="tabpanel" aria-labelledby="agent-worker-tab" hidden>
+      <div class="editor-heading"><div><h3>执行内核 · 任务提示词</h3><p class="hint" id="worker-persona-hint">新任务生效 · 结果由欣爱整理后回复</p></div><div class="editor-actions"><button id="btn-reload-worker-persona" class="button-secondary">重新读取</button><button id="btn-save-worker-persona" class="primary">保存执行提示词</button></div></div>
+      <textarea id="worker-persona-text" aria-label="后台执行提示词" spellcheck="false"></textarea>
+    </div>
+    <div class="card editor-pane" id="agent-tools-view" role="tabpanel" aria-labelledby="agent-tools-tab" hidden>
+      <h3>挂载的工具</h3>
+      <p class="hint" id="tools-path" hidden></p>
+      <div id="tools-list"></div>
+      <div class="row">
+        <span class="hint" id="tools-hint">重启后生效</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 微信绑定 -->
+  <section id="tab-weixin" class="panel">
+    <div class="card">
+      <h3>扫码绑定微信</h3>
+      <div class="row">
+        <button id="btn-qr-start" class="primary">获取二维码</button>
+        <button id="btn-qr-stop">停止轮询</button>
+        <button id="btn-qr-restart" disabled>重启并应用</button>
+        <span class="hint" id="qr-status">尚未开始</span>
+      </div>
+      <div id="qr-area" class="qr-area"></div>
+    </div>
+  </section>
+
+  <!-- QQ 通道 -->
+  <section id="tab-qq" class="panel">
+    <div class="card">
+      <h3>QQ 官方机器人 <span id="qq-badge" class="badge">读取中</span></h3>
+      <p class="hint">
+        机器人昵称：<span id="qq-name">—</span>　AppID：<span id="qq-appid">—</span>
+      </p>
+      <div id="qq-qr-area" class="qr-area"></div>
+      <div class="row">
+        <button id="btn-qq-refresh">刷新二维码</button>
+        <button id="btn-qq-check">检查连接</button>
+        <span class="hint" id="qq-status">—</span>
+      </div>
+    </div>
+    <div class="card">
+      <h3>凭据</h3>
+      <p class="hint">重启后生效</p>
+      <div class="row">
+        <label>AppID <input id="qq-app-id" placeholder="填写 AppID" /></label>
+        <label>AppSecret <input id="qq-app-secret" type="password" placeholder="开放平台管理端的 AppSecret" /></label>
+        <button id="btn-qq-save" class="primary">保存凭据</button>
+        <span class="hint" id="qq-save-note"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 记忆维护 -->
+  <section id="tab-memory" class="panel">
+    <div class="card">
+      <h3>记忆与上下文</h3>
+      <p class="hint">清空后不可恢复</p>
+      <div class="row">
+        <button id="btn-memory-refresh">刷新体量</button>
+        <span class="hint" id="memory-status">尚未读取</span>
+      </div>
+      <div id="memory-cards" class="memory-cards"></div>
+    </div>
+  </section>
+
+  <!-- Token 用量 -->
+  <section id="tab-usage" class="panel">
+    <div class="row">
+      <label>统计范围
+        <select id="usage-days">
+          <option value="1">今天</option>
+          <option value="3">近 3 天</option>
+          <option value="7" selected>近 7 天</option>
+          <option value="30">近 30 天</option>
+        </select>
+      </label>
+      <button id="btn-refresh-usage">刷新</button>
+      <span class="hint" title="按本地价格表估算；无定价的调用未计入，不代表免费。">费用为估算值</span>
+    </div>
+    <div class="cards" id="usage-cards"></div>
+    <div class="card"><h3>近 24 小时 Token 分布</h3><div id="dashboard-token-chart" class="token-distribution">正在读取用量</div></div>
+    <div class="card">
+      <h3>按天</h3>
+      <div id="usage-days-table"></div>
+    </div>
+    <div class="card">
+      <h3>按模型</h3>
+      <div id="usage-model-table"></div>
+    </div>
+  </section>
+
+  <!-- 日志 -->
+  <section id="tab-logs" class="panel">
+    <div class="row">
+      <select id="log-select"></select>
+      <label><input type="checkbox" id="log-follow" checked /> 自动刷新（3 秒）</label>
+      <input id="log-filter" placeholder="过滤关键词（留空显示全部）" />
+      <button id="btn-refresh-log">立即刷新</button>
+      <span class="hint" id="log-hint"></span>
+    </div>
+    <pre id="log-view"></pre>
+  </section>
+</main>
+</div>
+
+<script src="/DesktopChrome.js"></script>
+<script src="/OpeningScreen.js"></script>
+<script src="/OpeningPlayback.js"></script>
+<script src="/ConsoleInteractions.js"></script>
+<script src="/app.js"></script>
+<script src="/observation.js"></script>
+<script src="/ConsoleDashboard.js"></script>
+<script src="/ConsoleWorkspace.js"></script>
+<script src="/ConsoleTooltip.js"></script>
+<script src="/TerminalDevices.js"></script>
+<script type="module" src="/Avatar/AvatarPanel.js"></script>
+</body>
+</html>

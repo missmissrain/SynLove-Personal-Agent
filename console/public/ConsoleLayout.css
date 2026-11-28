@@ -1,0 +1,154 @@
+/*
+ * 工作区布局：重排主导航、首屏状态与任务、人格分类和操作栏；视觉控件由 ConsolePolish 管理。
+ * 注册参数为现有 dashboard-* 数据容器及 editor-pane；默认桌面左栏 184px，服务每页五项。
+ */
+:root { --sidebar-width: 184px; }
+header { left: var(--sidebar-width); height: 50px; min-height: 50px; padding: 0 24px; }
+.page-breadcrumb { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.breadcrumb-divider { color: #d4c6cd; }
+.page-breadcrumb h1 { font-size: 11px; color: #705866; font-weight: 500; }
+#console-date, .status { font-size: 10px; }
+#tabs { width: var(--sidebar-width); padding: 0 12px 16px; overflow-x: hidden; gap: 3px; }
+#tabs .sidebar-brand { min-height: 83px; margin: 0 0 7px; padding: 10px 6px; gap: 9px; }
+.brand-mark { width: 32px; height: 32px; }
+.brand-title-art { width: 85px; }
+.brand-caption { font-size: 8px; white-space: nowrap; }
+#tabs .nav-label { padding: 13px 10px 6px; margin: 0; color: #ac94a2; font-size: 9px; letter-spacing: .1em; }
+#tabs button { display: flex; align-items: center; justify-content: flex-start; gap: 10px; width: 100%; min-height: 35px; padding: 8px 11px; font-size: 12px; border: 0; text-align: left; }
+#tabs button.active { box-shadow: none; background: #f6e7ef; color: #a45479; font-weight: 600; }
+#tabs button.active::before { display: none; }
+#tabs .nav-icon { width: 16px; height: 16px; flex: 0 0 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; opacity: .8; }
+.nav-diagnostics { margin-top: 17px; border-top: 1px solid var(--line); padding-top: 8px; }
+.nav-diagnostics summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px; color: #977d8c; cursor: pointer; font-size: 10px; list-style: none; }
+.nav-diagnostics summary::-webkit-details-marker { display: none; }
+.nav-diagnostics summary svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.5; transition: transform .18s; }
+.nav-diagnostics[open] summary svg { transform: rotate(90deg); }
+.sidebar-signature { margin-top: auto; padding: 24px 7px 0; font-size: 9px; white-space: nowrap; color: #b299a7; }
+main { left: var(--sidebar-width); top: 50px; padding: 20px 24px 28px; }
+.desktop-mode main { top: 88px; }
+.request-progress { left: var(--sidebar-width); }
+.page-heading { min-height: 44px; margin-bottom: 14px; }
+.page-heading h2 { font-size: 21px; line-height: 1.3; letter-spacing: -.4px; }
+.page-heading p { font-size: 11px; line-height: 1.5; margin-top: 5px; }
+.page-heading button { min-height: 32px; }
+.heading-actions svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+main > .panel, main > .page-heading { max-width: 1180px; margin-left: auto; margin-right: auto; }
+button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+button.button-secondary { background: #fff; border-color: #e9dfe5; box-shadow: none; }
+button.button-link { background: transparent; border: 0; color: #a77b92; padding: 3px 0; min-height: 24px; font-size: 10px; box-shadow: none; }
+button.button-link:hover:not(:disabled) { color: #a14e76; background: transparent; }
+.card { border-radius: 16px; padding: 20px; box-shadow: 0 2px 9px #74365303; }
+.card > h3:first-child { margin-top: 0; }
+.section-heading { align-items: center; }
+.section-heading h3 { margin: 0; }
+/* 首页按阅读顺序：轻量统计、连接入口、服务与待办，不再纵向堆高所有卡片。 */
+#tab-overview.active { display: flex; flex-direction: column; gap: 12px; }
+#tab-overview .dashboard-stats { gap: 0; border: 1px solid var(--line); border-radius: 15px; background: #fff; overflow: hidden; }
+#tab-overview .stat-card {
+  display: block; position: relative; padding: 11px 18px; border: 0; border-radius: 0;
+  background: transparent; box-shadow: none; text-align: left; min-height: 78px;
+}
+#tab-overview .stat-card + .stat-card { border-left: 1px solid var(--line); }
+#tab-overview .stat-card:hover { background: #fdf7fa; transform: none; }
+#tab-overview .stat-card::before { content: "↗"; position: absolute; right: 15px; top: 12px; color: #c88ca7; opacity: 0; }
+#tab-overview .stat-card:hover::before, #tab-overview .stat-card:focus-visible::before { opacity: 1; }
+#tab-overview .stat-label { display: block; font-size: 11px; margin: 0; font-weight: 400; }
+#tab-overview .stat-value { display: block; font-size: 21px; line-height: 1.3; margin: 4px 0; letter-spacing: -.4px; font-weight: 600; }
+#tab-overview .stat-note { display: block; font-size: 10px; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 400; }
+#tab-overview .overview-connections { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 10px; padding: 11px 15px; margin: 0; }
+.overview-connections .channel-card-heading { flex-direction: column; justify-content: center; align-items: flex-start; gap: 5px; padding: 0; border: 0; }
+.overview-connections h3 { font-size: 12px; }
+.overview-connections .channel-manage { font-size: 9px; }
+.overview-connections .channel-manage-menu { right: auto; left: 0; }
+.overview-connections #dashboard-channels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; min-height: 57px; }
+.overview-connections .channel-button { min-width: 0; min-height: 57px; border: 1px solid #f0e7ec; border-radius: 11px; padding: 8px 10px; gap: 9px; background: #fff; margin: 0; justify-content: flex-start; }
+.overview-connections .channel-button:hover { background: #fdf8fa; border-color: #e4cbd8; transform: none; }
+.overview-connections .connection-icon { width: 29px; height: 29px; border-radius: 9px; font-size: 14px; }
+.overview-connections .channel-description { gap: 3px; }
+.overview-connections .channel-description strong { font-size: 12px; }
+.overview-connections .channel-description .hint { font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.overview-connections .channel-status { font-size: 10px; margin-left: auto; padding: 3px 5px; }
+.overview-workspace { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 12px; height: 328px; }
+.overview-workspace > .card { margin: 0; min-height: 0; padding: 16px; }
+.overview-workspace .service-panel-head { margin: 0; padding-bottom: 10px; min-height: 30px; box-sizing: border-box; }
+.overview-workspace h3 { font-size: 13px; }
+.service-panel-actions { display: flex; align-items: center; gap: 15px; }
+.service-panel-actions .service-pager { gap: 5px; }
+.service-panel-actions .service-pager button { width: 24px; height: 24px; min-height: 24px; padding: 0; }
+.overview-workspace #service-cards { height: 225px; }
+.overview-workspace #service-cards .service { height: 45px; grid-template-columns: minmax(135px, .9fr) minmax(0, 1.1fr); gap: 10px; }
+.overview-workspace #service-cards .name { gap: 8px; font-size: 12px; }
+.overview-workspace #service-cards .hint { text-align: left; font-size: 11px; }
+.overview-workspace .service-legend { margin-top: 7px; padding-top: 10px; gap: 13px; font-size: 9px; }
+.overview-workspace .service-legend .service-dot { width: 6px; height: 6px; }
+.overview-side { display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; min-width: 0; min-height: 0; }
+.overview-side .card { margin: 0; padding: 13px 15px; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.overview-side .section-heading { flex-shrink: 0; margin-bottom: 6px; }
+.overview-side .section-heading .hint { font-size: 9px; }
+.overview-side #dashboard-schedules, .overview-side #dashboard-recent { min-height: 0; overflow-y: auto; flex: 1; font-size: 11px; }
+.overview-side .schedule-row, .overview-side .activity-row { padding: 6px 0; font-size: 11px; gap: 10px; }
+.overview-side .schedule-row .hint { font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.overview-side .schedule-time { font-size: 10px; }
+.overview-side .activity-row time { width: 53px; font-size: 9px; line-height: 1.5; }
+.overview-side .activity-row > div { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.7; }
+.overview-side .empty-state { padding: 0; }
+#dashboard-schedule-count { margin-left: 5px; }
+#dashboard-schedule-note { font-size: 9px; margin: 4px 0 0; max-height: 27px; overflow: auto; }
+#dashboard-schedule-note:empty { display: none; }
+#dashboard-schedules::-webkit-scrollbar, #dashboard-recent::-webkit-scrollbar { width: 3px; }
+#dashboard-schedules::-webkit-scrollbar-thumb, #dashboard-recent::-webkit-scrollbar-thumb { background: #e9dbe3; border-radius: 4px; }
+/* 人格编辑一次只展示一个角色，工具配置独立，保存操作位于编辑区上方。 */
+.workspace-tabs { display: inline-flex; align-items: center; gap: 4px; padding: 4px; background: #f2eaf0; border: 1px solid #eee3ea; border-radius: 12px; margin-bottom: 12px; }
+.workspace-tabs button { min-height: 31px; padding: 5px 18px; border: 0; background: transparent; color: #9b7e8e; box-shadow: none; font-size: 11px; }
+.workspace-tabs button.active { color: #9f4e74; background: #fff; box-shadow: 0 2px 5px #7f405513; }
+[role="tabpanel"][hidden] { display: none; }
+.editor-pane.card { margin-top: 0; }
+.editor-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 15px; }
+.editor-heading h3 { margin: 0 0 4px; font-size: 14px; }
+.editor-heading p { margin: 0; font-size: 10px; }
+.editor-actions { display: flex; gap: 8px; flex-shrink: 0; }
+#persona-text, #worker-persona-text { height: clamp(240px, calc(100dvh - 350px), 660px); min-height: 240px; padding: 16px; border-radius: 11px; background: #fffdfef5; font: 12px/1.9 "Microsoft YaHei", sans-serif; resize: vertical; }
+.form-grid { gap: 16px; }
+.form-grid label { font-size: 11px; }
+.card > .row:last-child { margin-bottom: 0; padding-top: 12px; }
+.advanced-card > summary { display: flex; align-items: center; gap: 12px; cursor: pointer; font-size: 12px; font-weight: 500; list-style: none; }
+.advanced-card > summary::after { content: "+"; margin-left: auto; color: #ba91a5; font-size: 17px; font-weight: 400; }
+.advanced-card[open] > summary { margin-bottom: 18px; }
+.advanced-card[open] > summary::after { content: "−"; }
+.advanced-card > summary span { color: var(--muted); font-size: 10px; font-weight: 400; }
+.advanced-card > summary::-webkit-details-marker { display: none; }
+#remote-service-container > .card { margin-top: 0; }
+@media (min-width: 1600px) {
+  .overview-workspace { height: 380px; }
+  .overview-workspace #service-cards { height: 275px; }
+  .overview-workspace #service-cards .service { height: 55px; }
+}
+@media (max-width: 1100px) and (min-width: 761px) {
+  #tab-overview .dashboard-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  #tab-overview .stat-card { padding: 11px 12px; }
+  .overview-connections .channel-description .hint { display: none; }
+  .overview-connections .channel-button { gap: 6px; padding: 8px; }
+  #tab-overview .overview-connections { grid-template-columns: 76px minmax(0, 1fr); }
+  .overview-connections .channel-status { font-size: 8px; }
+  .overview-workspace #service-cards .hint { display: none; }
+  .overview-workspace #service-cards .service { grid-template-columns: 1fr; }
+}
+@media (max-width: 760px) {
+  header { left: 0; padding: 0 16px; }
+  #tabs { width: 100%; }
+  #tabs .nav-label, .nav-diagnostics, .sidebar-signature { display: none; }
+  #tabs button { width: auto; }
+  main { left: 0; padding: 16px; }
+  .request-progress { left: 0; }
+  #tab-overview .dashboard-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #tab-overview .stat-card:nth-child(3) { border-left: 0; border-top: 1px solid var(--line); }
+  #tab-overview .stat-card:nth-child(4) { border-top: 1px solid var(--line); }
+  #tab-overview .overview-connections { display: block; }
+  .overview-connections .channel-card-heading { flex-direction: row; justify-content: space-between; margin-bottom: 9px; }
+  .overview-connections #dashboard-channels { grid-template-columns: 1fr; }
+  .overview-workspace { grid-template-columns: 1fr; height: auto; }
+  .overview-side { grid-template-rows: 160px 160px; }
+  .editor-heading { flex-wrap: wrap; gap: 12px; }
+  .workspace-tabs { display: flex; }
+  .workspace-tabs button { flex: 1; padding: 5px 7px; }
+}

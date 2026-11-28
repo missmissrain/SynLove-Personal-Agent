@@ -1,0 +1,16 @@
+{
+  "enabled": false,
+  "interest": "科技与日常生活",
+  "maxItems": 3,
+  "maxChars": 120,
+  "sources": [],
+  "hot": {
+    "enabled": false
+  },
+  "browser": {},
+  "push": {
+    "channel": "qq",
+    "userOpenid": "REPLACE_WITH_OWNER_OPENID",
+    "allowWakeupFallback": true
+  }
+}

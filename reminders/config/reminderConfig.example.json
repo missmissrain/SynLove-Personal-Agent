@@ -1,0 +1,7 @@
+{
+  "push": {
+    "channel": "qq",
+    "userOpenid": "",
+    "allowWakeupFallback": false
+  }
+}
