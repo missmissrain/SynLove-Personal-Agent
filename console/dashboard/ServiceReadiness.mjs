@@ -117,15 +117,15 @@ export class ServiceReadiness {
     if (!this.has_file(join(this.project, 'services', 'LocalServiceLifecycle.py')) ||
       !this.has_file(join(this.project, 'services', 'AudioHttp.py'))) return false
     if (name === 'tts') {
-      const python = this.local_path(this.env.BREEZE_PYTHON || 'D:\\breeze-tts\\.venv\\Scripts\\python.exe')
-      const repo = this.local_path(this.env.BREEZE_REPO || 'D:\\breeze-tts')
+      const python = this.local_path(this.env.BREEZE_PYTHON || join(this.project, 'vendor', 'breeze-tts', '.venv', 'Scripts', 'python.exe'))
+      const repo = this.local_path(this.env.BREEZE_REPO || join(this.project, 'vendor', 'breeze-tts'))
       const ckpt = this.local_path(this.env.BREEZE_CKPT || join(this.project, 'models', 'breezeTts2'))
       if (!this.has_file(python) || !this.has_file(join(this.project, 'services', 'breezeTtsService.py')) ||
         !this.has_file(join(repo, 'breeze_infer', 'runtime.py')) ||
         !this.has_file(join(repo, 'models', 'fast_streaming.py')) || !this.breeze_model(ckpt)) return false
       return this.checkPython(python, ['torch', 'transformers', 'numpy', 'soundfile', 'safetensors'])
     }
-    const python = [this.env.WHISPER_PYTHON, this.env.DSH_PYTHON, 'D:\\py39\\python.exe']
+    const python = [this.env.WHISPER_PYTHON, this.env.DSH_PYTHON, process.execPath]
       .filter(Boolean).map(file => this.local_path(file)).find(file => this.has_file(file))
     if (!python || !this.has_file(join(this.project, 'services', 'whisperService.py')) || !this.whisper_model(cfg.model)) return false
     return this.checkPython(python, ['faster_whisper', 'ctranslate2', 'av'])

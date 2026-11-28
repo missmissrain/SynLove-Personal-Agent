@@ -19,7 +19,9 @@ class AgentBridge:
 
     def __call__(self, envelope):
         """envelope为消息；返回回复文本。"""
-        body = {"text": envelope.text, "sessionId": envelope.session or envelope.channel}
+        body = {"text": envelope.text, "sessionId": envelope.session or "main",
+                "channel": envelope.channel, "userId": getattr(envelope, "sender", ""),
+                "mode": "text"}
         request = urllib.request.Request(
             self.base_url + "/v1/voice/reply",
             data=json.dumps(body, ensure_ascii=False).encode("utf-8"), method="POST",
@@ -30,6 +32,17 @@ class AgentBridge:
         except (urllib.error.URLError, OSError, ValueError) as error:
             raise RuntimeError("主人格不可用：" + type(error).__name__)
         for key in ("reply", "text", "answer"):
-            if isinstance(value.get(key), str) and value[key].strip():
-                return value[key]
+            raw = value.get(key)
+            if not isinstance(raw, str) or not raw.strip():
+                continue
+            plain = raw.strip()
+            # 语音回合返回的是 {"text":...,"ttsEmotion":...} 字符串；
+            # 文本通道只取 text，避免把 JSON 原样发给微信/QQ。
+            try:
+                parsed = json.loads(plain)
+            except ValueError:
+                return plain
+            if isinstance(parsed, dict) and isinstance(parsed.get("text"), str):
+                return parsed["text"]
+            return plain
         raise RuntimeError("主人格回复格式无效")

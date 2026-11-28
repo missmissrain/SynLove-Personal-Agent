@@ -1,9 +1,0 @@
-{
-  "refAudio": "../assets/voice/xinAiReference20261121.wav",
-  "refText": "你好呀，我是欣爱。今天也辛苦啦，有什么想聊的，我都在认真听呢。",
-  "seed": 42,
-  "cfgScale": 1.0,
-  "source": "userAccepted20261121",
-  "listeningAcceptance": "userAccepted",
-  "referenceSha256": "a697575ae43af2dbadf1f8e7b1e1ce62a19a266105af7ca0600d2e06c8e1fc0c"
-}

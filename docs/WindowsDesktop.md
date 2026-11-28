@@ -8,7 +8,7 @@ Windows MCP 需要 Python 3.12 或更高版本。本项目验证的版本为 `wi
 
 将 `config/windowsMcpConfig.example.json` 复制为 `config/windowsMcpConfig.json`，填写独立随机密钥及该环境的 Python 路径，再启用配置。私有文件不得提交仓库。默认接口为回环地址的 `17865/mcp`，工具调用超时为 120 秒；端口冲突时同时修改服务端与客户端配置。
 
-使用登录用户的交互式计划任务启动 `services/WindowsDesktopService.py`。任务应使用 `pythonw.exe`，工作目录为项目根目录，触发器为用户登录。启动前确认已有桌面会话，避免重复启动服务。
+使用登录用户的交互式计划任务启动 `plugins/windows/WindowsDesktopService.py`。任务应使用 `pythonw.exe`，工作目录为项目根目录，触发器为用户登录。启动前确认已有桌面会话，避免重复启动服务。
 
 桌面服务必须运行在实际登录的用户会话中。以 SYSTEM 运行的 Agent 可以通过鉴权接口调用它，但不能在 Session 0 中启动桌面工具来代替交互桌面。用户注销后不保证桌面可操作，锁屏状态也可能限制操作。
 

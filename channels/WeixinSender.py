@@ -23,6 +23,10 @@ class WeixinSender:
         if not body:
             raise RuntimeError("微信正文为空")
         payload = {"text": body[:1000]}
+        meta = getattr(envelope, "meta", {}) or {}
+        token = str(meta.get("contextToken") or "").strip()
+        if token:
+            payload["context_token"] = token
         target = str(getattr(envelope, "sender", "") or "").strip()
         if target:
             payload["user_id"] = target

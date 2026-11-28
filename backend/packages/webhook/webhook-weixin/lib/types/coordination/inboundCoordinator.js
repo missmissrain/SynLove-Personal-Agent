@@ -585,6 +585,40 @@ export class InboundCoordinator {
             ...buffered,
             ...message.media
         ];
+        if ((process.env.DSH_WEIXIN_INGRESS ?? '').toLowerCase() === 'gateway') {
+            let gateway_session = await this.options.store.get_session_id(message.user_id);
+            if (gateway_session === undefined) {
+                gateway_session = await this.options.store.session_id_for(message.user_id);
+                await this.options.store.set_session_id(message.user_id, gateway_session);
+            }
+            const base = (process.env.DSH_CHANNEL_GATEWAY_URL ?? 'http://127.0.0.1:8805').replace(/\/$/, '');
+            const response = await fetch(base + '/v1/inbound/weixin', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    text,
+                    sender: message.user_id,
+                    session: gateway_session,
+                    meta: { contextToken: message.context_token, deliveryId: message.delivery_id }
+                })
+            });
+            if (!response.ok) {
+                const detail = await response.text();
+                throw new Error('通道网关入站失败：HTTP ' + response.status + ' ' + detail.slice(0, 120));
+            }
+            if (message.context_token !== undefined) this.latest_token.set(message.user_id, message.context_token);
+            await this.options.store.update_delivery(message.delivery_id, 'injected', {
+                session_id: gateway_session, injected_at: Date.now()
+            });
+            for (const delivery_id of also_mark) {
+                await this.options.store.update_delivery(delivery_id, 'injected', {
+                    session_id: gateway_session, injected_at: Date.now()
+                });
+            }
+            done({ outcome: 'gateway_forwarded', session_id: gateway_session });
+            return;
+        }
+
         let session_id = await this.options.store.get_session_id(message.user_id);
         let agent;
         if (session_id !== undefined) {
@@ -670,13 +704,48 @@ export class InboundCoordinator {
             type: 'text',
             text: '[微信空消息]'
         });
-        const taskOriginId = this.options.host.tasks?.note_input(agent, {
+        let taskOriginId = this.options.host.tasks?.note_input(agent, {
             channel: 'weixin',
             messageId: message.delivery_id,
             userId: message.user_id,
             owner: (process.env.DSH_SESSION_SHARED ?? '').trim() ? 'shared-household' : `weixin:${message.user_id}`,
             originalText: text
         });
+        // origin-direct-write：核心 harness 可能不提供 host.tasks 或丢弃 source.taskOriginId，
+        // 这里按同一会话直接写 taskOrigins，保证 task_submit 有可信来源；INSERT OR IGNORE 幂等。
+        if (!taskOriginId) taskOriginId = 'weixin:' + message.delivery_id;
+        try {
+            const _fs = process.getBuiltinModule('node:fs');
+            const _path = process.getBuiltinModule('node:path');
+            const _sqlite = process.getBuiltinModule('node:sqlite');
+            const _state = process.env.DSH_WEIXIN_STATE_FILE || '';
+            const _home = process.env.DSH_HOME || '';
+            const _roots = [
+                process.env.DSH_STACK_ROOT || '',
+                _state ? _path.dirname(_path.dirname(_state)) : '',
+                process.env.SYNLOVE_PROJECT_ROOT || '',
+                _home ? _path.dirname(_path.dirname(_home)) : '',
+                process.cwd(),
+                _path.dirname(process.cwd()),
+            ].filter(Boolean);
+            let _dbPath = '';
+            for (const _candidate of _roots) {
+                const _p = _path.join(_candidate, 'runtime', 'agentTasks', 'taskStore.sqlite');
+                if (_fs.existsSync(_p)) { _dbPath = _p; break; }
+            }
+            if (_dbPath) {
+                const _db = new _sqlite.DatabaseSync(_dbPath);
+                _db.prepare('INSERT OR IGNORE INTO taskOrigins VALUES (?,?,?)').run(
+                    String(taskOriginId), String(agent.id),
+                    JSON.stringify({ channel: 'weixin', messageId: message.delivery_id,
+                        userId: message.user_id,
+                        owner: (process.env.DSH_SESSION_SHARED ?? '').trim() ? 'shared-household' : ('weixin:' + message.user_id),
+                        originalText: text }));
+                _db.close();
+            }
+        } catch (error) {
+            try { process.getBuiltinModule('node:fs').appendFileSync('C:/Temp/origin-direct-error.log', '[direct] ' + String(error && error.stack ? error.stack : error) + ' agent=' + String(agent && agent.id) + ' state=' + String(process.env.DSH_WEIXIN_STATE_FILE || '') + ' root=' + String(process.env.SYNLOVE_PROJECT_ROOT || '') + '\n'); } catch (e) {}
+        }
         const incoming = createUserMessage({
             content,
             source: {

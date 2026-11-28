@@ -1,30 +1,8 @@
 {
-  "repositoryRoot": "PRODUCTION_ROOT\\repos\\terminal-pc",
-  "maintenanceRoot": "PRODUCTION_ROOT\\repos\\terminal-pc",
-  "adminURL": "<redacted>",
-  "adminToken": "<redacted>",
-  "deviceSnapshot": "PRODUCTION_ROOT\\repos\\terminal-pc\\runtime\\server\\devices.json",
-  "serverDeviceId": "server",
-  "androidBridge": {
-    "gateway": "androidGateway",
-    "adb": "C:\\qingtian-tools\\android-sdk\\platform-tools\\adb.exe",
-    "devices": {
-      "sonyXperia5III": {
-        "serial": "172.16.19.171:5555",
-        "pin": "5268"
-      }
-    }
-  },
-  "iteration": {
-    "root": "PRODUCTION_ROOT\\repos\\personal-agent",
-    "script": "tools/ApplyIteration.py",
-    "python": "PRODUCTION_ROOT\\repos\\personal-agent\\.venv\\Scripts\\python.exe",
-    "timeoutSec": 900
-  },
-  "rehearsal": {
-    "root": "PRODUCTION_ROOT\\repos\\personal-agent",
-    "script": "tools/RunRehearsal.py",
-    "python": "PRODUCTION_ROOT\\repos\\personal-agent\\.venv\\Scripts\\python.exe",
-    "timeoutSec": 300
-  }
+  "repositoryRoot": "../terminal-pc",
+  "maintenanceRoot": "../terminal-pc",
+  "adminURL": "http://127.0.0.1:17864",
+  "adminToken": "REPLACE_WITH_PRIVATE_LOCAL_ADMIN_TOKEN",
+  "deviceSnapshot": "../terminal-pc/runtime/server/devices.json",
+  "serverDeviceId": "server"
 }

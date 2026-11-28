@@ -19,7 +19,7 @@
 - 入口：`scripts/runStreamingAsr.py`
 - 实现：`services/StreamingAsrServer.py`
 - 客户端：`services/StreamingAsrClient.py`（服务端）、`terminalConnection/client/StreamingAsrClient.py`（终端）
-- 模型：`PRODUCTION_ROOT/models/asrStreaming`（流式 zipformer zh 14M，int8）
+- 模型：`G:/SynLove-models/asrStreaming`（流式 zipformer zh 14M，int8）
 - 计划任务：`SynLove-StreamingAsr`（SYSTEM，开机启动）
 
 协议：
@@ -35,7 +35,7 @@
 {
   "asrStreamingEnabled": true,
   "asrStreamingURL": "ws://127.0.0.1:10095",
-  "asrStreamingModel": "PRODUCTION_ROOT/models/asrStreaming",
+  "asrStreamingModel": "G:/SynLove-models/asrStreaming",
   "asrStreamingHost": "127.0.0.1",
   "asrStreamingPort": 10095,
   "asrStreamingThreads": 2,
@@ -50,7 +50,7 @@
 
 - 实现：`terminalConnection/client/KeywordSpotter.py`
 - 后端：sherpa-onnx `KeywordSpotter`（CPU，单线程）
-- 模型目录：`PRODUCTION_ROOT/models/kws/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01`
+- 模型目录：`G:/SynLove-models/kws/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01`
 - 关键词文件：同目录 `keywords.txt`
 
 ```text
@@ -65,7 +65,7 @@ x iǎo ài @小爱
   "microphoneEnabled": true,
   "kws": {
     "wakeWord": "欣爱",
-    "modelPath": "PRODUCTION_ROOT/models/kws/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01",
+    "modelPath": "G:/SynLove-models/kws/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01",
     "threshold": 0.25,
     "preRollSeconds": 1.2,
     "silenceSeconds": 0.6,

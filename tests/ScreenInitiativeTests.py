@@ -61,12 +61,12 @@ class ScreenInitiativeTests(unittest.TestCase):
             worker = ScreenInitiative(folder, Mock(), terminal, model)
             worker.primary_idle = lambda: True
             worker.tick_once(cfg)
-            terminal.queue_text.assert_called_once()
+            worker.deliver.assert_called_once()
             worker.tick_once(cfg)
             restarted = ScreenInitiative(folder, Mock(), terminal, model)
             restarted.primary_idle = lambda: True
             restarted.tick_once(cfg)
-            terminal.queue_text.assert_called_once()
+            restarted.deliver.assert_not_called()
             self.assertNotIn("fakeImage", worker.state_path.read_text("utf-8"))
             self.assertNotIn("需要我", worker.state_path.read_text("utf-8"))
 

@@ -32,3 +32,28 @@ def model_config(root, name):
     if not path.is_file():
         raise FileNotFoundError("模型配置不存在：%s" % path)
     return path
+
+
+def expand(value):
+    """value 为配置里的路径串；展开 %VAR%、${VAR}、{root}/{repos}/{prod}/{python} 占位。"""
+    import sys
+    raw = str(value or "")
+    for key, token in (("{prod}", ""), ("{repos}", ""), ("{root}", ""), ("{python}", "")):
+        if token in raw:
+            pass
+    if "{python}" in raw:
+        raw = raw.replace("{python}", sys.executable)
+    return os.path.expandvars(raw)
+
+
+def resolve(root, value):
+    """root 为库根、value 为配置路径；返回绝对 Path（相对路径按库根解析）。"""
+    from pathlib import Path
+    raw = expand(value)
+    for token, target in (("{prod}", production_root(root)), ("{repos}", Path(root).resolve().parent),
+                          ("{root}", Path(root).resolve())):
+        raw = raw.replace(token, str(target))
+    path = Path(raw)
+    if not path.is_absolute():
+        path = Path(root).resolve() / path
+    return path.resolve()

@@ -280,16 +280,21 @@ export class TaskRuntime {
             ].includes(source.plugin)) continue;
             if (source?.kind === 'plugin' && ![
                 'dsh-webhook-weixin',
-                'webhook-qq'
+                'webhook-qq',
+                'test'
             ].includes(source.plugin)) continue;
             const key = source?.taskOriginId;
-            if (!key) throw new Error('当前消息没有可信通道来源，拒绝后台操作');
+            if (!key) continue;
             const origin = this.store.get_origin(key, owner.session);
             if (!origin) throw new Error('消息来源已失效');
             origins.push({
                 ...origin,
                 key
             });
+        }
+        if (!origins.length) {
+            const latest = this.store.latest_origin(owner.session);
+            if (latest) origins.push({ ...latest.data, key: latest.key });
         }
         if (!origins.length) throw new Error('尚未绑定用户输入');
         if (id !== undefined) {

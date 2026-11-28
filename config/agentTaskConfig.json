@@ -5,6 +5,9 @@
   "maxConcurrent": 4,
   "taskTimeoutMs": 3600000,
   "presentationTimeoutMs": 180000,
-  "workerModel": {},
+  "workerModel": {
+    "provider": "qwen",
+    "model": "qwen3.8-flash"
+  },
   "deadlineLeadMs": 300000
 }

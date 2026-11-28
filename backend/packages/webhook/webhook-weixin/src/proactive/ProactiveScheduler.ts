@@ -32,6 +32,8 @@ export interface ProactiveSchedulerOptions {
   readonly graph: ProactiveGraphLike
   readonly timeline: ProactiveTimelineLike
   readonly tick_ms?: number
+  /** 是否自建定时器；false 表示由外部（自迭代服务）驱动 run_once。 */
+  readonly auto_start?: boolean
 }
 
 /** 主动研究调度器。 */
@@ -42,14 +44,18 @@ export class ProactiveScheduler {
 
   constructor(private readonly options: ProactiveSchedulerOptions) {}
 
-  /** 启动：先跑一次，再按 tick 轮询。 */
+  /** 启动：自建定时器时先跑一次再轮询；外部驱动时只登记，由自迭代服务调用 run_once。 */
   start(): void {
+    if (this.options.auto_start === false) {
+      probe('proactive', 'scheduler.external', {})
+      return
+    }
     if (this.timer !== undefined) return
     const tick_ms = this.options.tick_ms ?? 60_000
     probe('proactive', 'scheduler.started', { tick_ms })
-    this.timer = setInterval(() => { void this.tick() }, tick_ms)
+    this.timer = setInterval(() => { void this.run_once() }, tick_ms)
     this.timer.unref?.()
-    void this.tick()
+    void this.run_once()
   }
 
   /** 停止调度。 */
@@ -59,9 +65,11 @@ export class ProactiveScheduler {
     this.timer = undefined
   }
 
-  /** 一轮：同步画像、查一个主题、尝试播报。 */
-  private async tick(): Promise<void> {
-    if (this.busy || this.stopped) return
+  /** 一轮：同步画像、查一个主题、尝试播报；返回本轮是否真的执行。 */
+  async run_once(): Promise<{ ran: boolean, at: number, skipped?: string }> {
+    const at = Date.now()
+    if (this.busy) return { ran: false, at, skipped: 'busy' }
+    if (this.stopped) return { ran: false, at, skipped: 'stopped' }
     this.busy = true
     const now = Date.now()
     const force = this.options.store.force_requested()
@@ -81,11 +89,13 @@ export class ProactiveScheduler {
       await this.options.delivery.flush(now, last_user_at, force_nudge)
     } catch (error) {
       probe('proactive', 'tick.failed', { error: String(error).slice(0, 180) })
+      return { ran: false, at, skipped: 'failed' }
     } finally {
       if (force) this.options.store.clear_force()
       if (force_nudge) this.options.store.clear_force_nudge()
       this.busy = false
     }
+    return { ran: true, at }
   }
 
   /** 读主人画像备注。 */

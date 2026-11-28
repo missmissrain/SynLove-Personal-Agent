@@ -67,14 +67,38 @@ export class VoiceTurnBridge {
                     error: '主人格正在处理其他任务'
                 });
                 stage = 'prepareTurn';
+                const is_text = body.mode === 'text';
                 const flag = Symbol.for('synlove.voice.turn');
                 const key = randomUUID();
+                const channel = String(body.channel || '').trim();
+                const userId = String(body.userId || body.user_id || '').trim();
+                let channelOrigin = null;
+                if (channel) {
+                    const originId = channel + ':' + key;
+                    try {
+                        const _fs = process.getBuiltinModule('node:fs');
+                        const _path = process.getBuiltinModule('node:path');
+                        const _sqlite = process.getBuiltinModule('node:sqlite');
+                        const _candidates = [process.env.DSH_STACK_ROOT || '', process.env.SYNLOVE_PROJECT_ROOT || '', process.cwd(), _path.dirname(process.cwd())].filter(Boolean);
+                        let _dbPath = '';
+                        for (const _c of _candidates) {
+                            const _p = _path.join(_c, 'runtime', 'agentTasks', 'taskStore.sqlite');
+                            if (_fs.existsSync(_p)) { _dbPath = _p; break; }
+                        }
+                        if (_dbPath) {
+                            const _db = new _sqlite.DatabaseSync(_dbPath);
+                            _db.prepare('INSERT OR IGNORE INTO taskOrigins VALUES (?,?,?)').run(originId, String(agent.id), JSON.stringify({ channel, messageId: key, userId: userId || ('test:' + channel), owner: 'shared-household', originalText: body.text.trim() }));
+                            _db.close();
+                        }
+                    } catch (error) {}
+                    channelOrigin = { kind: 'plugin', plugin: channel === 'qq' ? 'webhook-qq' : (channel === 'test' ? 'test' : 'dsh-webhook-weixin'), form: 'notice', summary: '测试通道', taskOriginId: originId };
+                }
                 agent[flag] = key;
                 const boundary = agent.session.snapshotEvents().length;
                 const section = agent.ctx.systemPrompt.section({
                     name: 'synlove:voice-reply',
                     order: 99995,
-                    text: ()=>agent[flag] === key ? this.prompt : ''
+                    text: ()=>agent[flag] === key ? (is_text ? '' : this.prompt) : ''
                 });
                 let dispose = ()=>{};
                 let dispose_error = ()=>{};
@@ -98,7 +122,7 @@ export class VoiceTurnBridge {
                                     text: body.text.trim()
                                 }
                             ],
-                            source: {
+                            source: channelOrigin || {
                                 kind: 'user',
                                 rpcId: key
                             }

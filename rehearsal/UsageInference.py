@@ -83,7 +83,7 @@ class UsageInference:
 
     def online_devices(self):
         """无参数；从终端快照读出在线设备 id 集合。"""
-        path = Path(str(self.data.get("deviceSnapshot") or ""))
+        path = self.root / str(self.data.get("deviceSnapshot") or "")
         if not path.is_file():
             return set()
         try:

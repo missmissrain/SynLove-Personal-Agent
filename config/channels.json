@@ -1,6 +1,0 @@
-{
-  "host": "127.0.0.1",
-  "port": 8805,
-  "audioRouteURL": "http://127.0.0.1:8812",
-  "weixinAdminURL": "http://127.0.0.1:3081"
-}

@@ -7,6 +7,7 @@ external 永不探测本机端口或启动进程；managed 使用跨进程文件
 import os
 import socket
 import subprocess
+import sys
 import time
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
@@ -76,7 +77,10 @@ class LocalServiceLifecycle:
                 if self.name == "tts":
                     # Breeze-TTS 使用独立的 Python 3.12 环境；项目 .venv 只装
                     # Whisper 等轻量依赖，不能用它启动 7GB 的 TTS 模型。
-                    breeze_python = Path("D:/breeze-tts/.venv/Scripts/python.exe")
+                    breeze_repo = Path(os.environ.get("BREEZE_REPO") or
+                                       (self.root / "vendor" / "breeze-tts"))
+                    breeze_python = Path(os.environ.get("BREEZE_PYTHON") or
+                                         (breeze_repo / ".venv" / "Scripts" / "python.exe"))
                     python = os.environ.get("BREEZE_PYTHON") or (
                         str(breeze_python) if breeze_python.is_file() else service_python())
                     args = [python, str(self.root / "services" / "breezeTtsService.py"),
@@ -84,15 +88,15 @@ class LocalServiceLifecycle:
                             "--max-chars", str(max_chars), "--exit-after-request", "0"]
                 else:
                     # 概率转写依赖安装在 D:\py39；优先读取显式环境变量。
-                    whisper_python = Path("D:/py39/python.exe")
+                    whisper_python = Path(os.environ.get("WHISPER_PYTHON") or
+                              os.environ.get("DSH_PYTHON") or sys.executable)
                     python = os.environ.get("WHISPER_PYTHON") or os.environ.get("DSH_PYTHON") or (
                         str(whisper_python) if whisper_python.is_file() else service_python())
                     args = [python, str(self.root / "services" / "whisperService.py"),
                             "--model", model or self.config["model"]]
                 args += ["--port", port, "--idle-seconds", str(idle_seconds), "--api-key-env", key_env]
-                default_repo = Path("D:/breeze-tts")
-                repo = Path(os.environ.get("BREEZE_REPO") or (
-                    str(default_repo) if default_repo.is_dir() else str(self.root / "vendor" / "breeze-tts")))
+                repo = Path(os.environ.get("BREEZE_REPO") or
+                            str(self.root / "vendor" / "breeze-tts"))
                 cwd = repo if self.name == "tts" and repo.is_dir() else self.root
                 with (runtime / (self.name + "-service.log")).open("ab") as log:
                     subprocess.Popen(args, cwd=str(cwd), stdout=log, stderr=log,

@@ -33,7 +33,7 @@
       "X-Audio-Name: input.wav"
     ]
   },
-  "asrStreamingModel": "PRODUCTION_ROOT/models/asrStreaming",
+  "asrStreamingModel": "G:/SynLove-models/asrStreaming",
   "asrStreamingHost": "127.0.0.1",
   "asrStreamingPort": 10095,
   "asrStreamingThreads": 2,

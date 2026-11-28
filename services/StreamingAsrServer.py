@@ -9,7 +9,7 @@
 注册参数（均来自 config/voiceConfig.json 或命令行）：
 - host：监听地址，默认 127.0.0.1；
 - port：监听端口，默认 10095；
-- modelDir：模型目录，默认 PRODUCTION_ROOT/models/asrStreaming；
+- modelDir：模型目录，默认 G:/SynLove-models/asrStreaming；
 - threads：解码线程数，默认 2；
 - endpointSilence：句尾静音秒数，默认 1.2。
 
@@ -38,7 +38,7 @@ class StreamingAsrServer:
         endpoint_silence 为句尾静音秒数；sample_rate 固定 16000。"""
         self.host = str(host)
         self.port = int(port)
-        self.model_dir = str(model_dir or r"PRODUCTION_ROOT/models/asrStreaming")
+        self.model_dir = os.path.expandvars(str(model_dir or ""))
         self.threads = int(threads)
         self.endpoint_silence = float(endpoint_silence)
         self.sample_rate = int(sample_rate)

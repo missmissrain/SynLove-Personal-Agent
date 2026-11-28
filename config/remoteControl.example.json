@@ -1,15 +1,5 @@
 {
   "targets": {
-    "thisPc": {
-      "host": "your-relay.example.com",
-      "port": 21119,
-      "user": "remote-user",
-      "enabled": false,
-      "description": "家里的台式机（经 VPS 转发，配置后启用）",
-      "hostKeySha256": "",
-      "connectTimeoutSec": 15,
-      "encoding": "auto"
-    },
     "officePc": {
       "description": "办公室电脑（示例，配置完成前保持关闭）",
       "enabled": false,

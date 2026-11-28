@@ -19,6 +19,15 @@ PROTOCOL = """你是欣爱，现在做一次**静默预演**：只为摸清流�
 
 规则：软件登记在哪台设备就在哪台操作；不能用就跳过这个软件并记录原因，不要换设备硬凑。
 
+## 找软件的方式（必须遵守）
+
+- 找软件、包名、安装位置，**一律先用 shell 或专用接口**，不要用 GUI 去翻桌面/应用列表：
+  - Android：`adb shell pm list packages`、`adb shell pm path <包名>`、`adb shell dumpsys package <包名>`；
+    已知包名直接用 `adb shell monkey -p <包名> 1` 或 `am start` 启动。
+  - Windows：`where.exe <名字>`、`Get-Command`、`Get-ChildItem` 常见安装目录、注册表 `App Paths`。
+- GUI（截图/控件树/点击）**只用于流程本身的界面操作**；不得用 GUI 找软件或确认是否安装。
+- 设备上 adb 不通时，先用 `android_shell`/`android_gui_action` 的可用通道；仍不通就如实记录，不要靠 GUI 硬翻。
+
 ## 本轮要预演的软件（按顺序，最多 {limit} 个）
 
 {targets}

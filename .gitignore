@@ -1,16 +1,106 @@
-runtime/
-logs/
+﻿# 保证不进仓库的内容（密钥 / 人格 / 日志 / 真实数据）
+config/secrets.json
+config/secrets.json.bak*
+config/modelConfig.json
+config/modelConfig.json.bak*
+config/weixinProfile.patch.yml
+config/console.env
+config/serviceConfig.json
+config/voiceIdentity.json
+/assets/voice/
+config/backendService.json
+config/*Profile.patch.yml
+config/modelOnly.patch.yml
+config/harnessTuning.json
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.bak
+*.bak-*
+
+# 运行产物：日志里有聊天内容与账号指纹
+/runtime/
 *.log
-.venv*/
-node_modules/
+logs/
+
+# 真实数据（通常位于用户目录，这里再挡一层）
+*.db
+*.db-wal
+*.db-shm
+weixin-route-state.json
+timeline/
+graph/
+
+# 历史快照与审计产物（可能残留旧配置）
+备份/
+审计产物/
+
+# Python / Node
 __pycache__/
 *.pyc
-config/secrets.json
-config/*Secrets.json
-config/*.private.json
-config/terminalConnection.json
-config/ServerConfig.json
-config/TerminalConfig.json
-privateKeys/
-*.pem
-*.key
+node_modules/
+.venv/
+.serviceEnvs/
+/vendor/
+.vite/
+dist/
+!backend/**/dist/
+!backend/**/dist/**
+
+# 本机模型权重 / 服务产物（体积大或含隐私）
+models/
+/backend/.DS_Store
+newsDigest/config/newsDigest.json
+/runtime/tts/
+/config/remoteControl.json
+/config/musicPlayback.json
+/config/terminalConnection.json
+/config/remoteControlKnownHosts
+/remoteControl/接入验证报告.md
+/runtime/downloads/
+.last_pushed_sha
+
+# 第三方大件（自己 clone，不进仓库）
+plugins/music/kugou/KuGouMusicApi/
+plugins/crawl/rsshub/RSSHub/
+
+# 人物修缮产物与网页原型（体积大，属于本机调试材料）
+/artifacts/
+/console/public/prototype/
+
+# 酷狗账号凭据与设备指纹
+plugins/music/kugou/config/auth.json
+plugins/music/kugou/config/state.json
+
+# 进程号与队列状态
+*.pid
+kugou-player-state.json
+/config/nightlyMaintenance.json
+
+
+# 运行期模型路由配置：只在实例本地保存，不进公开仓库
+skills/config/skillReview.json
+
+# 本地虚拟环境
+.venv-asr/
+.venv-tts/
+.venv-*/
+
+# 本机密钥与设备令牌（不可公开）
+/privateKeys/
+/config/windowsMcpConfig.json
+/config/audioRouting.json
+/config/channels.json
+/config/facts.json
+/config/iteration.json
+/config/plugins.json
+/config/presenceProfile.json
+/config/screenInitiative.json
+/config/voiceConfig.json
+/config/watchdog.json
+
+# 大体积本机素材
+/gemma/model/
+/tmp_shots/
+/console/public/Avatar/actions/
+/kwsTraining/data/

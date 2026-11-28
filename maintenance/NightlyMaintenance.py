@@ -33,6 +33,10 @@ class NightlyMaintenance:
         self.root = Path(root)
         self.config = json.loads(Path(config).read_text(encoding="utf-8-sig"))
         self.home = self.root / "runtime/nightlyMaintenance"
+        for row in self.config.get("repositories", []):
+            raw = str(row.get("path") or "")
+            if raw:
+                row["path"] = str((self.root / raw).resolve())
         self.writer = durableFile()
 
     def run_process(self, args, cwd, timeout, log):
@@ -104,7 +108,9 @@ class NightlyMaintenance:
                 if command not in effective_checks:
                     effective_checks.append(command)
         for index, command in enumerate(effective_checks):
-            expanded = [str(part).replace("{python}", sys.executable).replace("{source}", row["path"]) for part in command]
+            expanded = [str(part).replace("{python}", sys.executable)
+                        .replace("{source}", row["path"]).replace("{root}", str(self.root))
+                        for part in command]
             if self.run_process(expanded, box.work, 300, folder / f"check{index}.log") != 0:
                 raise RuntimeError("维护补丁未通过验收，未提交分支")
         # 补丁已经过静态检查与验收，提交到独立分支等待确认；生产文件保持不动。

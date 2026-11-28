@@ -27,6 +27,10 @@ export class TaskStore {
     save_origin(id, session, data) {
         this.db.prepare('INSERT OR IGNORE INTO taskOrigins VALUES (?,?,?)').run(id, session, JSON.stringify(data));
     }
+    latest_origin(session) {
+        const row = this.db.prepare('SELECT id, data FROM taskOrigins WHERE session=? ORDER BY rowid DESC LIMIT 1').get(session);
+        return row ? { key: row.id, data: JSON.parse(row.data) } : undefined;
+    }
     get_origin(id, session) {
         const row = this.db.prepare('SELECT data FROM taskOrigins WHERE id=? AND session=?').get(id, session);
         return row ? JSON.parse(row.data) : undefined;

@@ -51,6 +51,10 @@ class ServiceHttpHandler(BaseHTTPRequestHandler):
                 return self.send_json(400, {"error": "chunked requests unsupported"})
             route = urlsplit(self.path)
             query = parse_qs(route.query)
+            if self.command == "POST" and route.path == "/v1/schedule/tick":
+                if service.name not in ("reminders", "digest"):
+                    return self.send_json(404, {"error": "unknown route"})
+                return self.send_json(200, service.schedule_tick())
             if self.command == "GET" and route.path == "/v1/core-status" and service.name == "core":
                 import socket
                 status = {}

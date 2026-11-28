@@ -48,13 +48,14 @@ export class VoiceTurnBridge {
         const agent = await this.resolve()
         if (agent.status !== 'idle') return send(409,{ok:false,error:'主人格正在处理其他任务'})
         stage = 'prepareTurn'
+        const is_text = body.mode === 'text'
         const flag = Symbol.for('synlove.voice.turn')
         const key = randomUUID()
         ;(agent as any)[flag] = key
         const boundary = agent.session.snapshotEvents().length
         const section = agent.ctx.systemPrompt.section({
           name:'synlove:voice-reply',order:99995,
-          text:() => (agent as any)[flag] === key ? this.prompt : '',
+          text:() => (agent as any)[flag] === key ? (is_text ? '' : this.prompt) : '',
         })
         let dispose: () => void = () => {}
         let dispose_error: () => void = () => {}

@@ -52,7 +52,7 @@ class SkillRepairTests(unittest.TestCase):
     def test_repair_evidence_redacts_credentials(self):
         """编码器证据必须过滤令牌、口令、地址、邮箱及用户目录。"""
         from tools.LogRedactor import LogRedactor
-        raw = 'Authorization: Bearer fixture-secret token="fixture-token" password=fixture-pass https://example.test/x user@example.test C:\\Users\\<user>ixtureUser\\logs'
+        raw = 'Authorization: Bearer fixture-secret token="fixture-token" password=fixture-pass https://example.test/x user@example.test C:\\Users\\FixtureUser\\logs'
         clean = LogRedactor.redact_text(raw)
         for private in ("fixture-secret", "fixture-token", "fixture-pass", "example.test", "FixtureUser"):
             self.assertNotIn(private, clean)

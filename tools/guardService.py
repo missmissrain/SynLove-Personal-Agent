@@ -668,106 +668,6 @@ def warn_owner(text):
         log(f"QQ 告警发送失败（可能两条链路都出问题了）：{error}")
 
 
-def skill_config():
-    """读 skills/config/skillReview.json（只取巡检要用的几个键，缺省用内置默认）。"""
-    defaults = {
-        "enabled": True,
-        "scheduleHour": 3,
-        "intervalHours": 72,
-        "catchUpGraceMinutes": 10,
-        "retryCooldownMinutes": 30,
-        "lockStaleSeconds": 21600,
-        "stateFile": "runtime/skill-review-state.json",
-        "lockFile": "runtime/skill-review.lock",
-    }
-    data = FILE_WRITER.read_json(SKILL_CONFIG)
-    merged = dict(defaults)
-    merged.update({key: value for key, value in (data or {}).items() if key in defaults})
-    return merged
-
-
-def skill_paths(config):
-    """按配置解析状态文件与锁文件（相对路径按项目根算）。"""
-    def resolve(key):
-        raw = Path(str(config.get(key) or ""))
-        return raw if raw.is_absolute() else ROOT / raw
-
-    return {"state": resolve("stateFile"), "lock": resolve("lockFile")}
-
-
-def skill_review_due(config, last_review_ts, now=None):
-    """判断技能复盘是否需要补跑，返回 (该不该跑, 原因)。
-
-    参数 config：skill_config() 的结果；last_review_ts：上次成功复盘的毫秒时间戳（0 表示从没跑过）；
-    now：当前 epoch 秒（默认现在）。
-    判据：以"最近一个应跑时刻"（今天或昨天的 scheduleHour:00）为界，
-    水位早于这个界 = 这一轮没跑成；刚过界的前 grace 分钟留给计划任务先跑，巡检不抢。
-    """
-    now = time.time() if now is None else now
-    # 复盘服务自身按 intervalHours 限流，没到间隔时它一定跳过；巡检不能补跑，
-    # 否则会和日计划任务一起空转，把日志刷成"每半小时一次失败"。
-    interval_hours = max(1, int(config.get("intervalHours", 72)))
-    if last_review_ts:
-        elapsed_hours = (now - last_review_ts / 1000.0) / 3600.0
-        if elapsed_hours < interval_hours:
-            return False, f"未到复盘间隔（{interval_hours} 小时，已过 {elapsed_hours:.1f} 小时）"
-    hour = max(0, min(23, int(config.get("scheduleHour", 3))))
-    grace = max(0, int(config.get("catchUpGraceMinutes", 10))) * 60
-    today = datetime.datetime.now().replace(hour=hour, minute=0, second=0, microsecond=0)
-    boundary = today if now >= today.timestamp() else today - datetime.timedelta(days=1)
-    boundary_ts = boundary.timestamp()
-    if now - boundary_ts < grace:
-        return False, "刚过应跑时刻，等计划任务先跑"
-    if last_review_ts and last_review_ts / 1000.0 >= boundary_ts:
-        return False, "本轮已跑过"
-    stamp = boundary.strftime("%m-%d %H:%M")
-    if not last_review_ts:
-        return True, f"从没跑过（应跑时刻 {stamp}）"
-    last_text = time.strftime("%m-%d %H:%M", time.localtime(last_review_ts / 1000.0))
-    return True, f"{stamp} 这一轮没跑成（上次成功 {last_text}）"
-
-
-def run_skill_review(config, reason):
-    """补跑一轮技能复盘（脱离父进程；控制台输出单独一个文件，避免和 python 抢同一份日志）。"""
-    if not SKILL_SCRIPT.is_file():
-        log(f"技能复盘脚本缺失，无法补跑：{SKILL_SCRIPT}")
-        return
-    try:
-        SKILL_CONSOLE.parent.mkdir(parents=True, exist_ok=True)
-        with SKILL_CONSOLE.open("a", encoding="utf-8") as handle:
-            handle.write(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} 兜底补跑：{reason} =====\n")
-            handle.flush()
-            spawn_hidden([console_python(), str(SKILL_SCRIPT), "--once"], cwd=str(ROOT),
-                         stdout=handle, stderr=handle)
-        FILE_WRITER.write_text(SKILL_GUARD, json.dumps({
-            "last_spawn_at": time.time(),
-            "last_spawn_text": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "reason": reason,
-        }, ensure_ascii=False, indent=2))
-        log(f"技能复盘补跑已启动：{reason}")
-    except OSError as error:
-        log(f"技能复盘补跑启动失败：{error}")
-
-
-def check_skill_review():
-    """技能复盘没跑成（崩溃 / 计划任务没起来 / 卡住）就补跑，带冷却防抖。"""
-    config = skill_config()
-    if not config.get("enabled", True):
-        return
-    paths = skill_paths(config)
-    lock = runLock(paths["lock"], stale_seconds=int(config.get("lockStaleSeconds", 21600)))
-    if lock.alive():
-        return                                    # 正有一轮在跑，别插队
-    cooldown = max(1, int(config.get("retryCooldownMinutes", 30))) * 60
-    last_spawn = float(FILE_WRITER.read_json(SKILL_GUARD).get("last_spawn_at") or 0)
-    if last_spawn and time.time() - last_spawn < cooldown:
-        return                                    # 刚补过，给它跑完的时间
-    state = FILE_WRITER.read_json(paths["state"])
-    due, reason = skill_review_due(config, float(state.get("last_review_ts") or 0))
-    if due:
-        run_skill_review(config, reason)
-
-
 def check_self_healing():
     """自愈状态机：发现「进来就报错 / 回不出去」就重启+清状态，救不回来两次就停机。
 
@@ -811,7 +711,6 @@ def guard_once():
     check_outbound_health()
     check_inbound_failures()
     check_self_healing()
-    check_skill_review()
 
 
 def main(argv=None):

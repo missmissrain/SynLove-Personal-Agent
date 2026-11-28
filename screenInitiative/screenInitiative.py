@@ -1,6 +1,7 @@
 """功能：后台低频观察活跃终端，按模型建议和确定性门槛决定静默、QQ文字或固定音色语音。
 
-注册参数root为生产根，pipeline为既有固定音色流水线；其余依赖可注入离线测试。
+注册参数root为生产根，deliver为投递实现（消息层）；terminal/model/busy/audio_router可注入测试。
+本类只负责采样、预算与判断，不合成语音、不直连终端播放。
 默认配置不存在即关闭；90秒检查并更新所在设备、每小时8次模型判断、
 每日6次开口、间隔30分钟。只保存去重摘要、次数和脱敏设备状态，不保存截图或观察正文；
 重启后保留打扰预算与最近一次位置状态。
@@ -14,7 +15,6 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from facts.FactsClient import facts_client
-from voiceRouting.DeliveryGuard import DeliveryGuard
 from screenInitiative.screenModel import ScreenModel
 from screenInitiative.screenPolicy import ScreenPolicy
 from screenInitiative.screenTerminal import ScreenTerminal
@@ -24,9 +24,9 @@ from screenInitiative.PresenceInference import PresenceInference
 class ScreenInitiative:
     """把采样、判断和投递分离，后台异常只记类型，不向聊天渠道发送运行报告。"""
 
-    def __init__(self, root, pipeline, terminal=None, model=None, busy=None, audio_router=None):
-        """root/pipeline提供配置与音色；terminal/model/busy为可注入的设备、模型及前台忙碌标记。"""
-        self.root, self.pipeline = Path(root), pipeline
+    def __init__(self, root, deliver, terminal=None, model=None, busy=None, audio_router=None):
+        """root提供配置；deliver为投递实现，terminal/model/busy为可注入的设备、模型及前台忙碌标记。"""
+        self.root, self.deliver = Path(root), deliver
         self.path = self.root / "config/screenInitiative.json"
         self.state_path = self.root / "runtime/screenInitiative/state.json"
         self.presence_path = self.root / "runtime/screenInitiative/presence.json"
@@ -37,6 +37,7 @@ class ScreenInitiative:
         self.thread = None
         self.status = {"enabled": False, "state": "disabled"}
         self.frames = {}
+        self.last_decision = None
         try:
             self.state = json.loads(self.state_path.read_text("utf-8"))
         except FileNotFoundError:
@@ -214,6 +215,7 @@ class ScreenInitiative:
             "recentTopicHashes": list(self.state["topics"]),
         })
         del raw
+        self.last_decision = decision
         # 模型或传输耗时后重新取证，不能用几十秒前的位置来决定外放。
         devices = [item for item in terminal.list_devices() if item["id"] in cfg["devices"]]
         states = self.read_states(terminal, devices)
@@ -233,38 +235,26 @@ class ScreenInitiative:
         self.save_state()
         ident = uuid.uuid4().hex
         expires = time.time() + cfg["speechExpiresSeconds"]
-        if route["mode"] == "qq":
-            if self.audio_router is not None and route.get("needsTarget"):
-                self.status["routeQuestion"] = self.audio_router.ask_target(route, terminal)
-            terminal.queue_text(ident, decision["text"], expires)
-            self.status.update(state="textQueued", channel="qq")
-            return
-        result = self.pipeline.process_reply({"text": decision["text"],
-            "ttsEmotion": decision["emotion"]}, session_id="screenInitiative", device_id=source)
-        output = Path(result["audioPath"])
-        try:
-            if time.time() >= expires:
-                self.status["state"] = "speechExpired"
-                return
+        if route["mode"] == "qq" and self.audio_router is not None and route.get("needsTarget"):
+            self.status["routeQuestion"] = self.audio_router.ask_target(route, terminal)
+        # 判断留在事实层，开口交给消息层：这里只提交一次投递请求，不碰语音流水线与播放。
+        delivered = self.deliver({"mode": route["mode"], "text": decision["text"],
+                                  "emotion": decision.get("emotion", "neutral"),
+                                  "deviceId": source, "ident": ident, "expiresAt": expires,
+                                  "route": route}) or {}
+        self.status.update(state=str(delivered.get("state") or "delivered"),
+                           channel=route["mode"])
 
-            def fresh_route():
-                """无参数；重新读取配置与设备，返回最新路由供复核。"""
-                fresh_cfg = self.load_config()
-                if not fresh_cfg.get("enabled") or self.busy():
-                    return {}
-                fresh_devices = [item for item in terminal.list_devices()
-                                 if item["id"] in fresh_cfg["devices"]]
-                fresh_states = self.read_states(terminal, fresh_devices)
-                return ScreenPolicy(fresh_cfg, self.audio_router).choose_route(
-                    decision, source, fresh_states, fresh_devices, time.time())
-
-            still_suitable = DeliveryGuard.make(route, fresh_route)
-
-            terminal.play_audio(route["target"], ident, output.read_bytes(), expires, still_suitable,
-                                require_active=self.audio_router is None)
-            self.status.update(state="spoken", channel="tts", outputDevice=route["target"])
-        finally:
-            # 只删除流水线本次明确返回的自有输出，不触及参考声或其他音频。
-            target = output.resolve()
-            target.relative_to((self.root / "runtime/voice").resolve())
-            target.unlink(missing_ok=True)
+    def fresh_route(self, source):
+        """source 为观察设备；按当前配置与设备状态重算路由，供播放前复核。"""
+        decision = self.last_decision
+        if not isinstance(decision, dict):
+            return {}
+        cfg = self.load_config()
+        if not cfg.get("enabled") or self.busy():
+            return {}
+        terminal = self.terminal or ScreenTerminal(self.root, cfg)
+        devices = [item for item in terminal.list_devices() if item["id"] in cfg["devices"]]
+        states = self.read_states(terminal, devices)
+        return ScreenPolicy(cfg, self.audio_router).choose_route(decision, source, states, devices,
+                                                                time.time())

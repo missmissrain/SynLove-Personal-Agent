@@ -8,6 +8,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools';
 import { HarnessSessionHost, probe, get_shared_memory, register_timeline_tools, register_graph_tools, register_notebook_tools } from '@deepseek-ai/dsh-webhook-weixin';
 import { QqGateway } from './gateway.js';
 import { send_qq_media, send_qq_text } from './send.js';
+import { start_qq_admin_server } from './adminServer.js';
 import { QqTokenProvider } from './token.js';
 import { QqOutbox } from './QqOutbox.js';
 import { QqRemoteOutbox } from './QqRemoteOutbox.js';
@@ -65,6 +66,13 @@ export function apply(ctx, config) {
             baseUrl: config.base_url
         }
     });
+    const admin_port = Number(process.env.DSH_QQ_ADMIN_PORT ?? '0');
+    if (Number.isInteger(admin_port) && admin_port > 0) {
+        start_qq_admin_server({
+            port: admin_port,
+            send: (text, target, msgId)=>send_qq_text(tokens, target, text, msgId, config.base_url)
+        });
+    }
     const pending = new Map();
     const bound = new WeakSet();
     let outbox;
@@ -182,6 +190,29 @@ export function apply(ctx, config) {
         });
         if (msg_id !== undefined) await record_memory(String(session_id), 'user', content, `qq-${msg_id}`);
         try {
+            if ((process.env.DSH_QQ_INGRESS ?? '').toLowerCase() === 'gateway') {
+                const base = (process.env.DSH_CHANNEL_GATEWAY_URL ?? 'http://127.0.0.1:8805').replace(/\/$/, '');
+                const response = await fetch(base + '/v1/inbound/qq', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        text: content,
+                        sender: openid,
+                        session: String(session_id),
+                        meta: {
+                            msgId: msg_id,
+                            target
+                        }
+                    })
+                });
+                if (!response.ok) {
+                    const detail = await response.text();
+                    throw new Error('通道网关入站失败：HTTP ' + response.status + ' ' + detail.slice(0, 120));
+                }
+                return;
+            }
             const agent = await wait_for_agent(session_id);
             register_query_tools(agent.ctx);
             const session_key = String(session_id);

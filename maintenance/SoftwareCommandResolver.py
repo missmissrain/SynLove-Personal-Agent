@@ -21,7 +21,7 @@ class SoftwareCommandResolver:
         if configured and Path(configured).is_file():
             return str(Path(configured))
         config = json.loads((self.root / "config/terminalConnection.json").read_text(encoding="utf-8-sig"))
-        repo = Path(config.get("repositoryRoot") or self.root.parent / "terminal-pc")
+        repo = (self.root / (config.get("repositoryRoot") or "../terminal-pc")).resolve()
         if not repo.is_absolute():
             repo = self.root / repo
         script = repo / "terminalConnection/software/SoftwareLocator.py"

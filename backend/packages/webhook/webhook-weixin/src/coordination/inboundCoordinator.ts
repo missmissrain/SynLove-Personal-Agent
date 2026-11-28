@@ -690,6 +690,41 @@ export class InboundCoordinator {
     if (buffered !== undefined && buffered.length > 0) this.pending_media.delete(message.user_id)
     const media = buffered === undefined || buffered.length === 0 ? message.media : [...buffered, ...message.media]
 
+    // 入口网关模式：连接器只做传输与状态记账，把回合交给通道网关。
+    if ((process.env.DSH_WEIXIN_INGRESS ?? '').toLowerCase() === 'gateway') {
+      let gateway_session = await this.options.store.get_session_id(message.user_id)
+      if (gateway_session === undefined) {
+        gateway_session = await this.options.store.session_id_for(message.user_id)
+        await this.options.store.set_session_id(message.user_id, gateway_session)
+      }
+      const base = (process.env.DSH_CHANNEL_GATEWAY_URL ?? 'http://127.0.0.1:8805').replace(/\/$/, '')
+      const response = await (globalThis as unknown as {
+        fetch: (url: string, init: unknown) => Promise<{ ok: boolean; status: number; text: () => Promise<string> }>
+      }).fetch(base + '/v1/inbound/weixin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text, sender: message.user_id, session: gateway_session,
+          meta: { contextToken: message.context_token, deliveryId: message.delivery_id },
+        }),
+      })
+      if (!response.ok) {
+        const detail = await response.text()
+        throw new Error('通道网关入站失败：HTTP ' + response.status + ' ' + detail.slice(0, 120))
+      }
+      if (message.context_token !== undefined) this.latest_token.set(message.user_id, message.context_token)
+      await this.options.store.update_delivery(message.delivery_id, 'injected', {
+        session_id: gateway_session, injected_at: Date.now(),
+      })
+      for (const delivery_id of also_mark) {
+        await this.options.store.update_delivery(delivery_id, 'injected', {
+          session_id: gateway_session, injected_at: Date.now(),
+        })
+      }
+      done({ outcome: 'gateway_forwarded', session_id: gateway_session })
+      return
+    }
+
     // 路由 / 创建恢复 Agent（只用 Harness 原生能力）。
     let session_id = await this.options.store.get_session_id(message.user_id)
     let agent: Agent
@@ -763,11 +798,31 @@ export class InboundCoordinator {
     // 却要等一整轮跑完才生效，体验很差。`steer()` 把消息追加到当前对话，
     // 模型在**下一个 step** 就能看到，可以立刻改动作或收手。
     // 空闲时仍然用 followup（正常开新一轮）。
-    const taskOriginId = this.options.host.tasks?.note_input(agent, {
+    let taskOriginId = this.options.host.tasks?.note_input(agent, {
       channel: 'weixin', messageId: message.delivery_id, userId: message.user_id,
       owner: (process.env.DSH_SESSION_SHARED ?? '').trim() ? 'shared-household' : `weixin:${message.user_id}`,
       originalText: text,
     })
+    // origin-direct-write：与 JS 版一致，直接写入 taskOrigins，保证任务提交有可信来源。
+    if (!taskOriginId) taskOriginId = 'weixin:' + message.delivery_id
+    try {
+      const _fs = process.getBuiltinModule('node:fs')
+      const _path = process.getBuiltinModule('node:path')
+      const _sqlite = process.getBuiltinModule('node:sqlite')
+      const _state = process.env.DSH_WEIXIN_STATE_FILE || ''
+      const _root = _state ? _path.dirname(_path.dirname(_state))
+        : (process.env.SYNLOVE_PROJECT_ROOT || process.cwd())
+      const _dbPath = _path.join(_root, 'runtime', 'agentTasks', 'taskStore.sqlite')
+      if (_fs.existsSync(_dbPath)) {
+        const _db = new _sqlite.DatabaseSync(_dbPath)
+        _db.prepare('INSERT OR IGNORE INTO taskOrigins VALUES (?,?,?)').run(
+          String(taskOriginId), String(agent.id),
+          JSON.stringify({ channel: 'weixin', messageId: message.delivery_id, userId: message.user_id,
+            owner: (process.env.DSH_SESSION_SHARED ?? '').trim() ? 'shared-household' : (`weixin:${message.user_id}`),
+            originalText: text }))
+        _db.close()
+      }
+    } catch (error) {}
     const incoming = createUserMessage({
       content,
       source: { kind: 'plugin', plugin: 'dsh-webhook-weixin', form: 'notice', summary: '微信消息',

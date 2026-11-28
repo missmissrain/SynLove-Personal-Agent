@@ -15,12 +15,14 @@ class KwsConfig:
         """root 为项目根目录；缺省为本文件上两级。"""
         self.root = Path(root or Path(__file__).resolve().parents[1])
         self.tts_dir = Path(os.environ.get(
-            "SYNLOVE_KWS_TTS_DIR", r"PRODUCTION_ROOT/models\tts\vits-zh-aishell3"))
+            "SYNLOVE_KWS_TTS_DIR",
+        str(Path(__file__).resolve().parents[3] / "SynLove-models" / "tts" / "vits-zh-aishell3")))
         self.data_dir = Path(os.environ.get(
             "SYNLOVE_KWS_DATA", str(self.root / "runtime" / "kwsTraining" / "data")))
         self.cache_dir = self.data_dir / "ttsCache"
         self.model_dir = Path(os.environ.get(
-            "SYNLOVE_KWS_MODEL", r"PRODUCTION_ROOT/models\kws-cnn"))
+            "SYNLOVE_KWS_MODEL",
+        str(Path(__file__).resolve().parents[3] / "SynLove-models" / "kws-cnn")))
         self.log_dir = self.root / "runtime" / "kwsTraining"
         for path in (self.data_dir, self.cache_dir, self.model_dir, self.log_dir):
             path.mkdir(parents=True, exist_ok=True)

@@ -20,7 +20,7 @@ class CodexDispatcher:
         self.root, self.settings = Path(root), settings
         config = self.root / "config/terminalConnection.json"
         bridge = json.loads(config.read_text(encoding="utf-8-sig"))
-        repo = Path(bridge.get("repositoryRoot") or self.root.parent / "terminal-pc")
+        repo = (self.root / (bridge.get("repositoryRoot") or "../terminal-pc")).resolve()
         if not repo.is_absolute():
             repo = self.root / repo
         sys.path.insert(0, str(repo))

@@ -446,6 +446,8 @@ def render_settings(config: dict) -> str:
     lines.append("agent-default-model:")
     lines.append("  provider: " + yaml_string(str(default.get("provider", ""))))
     lines.append("  model: " + yaml_string(str(default.get("model", ""))))
+    if default.get("reasoningEffort"):
+        lines.append("  reasoningEffort: " + yaml_string(str(default["reasoningEffort"])))
     return "\n".join(lines) + "\n"
 
 
@@ -901,7 +903,7 @@ def ensure_rsshub(env: dict[str, str]) -> str:
     cfg = ServiceRegistry().get_service("rsshub")
     if cfg["management"] != "managed":
         return cfg["management"]
-    rsshub_dir = PROJECT_ROOT / "rsshub" / "RSSHub"
+    rsshub_dir = PROJECT_ROOT / "plugins" / "crawl" / "rsshub" / "RSSHub"
     pid_file = PROJECT_ROOT / "runtime" / "rsshub.pid"
     if port_open(cfg["port"]):
         return "already_running"
@@ -929,8 +931,8 @@ def ensure_rsshub(env: dict[str, str]) -> str:
 
 def ensure_kugou_api(env: dict[str, str]) -> str:
     """无参数；读取 kugou.json，确保本机 KuGouMusicApi 在 3001 端口运行。"""
-    from kugou.client.kugouApi import kugouApi
-    path = PROJECT_ROOT / "kugou" / "config" / "kugou.json"
+    from plugins.music.kugou.client.kugouApi import kugouApi
+    path = PROJECT_ROOT / "plugins" / "music" / "kugou" / "config" / "kugou.json"
     try:
         config = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
@@ -976,27 +978,18 @@ def ensure_task_report(env: dict[str, str]) -> str:
 
 
 def ensure_voice_gateway(env: dict[str, str]) -> str:
-    """确保本机语音网关在回环端口运行，避免重复拉起实例或弹出黑窗。"""
+    """确保 8812 在监听；语音已并入消息微服务，因此只拉起消息网关任务。"""
     port = int(os.environ.get("SYNLOVE_VOICE_GATEWAY_PORT") or "8812")
     if port_open(port):
         return "already_running"
-    entry = PROJECT_ROOT / "voice" / "runVoiceGateway.py"
-    if not entry.is_file():
-        return "missing_entry"
-    child_env = dict(env)
-    child_env["PYTHONUTF8"] = "1"
-    process = spawn_silent(
-        [sys.executable, str(entry)],
-        PROJECT_ROOT,
-        child_env,
-        "voice-gateway.log",
-    )
-    (PROJECT_ROOT / "runtime" / "voice-gateway.pid").write_text(
-        str(process.pid), encoding="utf-8")
-    for _ in range(20):
-        time.sleep(0.25)
+    done = subprocess.run(["schtasks", "/run", "/tn", "SynLove-MessageGateway"],
+                          capture_output=True)
+    if done.returncode != 0:
+        return "message_gateway_start_failed"
+    for _ in range(60):
+        time.sleep(0.5)
         if port_open(port):
-            return "started"
+            return "started_message_gateway"
     return "start_unverified"
 
 

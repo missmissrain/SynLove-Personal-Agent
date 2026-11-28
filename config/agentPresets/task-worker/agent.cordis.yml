@@ -46,3 +46,16 @@
   config:
     - id: compaction-basic
       name: '@deepseek-ai/dsh-compaction-basic'
+
+- id: mcp-kugou
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    transport: stdio
+    serverName: kugou
+    command: !!js "process.env.SYNLOVE_PYTHON || 'python'"
+    args: [!!js "process.env.SYNLOVE_PROJECT_ROOT + '/plugins/music/kugou/mcp/kugouMcp.py'"]
+    env:
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: 'utf-8'
+    failOnStartupError: false
+    toolCallTimeoutMs: 300000

@@ -28,11 +28,12 @@ export function start_timeline_scheduler(options) {
             busy = false;
         }
     };
-    const timer = setInterval(()=>{
+    // 外部调度（自迭代服务）时只提供 run_once，不自己起定时器。
+    const timer = options.auto_start === false ? undefined : setInterval(()=>{
         void run_once();
     }, interval_ms);
-    timer.unref?.();
-    probe('timeline', 'scheduler.started', {
+    if (timer !== undefined) timer.unref?.();
+    probe('timeline', options.auto_start === false ? 'scheduler.external' : 'scheduler.started', {
         interval_ms
     });
     return {
@@ -40,7 +41,7 @@ export function start_timeline_scheduler(options) {
         stop () {
             if (stopped) return;
             stopped = true;
-            clearInterval(timer);
+            if (timer !== undefined) clearInterval(timer);
             probe('timeline', 'scheduler.stopped');
         }
     };

@@ -5,7 +5,7 @@
 """
 import time
 
-CHANNELS = ("weixin", "qq", "voice")
+CHANNELS = ("weixin", "qq", "voice", "test")
 
 
 class MessageEnvelope:

@@ -76,13 +76,16 @@ export function start_graph_scheduler(options) {
     const ready = async ()=>{
         while (current !== undefined) await current.catch(() => undefined);
     };
-    const timer = setInterval(()=>{
+    // 外部调度（自迭代服务）时只提供 run_once，不自己起定时器。
+    const timer = options.auto_start === false ? undefined : setInterval(()=>{
         void run_once();
     }, interval_ms);
-    // 启动先跑一次：有回溯标记时立刻生效。
-    void run_once();
-    timer.unref?.();
-    probe('graph', 'scheduler.started', {
+    if (timer !== undefined) {
+        // 启动先跑一次：有回溯标记时立刻生效。
+        void run_once();
+        timer.unref?.();
+    }
+    probe('graph', options.auto_start === false ? 'scheduler.external' : 'scheduler.started', {
         interval_ms,
         idle_ms,
         max_days
@@ -93,7 +96,7 @@ export function start_graph_scheduler(options) {
         stop () {
             if (stopped) return;
             stopped = true;
-            clearInterval(timer);
+            if (timer !== undefined) clearInterval(timer);
             probe('graph', 'scheduler.stopped');
         }
     };

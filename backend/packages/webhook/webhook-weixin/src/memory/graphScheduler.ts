@@ -37,6 +37,8 @@ export interface GraphSchedulerOptions {
   readonly max_days?: number
   /** 每次真正更新完成后回调（便于探针/汇报）。 */
   readonly on_update?: (result: GraphUpdateResult) => void
+  /** 是否自建定时器；false 表示由外部（自迭代服务）驱动 run_once。 */
+  readonly auto_start?: boolean
 }
 
 /** 调度器句柄。 */
@@ -134,11 +136,15 @@ export function start_graph_scheduler(options: GraphSchedulerOptions): GraphSche
     while (current !== undefined) await current.catch(() => undefined)
   }
 
-  const timer = setInterval(() => { void run_once() }, interval_ms)
-  // 启动先跑一次：有回溯标记时立刻生效，不用等第一个 5 分钟。
-  void run_once()
-  timer.unref?.()
-  probe('graph', 'scheduler.started', { interval_ms, idle_ms, max_days })
+  // 外部调度（自迭代服务）时只提供 run_once，不自己起定时器。
+  const timer = options.auto_start === false ? undefined : setInterval(() => { void run_once() }, interval_ms)
+  if (timer !== undefined) {
+    // 启动先跑一次：有回溯标记时立刻生效，不用等第一个 5 分钟。
+    void run_once()
+    timer.unref?.()
+  }
+  probe('graph', options.auto_start === false ? 'scheduler.external' : 'scheduler.started',
+    { interval_ms, idle_ms, max_days })
 
   return {
     run_once,
@@ -146,7 +152,7 @@ export function start_graph_scheduler(options: GraphSchedulerOptions): GraphSche
     stop(): void {
       if (stopped) return
       stopped = true
-      clearInterval(timer)
+      if (timer !== undefined) clearInterval(timer)
       probe('graph', 'scheduler.stopped')
     },
   }

@@ -164,7 +164,7 @@
         transport: stdio
         serverName: kugou
         command: 'python'
-        args: ['<项目根>/kugou/mcp/kugouMcp.py']
+        args: ['<项目根>/plugins/music/kugou/mcp/kugouMcp.py']
         env:
           PYTHONUTF8: '1'
           PYTHONIOENCODING: 'utf-8'

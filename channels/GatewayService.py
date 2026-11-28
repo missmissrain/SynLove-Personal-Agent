@@ -5,11 +5,16 @@
 """
 import base64
 import json
+import logging
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
+LOG = logging.getLogger("synlove.message")
+
+from channels.AsrSession import AsrSession
+from channels.ChannelRegistry import ChannelRegistry
 from channels.MessageGateway import MessageGateway
 
 
@@ -22,6 +27,8 @@ class GatewayService:
         self.host = host
         self.port = int(port)
         self.gateway = MessageGateway(root, senders=senders, agent=agent)
+        self.channels = ChannelRegistry(root)
+        self.asr = AsrSession(root)
 
     def serve_forever(self):
         """无参数；阻塞运行。"""
@@ -40,6 +47,11 @@ class GatewayService:
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
+                try:
+                    LOG.info("%s %s -> %d", self.command, urlsplit(self.path).path,
+                             int(status))
+                except Exception:
+                    pass
                 self.end_headers()
                 try:
                     self.wfile.write(body)
@@ -51,8 +63,17 @@ class GatewayService:
                 path = urlsplit(self.path).path
                 if path == "/health":
                     return self._reply(200, {"ok": True, "service": "message-gateway"})
+                if path == "/v1/activity":
+                    activity = getattr(service, "activity", None)
+                    busy = bool(activity is not None and activity.is_set())
+                    return self._reply(200, {"ok": True, "busy": busy})
                 if path == "/v1/status":
-                    return self._reply(200, {"ok": True, "value": service.gateway.status()})
+                    value = service.gateway.status()
+                    try:
+                        value["channels"] = service.channels.snapshot()
+                    except Exception as error:
+                        value["channels"] = {"error": type(error).__name__}
+                    return self._reply(200, {"ok": True, "value": value})
                 return self._reply(404, {"ok": False, "error": "未找到该路由"})
 
             def do_POST(self):
@@ -80,6 +101,19 @@ class GatewayService:
                         body["channel"] = channel
                         value = service.gateway.handle_inbound(body)
                         return self._reply(200, value)
+                    if parsed.path == "/v1/asr/open":
+                        try:
+                            value = service.asr.open()
+                        except Exception as error:
+                            return self._reply(503, {"ok": False, "error": str(error)[:200]})
+                        return self._reply(200, value)
+                    if parsed.path == "/v1/asr/close":
+                        return self._reply(200, {"ok": True})
+                    if parsed.path == "/v1/initiative":
+                        executor = getattr(service, "initiative", None)
+                        if executor is None:
+                            return self._reply(501, {"ok": False, "error": "主动投递未装配"})
+                        return self._reply(200, {"ok": True, "value": executor.deliver(body)})
                     if parsed.path == "/v1/outbound":
                         value = service.gateway.dispatch_text(body.get("channel"),
                                                               body.get("target", ""),

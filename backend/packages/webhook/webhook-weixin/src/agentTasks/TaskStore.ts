@@ -35,6 +35,11 @@ export class TaskStore {
     this.db.prepare('INSERT OR IGNORE INTO taskOrigins VALUES (?,?,?)').run(id, session, JSON.stringify(data))
   }
   /** id 与 session 必须同时匹配，防止串用户。 */
+  /** session 为主会话；返回该会话最近登记的入站来源，供核心丢弃 source 字段时兜底。 */
+  latest_origin(session: string): any {
+    const row = this.db.prepare('SELECT id, data FROM taskOrigins WHERE session=? ORDER BY rowid DESC LIMIT 1').get(session) as any
+    return row ? { key: row.id, data: JSON.parse(row.data) } : undefined
+  }
   get_origin(id: string, session: string): any {
     const row = this.db.prepare('SELECT data FROM taskOrigins WHERE id=? AND session=?').get(id, session) as any
     return row ? JSON.parse(row.data) : undefined

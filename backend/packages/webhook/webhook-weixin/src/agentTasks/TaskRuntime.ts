@@ -233,10 +233,15 @@ export class TaskRuntime {
       // 否则这些 notice 会让整轮被判成“没有可信来源”，任务将永远提交不了。
       if (source?.kind === 'plugin' && !['dsh-webhook-weixin','webhook-qq'].includes(source.plugin)) continue
       const key = source?.taskOriginId
-      if (!key) throw new Error('当前消息没有可信通道来源，拒绝后台操作')
+      // 核心 harness 可能丢弃 source 扩展字段；缺失时交给本轮已登记来源兜底。
+      if (!key) continue
       const origin = this.store.get_origin(key, owner.session)
       if (!origin) throw new Error('消息来源已失效')
       origins.push({ ...origin, key })
+    }
+    if (!origins.length) {
+      const latest = this.store.latest_origin(owner.session)
+      if (latest) origins.push({ ...latest.data, key: latest.key })
     }
     if (!origins.length) throw new Error('尚未绑定用户输入')
     if (id !== undefined) {

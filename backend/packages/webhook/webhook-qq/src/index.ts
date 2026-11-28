@@ -28,6 +28,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { HarnessSessionHost, probe, get_shared_memory, register_timeline_tools, register_graph_tools, register_notebook_tools } from '@deepseek-ai/dsh-webhook-weixin'
 import { QqGateway } from './gateway.ts'
 import { send_qq_media, send_qq_text, type QqSendTarget } from './send.ts'
+import { start_qq_admin_server } from './adminServer.ts'
 import { QqTokenProvider } from './token.ts'
 import { QqOutbox } from './QqOutbox.ts'
 import { QqRemoteOutbox } from './QqRemoteOutbox.ts'
@@ -118,6 +119,13 @@ export function apply(ctx: Context, config: Config): void {
     clientSecret: config.client_secret,
     ...config.base_url === undefined ? {} : { baseUrl: config.base_url },
   })
+  const admin_port = Number(process.env.DSH_QQ_ADMIN_PORT ?? '0')
+  if (Number.isInteger(admin_port) && admin_port > 0) {
+    start_qq_admin_server({
+      port: admin_port,
+      send: (text, target, msgId) => send_qq_text(tokens, target as QqSendTarget, text, msgId, config.base_url),
+    })
+  }
   /** 每个会话本轮要发出去的内容。 */
   const pending = new Map<string, PendingReply>()
   /** 已经绑定过流监听的会话。 */
@@ -248,6 +256,22 @@ export function apply(ctx: Context, config: Config): void {
     if (msg_id !== undefined) await record_memory(String(session_id), 'user', content, `qq-${msg_id}`)
 
     try {
+      if ((process.env.DSH_QQ_INGRESS ?? '').toLowerCase() === 'gateway') {
+        const base = (process.env.DSH_CHANNEL_GATEWAY_URL ?? 'http://127.0.0.1:8805').replace(/\/$/, '')
+        const response = await fetch(base + '/v1/inbound/qq', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: content, sender: openid, session: String(session_id),
+            meta: { msgId: msg_id, target },
+          }),
+        })
+        if (!response.ok) {
+          const detail = await response.text()
+          throw new Error('通道网关入站失败：HTTP ' + response.status + ' ' + detail.slice(0, 120))
+        }
+        return
+      }
       // 共享会话时微信那边可能已经建好同一个 Agent：先取，取不到再建（否则 create 会"已存在"冲突）。
       const agent = await wait_for_agent(session_id)
       register_query_tools((agent as unknown as { ctx: unknown }).ctx)

@@ -57,7 +57,8 @@ class ServiceHost:
         self.snapshot_data = None
         self.database_lease = None
         self.terminal_runtime = None
-        if name == "core" and (self.root / "config/terminalConnection.json").is_file():
+        if (name == "core" and self.cfg.get("terminalRuntime", True)
+                and (self.root / "config/terminalConnection.json").is_file()):
             from remoteControl.TerminalServerRuntime import TerminalServerRuntime
             self.terminal_runtime = TerminalServerRuntime(self.root)
             self.terminal_runtime.start_runtime()
@@ -111,7 +112,7 @@ class ServiceHost:
 
     def tool_catalog(self):
         """无参数；独立读取无副作用工具定义，长任务执行时仍能完成MCP挂载。"""
-        if self.name == "core":
+        if self.name == "core" and self.cfg.get("terminalRuntime", True):
             raise ValueError("核心控制服务不提供MCP工具")
         with self.catalog_lock:
             if self.catalog is None:
